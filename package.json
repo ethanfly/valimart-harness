@@ -14,7 +14,7 @@
     "client": "node scripts/launch.mjs",
     "desktop": "node scripts/launch.mjs --desktop",
     "dev": "node scripts/launch.mjs --with-server --desktop",
-    "test": "node --test server/test/*.test.js"
+    "test": "node --test server/test/*.test.js scripts/test/*.test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

@@ -12,14 +12,15 @@
  *   --prefix <dir>      dsh 内核前缀（默认 ~/.company-desk/kernel，或 DESK_KERNEL_PREFIX）
  *   --dsh-home <dir>    dsh 数据目录（默认 ~/.dsh，或 DSH_HOME）
  *
- * 启动前会自动：确认内核已安装（否则跑 install-kernel.mjs：npm 装锁定版本 + 打补丁）、profile 已安装（否则跑
- * setup-profile.mjs）、客户端 bundle 是最新的（否则跑 build-client.mjs）。
+ * 启动前会自动：确认内核已安装（否则跑 install-kernel.mjs：npm 装锁定版本 + 打补丁）、profile 已安装（否则安装/刷新，
+ * 与 setup-profile.mjs 同一套逻辑）、客户端 bundle 是最新的（否则跑 build-client.mjs）。编排逻辑在 scripts/lib/bootstrap.mjs。
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { defaultDshHome, defaultPrefix, locateKernel } from './kernel/locate.mjs'
+import { defaultDshHome, defaultPrefix } from './kernel/locate.mjs'
+import { ensureBundle, ensureKernelDev, ensureProfile, killTree, profileNeedsSetup, readGatewayUrl, spawnClient, waitHttp } from './lib/bootstrap.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -44,81 +45,46 @@ const die = (msg) => {
 }
 
 // ---------- 0. 内核 ----------
-let kernel = locateKernel(prefix)
-if (!kernel) {
-  log(`${prefix} 里还没有 dsh 内核，先安装（需要网络）…`)
-  const r = spawnSync(process.execPath, [path.join(root, 'scripts', 'install-kernel.mjs'), '--prefix', prefix, '--dsh-home', dshHome], { stdio: 'inherit' })
-  if (r.status !== 0) die('内核安装失败')
-  kernel = locateKernel(prefix)
-  if (!kernel) die(`内核安装后仍找不到：${prefix}`)
+let kernel
+try {
+  kernel = ensureKernelDev({ prefix, dshHome, log })
+} catch (err) {
+  die(err.message)
 }
 const dshBin = kernel.bin
 
 // ---------- 1. profile ----------
 const profileDir = path.join(dshHome, 'profiles', 'desk')
-const profilePatch = path.join(profileDir, 'cordis.patch.yml')
 const repoPatch = path.join(root, 'profile', 'cordis.patch.yml')
-const needSetup =
-  !fs.existsSync(profilePatch) ||
-  !fs.existsSync(path.join(profileDir, 'node_modules', '@company-desk', 'desk-ui')) ||
-  fs.readFileSync(profilePatch, 'utf8') !== fs.readFileSync(repoPatch, 'utf8')
-if (needSetup) {
+if (profileNeedsSetup({ profileDir, patchFile: repoPatch })) {
   log('安装/刷新 desk profile …')
-  const r = spawnSync(process.execPath, [path.join(root, 'scripts', 'setup-profile.mjs'), '--prefix', prefix, '--dsh-home', dshHome], { stdio: 'inherit' })
-  if (r.status !== 0) die('setup-profile 失败')
+  try {
+    ensureProfile({ profileName: 'desk', dshHome, root, pluginsDir: path.join(root, 'plugins'), patchFile: repoPatch, kernel, log: (m) => log(`[profile] ${m}`) })
+  } catch (err) {
+    die(`setup-profile 失败：${err.message}`)
+  }
 }
 
 // ---------- 2. 客户端 bundle ----------
-const bundle = path.join(root, 'plugins', 'desk-ui', 'lib', 'client.js')
-const srcDir = path.join(root, 'plugins', 'desk-ui', 'src')
-const newestSrc = (dir) => {
-  let t = 0
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name)
-    t = Math.max(t, e.isDirectory() ? newestSrc(p) : fs.statSync(p).mtimeMs)
-  }
-  return t
-}
-if (!fs.existsSync(bundle) || fs.statSync(bundle).mtimeMs < newestSrc(srcDir)) {
-  log('构建客户端 bundle …')
-  const r = spawnSync(process.execPath, [path.join(root, 'scripts', 'build-client.mjs')], { stdio: 'inherit' })
-  if (r.status !== 0) die('build-client 失败')
+try {
+  ensureBundle({ log })
+} catch (err) {
+  die(err.message)
 }
 
 // ---------- 3. 网关地址 ----------
-const gatewayUrl = (argOf('--gateway') ?? process.env.DESK_GATEWAY_URL ?? /gatewayUrl:\s*'([^']+)'/.exec(fs.readFileSync(repoPatch, 'utf8'))?.[1] ?? 'http://127.0.0.1:8790').replace(/\/+$/, '')
+const gatewayUrl = (argOf('--gateway') ?? process.env.DESK_GATEWAY_URL ?? readGatewayUrl(repoPatch)).replace(/\/+$/, '')
 
 const children = []
 let shuttingDown = false
 function shutdown(code = 0) {
   if (shuttingDown) return
   shuttingDown = true
-  for (const c of children) {
-    try {
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore' })
-      else c.kill('SIGTERM')
-    } catch {
-      /* 已退出 */
-    }
-  }
+  for (const c of children) killTree(c)
   setTimeout(() => process.exit(code), 200)
 }
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
-
-async function waitHttp(u, { timeoutMs = 30000, label = u } = {}) {
-  const started = Date.now()
-  for (;;) {
-    try {
-      const r = await fetch(u)
-      if (r.ok || r.status < 500) return true
-    } catch {
-      /* 还没起来 */
-    }
-    if (Date.now() - started > timeoutMs) die(`${label} ${timeoutMs / 1000}s 内没有就绪`)
-    await new Promise((r) => setTimeout(r, 300))
-  }
-}
 
 // ---------- 4. 网关 ----------
 async function ensureGateway() {
@@ -149,18 +115,18 @@ async function ensureGateway() {
       shutdown(code ?? 1)
     }
   })
-  await waitHttp(health, { label: '网关' })
+  try {
+    await waitHttp(health, { label: '网关' })
+  } catch (err) {
+    die(err.message)
+  }
   log('网关就绪')
 }
 
 // ---------- 5. 客户端（dsh desk profile）----------
 function startClient() {
   log(`启动客户端 ${url} …`)
-  const child = spawn(process.execPath, [dshBin, '--profile', 'desk', '--no-open', '--port', String(port)], {
-    cwd: root,
-    stdio: 'inherit',
-    env: { ...process.env, DSH_HOME: dshHome },
-  })
+  const child = spawnClient({ kernelBin: dshBin, profileName: 'desk', port, dshHome, cwd: root })
   children.push(child)
   child.on('exit', (code) => {
     if (!shuttingDown) {
@@ -168,7 +134,7 @@ function startClient() {
       shutdown(code ?? 1)
     }
   })
-  return waitHttp(url, { label: '客户端', timeoutMs: 60000 })
+  return waitHttp(url, { label: '客户端', timeoutMs: 60000 }).catch((err) => die(err.message))
 }
 
 // ---------- 6. 桌面窗口 ----------
