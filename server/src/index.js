@@ -105,7 +105,12 @@ export function createGateway(overrides = {}) {
       })
     },
     close() {
-      return new Promise((resolve) => server.close(() => resolve()))
+      return new Promise((resolve) => {
+        server.close(() => {
+          db.persist?.close()
+          resolve()
+        })
+      })
     },
   }
 }

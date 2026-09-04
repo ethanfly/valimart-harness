@@ -3,7 +3,7 @@
  */
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { JsonFile, JsonlLog, ensureDir } from './store.js'
+import { createPersistence, ensureDir } from './store.js'
 
 export const ROLES = ['admin', 'director', 'employee']
 export const ROLE_LABELS = { admin: '管理员', director: '总监', employee: '员工' }
@@ -30,12 +30,13 @@ export function verifyPassword(password, salt, hash) {
 export class Db {
   constructor(dataDir) {
     this.dataDir = ensureDir(dataDir)
-    this.users = new JsonFile(path.join(dataDir, 'users.json'), () => ({ items: [] }))
-    this.loginSessions = new JsonFile(path.join(dataDir, 'login-sessions.json'), () => ({ items: [] }))
-    this.gatewayTokens = new JsonFile(path.join(dataDir, 'gateway-tokens.json'), () => ({ items: [] }))
-    this.tasks = new JsonFile(path.join(dataDir, 'tasks.json'), () => ({ items: [] }))
-    this.settings = new JsonFile(path.join(dataDir, 'settings.json'), () => ({ company: {}, users: {} }))
-    this.usage = new JsonlLog(path.join(dataDir, 'usage.jsonl'))
+    this.persist = createPersistence(dataDir)
+    this.users = this.persist.file('users.json', () => ({ items: [] }))
+    this.loginSessions = this.persist.file('login-sessions.json', () => ({ items: [] }))
+    this.gatewayTokens = this.persist.file('gateway-tokens.json', () => ({ items: [] }))
+    this.tasks = this.persist.file('tasks.json', () => ({ items: [] }))
+    this.settings = this.persist.file('settings.json', () => ({ company: {}, users: {} }))
+    this.usage = this.persist.log('usage.jsonl')
     this.driveRoot = ensureDir(path.join(dataDir, 'drive'))
   }
 

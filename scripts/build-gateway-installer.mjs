@@ -79,6 +79,8 @@ fs.mkdirSync(path.join(stage, 'service'), { recursive: true })
 fs.copyFileSync(process.execPath, path.join(stage, 'runtime', 'node.exe'))
 for (const f of fs.readdirSync(path.join(root, 'server', 'src'))) fs.copyFileSync(path.join(root, 'server', 'src', f), path.join(stage, 'server', 'src', f))
 fs.copyFileSync(path.join(root, 'server', 'config.json'), path.join(stage, 'server', 'config.json'))
+const skillSrc = path.join(root, 'server', 'skills')
+if (fs.existsSync(skillSrc)) fs.cpSync(skillSrc, path.join(stage, 'server', 'skills'), { recursive: true })
 // server/src 是 ESM：安装目录里没有根 package.json，要在 server/ 放一个声明 type=module
 fs.writeFileSync(path.join(stage, 'server', 'package.json'), JSON.stringify({ name: 'the-diva-gateway', version, private: true, type: 'module' }, null, 2) + '\n')
 // server/src 以 ../../scripts/... 读 pin / prepare 脚本：相对位置与仓库一致
@@ -90,6 +92,7 @@ for (const f of ['patches.mjs', 'locate.mjs', 'pin.json']) {
 for (const f of ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'find-tar.mjs']) {
   fs.copyFileSync(path.join(root, 'scripts', 'lib', f), path.join(stage, 'scripts', 'lib', f))
 }
+fs.copyFileSync(path.join(root, 'scripts', 'backup-gateway.mjs'), path.join(stage, 'scripts', 'backup-gateway.mjs'))
 const npmSrc = path.join(path.dirname(process.execPath), 'node_modules', 'npm')
 if (fs.existsSync(npmSrc)) {
   log('复制构建机 npm → runtime/node_modules/npm')
@@ -111,7 +114,7 @@ fs.writeFileSync(
     '权限：安装时把 %ProgramData%\\THE DIVA Gateway 的 ACL 收紧为仅 SYSTEM 与 Administrators 完全控制（服务以 LocalSystem 运行；普通用户读不到账号 / 令牌 / 凭据）。',
     '卸载：保留 %ProgramData%\\THE DIVA Gateway，并把 server\\config.local.json 备份为该目录下的 config.local.json.bak；重装后复制回 server\\ 再重启服务即可恢复端口 / publicUrl / 密钥。',
     '上游模型密钥（三种方式都能跨升级保留）：',
-    '  1) 管理员在客户端「设置 → 同事 → 模型通道」接入，凭据存 data\\channels.json；',
+    '  1) 管理员在客户端「设置 → 同事 → 模型通道」接入，凭据存 data\\gateway.sqlite；',
     '  2) 写进 server\\config.local.json：{ "upstreams": { "deepseek": { "apiKey": "sk-…" } } }（键路径 upstreams.<上游id>.apiKey，id 见 config.json）；',
     '  3) 机器级环境变量，变量名即 config.json 里该上游的 apiKeyEnv（DeepSeek 为 DEEPSEEK_API_KEY）：管理员命令行 setx /M DEEPSEEK_API_KEY sk-…，或 系统属性 → 环境变量 → 系统变量；服务重启（service\\TheDivaGateway.exe restart）后生效。',
     '  注意：service\\TheDivaGateway.xml 每次安装 / 升级都由 init.mjs 按模板重新生成，手改（包括加 <env>）会丢，请勿手改。',

@@ -8,6 +8,11 @@ server/config.local.json
 # 客户端浏览器端 bundle（launch.mjs / npm run build 自动生成）
 plugins/desk-ui/lib/client.js
 
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+
 # 杂项
 *.log
 .DS_Store

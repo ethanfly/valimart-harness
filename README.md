@@ -24,8 +24,9 @@
 company-desk/
 ├─ server/                 # 公司网关（Node.js，无第三方依赖）
 │  ├─ config.json          # 默认配置：账号种子、额度、上游模型、通道目录
+│  ├─ skills/              # 随包公司技能（ensureLayout 播种到公司盘 _shared/skills）
 │  ├─ src/                 # http 路由 / 登录令牌 / LLM 代理 / 账本 / 任务 / 公司盘 / 通道
-│  └─ test/gateway.test.js # 端到端测试（node --test）
+│  └─ test/                # 网关端到端 + sqlite / Anthropic 转译（node --test）
 ├─ plugins/
 │  ├─ desk-host/           # dsh 宿主插件：网关登录态、模型路由、公司盘镜像、任务工具、/desk/api
 │  └─ desk-ui/             # dsh 浏览器端插件：THE DIVA 外壳、侧栏、任务页、设置页、登录遮罩
@@ -43,7 +44,8 @@ company-desk/
    ├─ build-client.mjs     # esbuild 打包 desk-ui 浏览器端
    ├─ launch.mjs           # 一条命令拉起 网关(可选) + 客户端 + 桌面窗口（缺内核/profile/bundle 都自动补）
    ├─ build-payload.mjs / build-client-installer.mjs / build-gateway-installer.mjs / make-icon.mjs   # 安装包流水线（§2.5）
-   └─ test/                # bootstrap / payload / gateway-init 单元测试（node --test，随 npm test 跑）
+   ├─ backup-gateway.mjs   # 网关数据目录备份（sqlite serialize + 公司盘）
+   └─ test/                # bootstrap / payload / gateway-init / backup 单元测试（node --test，随 npm test 跑）
 ```
 
 ## 1. 环境要求
@@ -107,7 +109,9 @@ $env:DEEPSEEK_API_KEY = "sk-..."        # 或写进 ~/.dsh/.credentials.yaml： 
 
 没有任何密钥时，目录里仍有 `mock-echo`（离线演示用）。管理员也可以在客户端
 **设置 → 同事 → 模型通道** 里接入 Grok / ChatGPT / Claude 订阅或 OpenAI / Anthropic / DeepSeek key，
-凭据写入 `server/data/channels.json`，全员模型目录即时更新。
+凭据写入 `server/data/gateway.sqlite`（集合名仍叫 `channels.json`），全员模型目录即时更新。
+Claude / Anthropic 官方端点走 Messages API（`x-api-key` + `/v1/messages`）；ChatGPT / OpenAI 仍是 `/chat/completions`。
+有真实 key 时可 `npm run probe:channels`（读 `OPENAI_API_KEY` / `CHATGPT_API_KEY` / `ANTHROPIC_API_KEY`，不把密钥打进日志）。
 
 ### 本机覆盖
 
@@ -187,7 +191,7 @@ npm run dist                   # 两个都出
   `service\TheDivaGateway.xml` 每次安装 / 升级都由 `init.mjs` 按模板重新生成，**不要手改**（包括往里加 `<env>`）。
   日志在 `%ProgramData%\THE DIVA Gateway\logs\TheDivaGateway.{out,err,wrapper}.log`。
 - 上游模型密钥（服务跑在 LocalSystem，`~/.dsh/.credentials.yaml` 这条路不可用），三种方式都能跨升级保留：
-  ① 管理员在客户端「设置 → 同事 → 模型通道」接入（落 `data\channels.json`）；
+  ① 管理员在客户端「设置 → 同事 → 模型通道」接入（落 `data\gateway.sqlite`）；
   ② `server\config.local.json` 写 `{ "upstreams": { "deepseek": { "apiKey": "sk-…" } } }`（`upstreams.<id>.apiKey`，id 见 `config.json`）；
   ③ 机器级环境变量，变量名是 `config.json` 里该上游的 `apiKeyEnv`（DeepSeek 为 `DEEPSEEK_API_KEY`）：管理员 `setx /M DEEPSEEK_API_KEY sk-…` 后重启服务（个别机器要重启系统才生效）。
 - 管理：`services.msc`（服务 `TheDivaGateway`）或 `service\TheDivaGateway.exe start|stop|restart|status`；`sc.exe query TheDivaGateway`。
@@ -195,6 +199,55 @@ npm run dist                   # 两个都出
   卸载（「设置 → 应用」或 `Uninstall.exe /S`）：停并注销服务、删防火墙规则、删安装目录（只删自己装的东西）与注册表项，**保留** `%ProgramData%\THE DIVA Gateway`，
   并把 `server\config.local.json` 备份为那里的 `config.local.json.bak`（重装后复制回 `server\` 再重启服务即可恢复端口 / publicUrl / 密钥）。
   「应用和功能」项在 `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\TheDivaGateway`（含 `QuietUninstallString`）。
+
+### HTTPS（反代，网关本身仍是 HTTP）
+
+网关只听 HTTP。对外用 HTTPS 时在前面加 Caddy / Nginx，把 `publicUrl` 和客户端登录页的网关地址改成 `https://…`。防火墙放行 443，不要把 8790 暴露到公网。
+
+Caddy：
+
+```
+desk.example.com {
+    reverse_proxy 127.0.0.1:8790
+}
+```
+
+Nginx：
+
+```
+server {
+    listen 443 ssl;
+    server_name desk.example.com;
+    ssl_certificate     /etc/ssl/desk.crt;
+    ssl_certificate_key /etc/ssl/desk.key;
+    location / {
+        proxy_pass http://127.0.0.1:8790;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_buffering off;
+    }
+}
+```
+
+装完后：`server\config.local.json` 的 `publicUrl` 改成 `https://desk.example.com`，重启 `TheDivaGateway`。员工客户端网关填同一地址。流式对话依赖反代不缓冲（上面 `proxy_buffering off` / Caddy 默认即可）。
+
+### 备份
+
+```powershell
+npm run backup
+npm run backup -- --data-dir "$env:ProgramData\THE DIVA Gateway\data" --out D:\backups\diva.zip
+```
+
+脚本会 `serialize` 一份一致的 `gateway.sqlite`，再拷公司盘 `drive/` 和遗留的 json/jsonl。计划任务（每天凌晨，用 SYSTEM 跑）：
+
+```
+schtasks /Create /TN "THE DIVA Gateway Backup" /SC DAILY /ST 02:30 /RU SYSTEM /TR "\"C:\Program Files\THE DIVA Gateway\runtime\node.exe\" \"C:\Program Files\THE DIVA Gateway\scripts\backup-gateway.mjs\" --data-dir \"%ProgramData%\THE DIVA Gateway\data\" --out \"%ProgramData%\THE DIVA Gateway\backups\latest.zip\""
+```
+
+安装版网关会带上 `scripts/backup-gateway.mjs`（下次重打 `dist:gateway` 后生效）。
 
 ### 无 Node 机器验收 checklist
 
@@ -313,14 +366,18 @@ npm run desktop             # 客户端 + 独立桌面窗口（Edge/Chrome 应�
 
 ```powershell
 npm test                    # node --test server/test/*.test.js scripts/test/*.test.mjs
+npm run test:e2e            # Playwright：管理页登录 + 桌面流（登录/新会话/建任务/提交验收）
+npm run probe:channels      # 有真实 key 才打公网；没有则 skipped
 ```
 
 服务端覆盖：登录 / 令牌 / 吊销即失效、令牌按登录设备绑定（换电脑 / 管理页不打断桌面端，登出只收本机，吊销收全部）、
 模型代理与按人记账限额、公司盘按人隔离、任务四格验收流、通道接入 → 全员目录更新 → 凭据不外泄 → 断开即下架、
-知识检索（第四层）、关联进程、管理页可达性、周额度 429。
+知识检索（第四层，含公司技能）、关联进程、管理页可达性、周额度 429、SQLite 往返与 JSON 迁移、
+Anthropic Messages 改写与流式转译（本地假上游）。
 脚本侧（`scripts/test/`，只用临时目录）：`bootstrap.mjs`（端口顺延、profile 安装、安装版 `preparePackaged` 解压 / 幂等 / 升级、
-技能根重定向、CLI 退出码）、`payload.mjs` 纯函数、网关 `init.mjs`（幂等、`config.local.json` 不覆盖、XML 渲染）。
+技能根重定向、CLI 退出码）、`payload.mjs` 纯函数、网关 `init.mjs`（幂等、`config.local.json` 不覆盖、XML 渲染）、备份脚本。
 `preparePackaged` 用例需要 `build/payload/kernel.tar`，没有就跳过。
+Playwright（`npm run test:e2e`）用本机 Edge：管理页登录、页面流登录 → 新会话 → 建任务 → 提交验收。
 
 内核安装器的验证方式：`node scripts/install-kernel.mjs --prefix <空目录> --dsh-home <空目录>` 真装一遍
 （npm 下载 + 16 处补丁全部 `PATCHED`），再用 `launch.mjs --prefix/--dsh-home` 指向它拉起客户端登录；
@@ -328,10 +385,10 @@ npm test                    # node --test server/test/*.test.js scripts/test/*.t
 
 ## 6. 数据落盘
 
-- 网关：`server/data/`（`users.json`、`login-sessions.json`、`gateway-tokens.json`、`tasks.json`、
-  `usage.jsonl`、`channels.json`）与公司盘 `server/data/drive/`：
-  `_shared/`（共享经验、岗位手册，全员只读）、`_office/<账号>/`（个人记忆，仅本人读写）、
+- 网关：`server/data/gateway.sqlite`（用户 / 会话 / 令牌 / 任务 / 设置 / 通道 / 用量账本）与公司盘 `server/data/drive/`：
+  `_shared/`（共享经验、岗位手册、技能 `skills/`，全员只读）、`_office/<账号>/`（个人记忆，仅本人读写）、
   `projects/inbox/<任务ID>/`（任务交付物，相关人可读、提交人可写）。
+  旧版 JSON/JSONL 首次启动会迁进 sqlite，旧文件不删。`DESK_GATEWAY_STORE=json` 可回退文件存储。
 - 客户端：`~/.dsh/desk/`（`desk-state.json` 登录态与令牌、`drive/` 公司盘本机镜像、
   `produced-index.json` 会话产物索引），会话记录在 `~/.dsh/sessions/`（dsh 原生）。
 - 内核：`~/.company-desk/kernel/`（打过补丁的 `@deepseek-ai/dsh`，`.company-desk-kernel.json` 是安装戳记）；

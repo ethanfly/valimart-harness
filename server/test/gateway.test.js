@@ -320,9 +320,11 @@ test('通道：管理员加入订阅 → 全员模型目录更新；凭据不外
   const list = await api('GET', '/api/channels', { token: ctx.emp.sessionToken })
   assert.ok(!JSON.stringify(list.json).includes(secret), '通道列表不能带凭据')
 
-  // 凭据只落在服务端数据目录
-  const stored = JSON.parse(fs.readFileSync(path.join(tmp, 'channels.json'), 'utf8'))
+  // 凭据只落在服务端（默认 gateway.sqlite），不下发
+  const stored = gw.channels.store.load()
   assert.equal(stored.items.grok.credential, secret)
+  assert.ok(fs.existsSync(path.join(tmp, 'gateway.sqlite')), '默认走 SQLite')
+  assert.ok(!fs.existsSync(path.join(tmp, 'channels.json')), '新库不再写 channels.json')
 
   // 断开：模型即刻下架，请求该模型 → 404
   const fromConfig = await api('POST', '/api/channels/mock/disconnect', { token: ctx.boss.sessionToken })
@@ -373,6 +375,9 @@ test('知识检索（第四层通道）：公司里有没有人做过 → 谁/�
   const col = await api('GET', '/api/knowledge/collections', { token: ctx.emp.sessionToken })
   assert.equal(col.status, 200)
   assert.ok(col.json.handbook.some((f) => f.name.includes('岗位手册')))
+  assert.ok(col.json.skills.some((f) => f.path.replace(/\\/g, '/').includes('_shared/skills/company-briefing/SKILL.md')))
+  const skillSearch = await api('GET', '/api/knowledge/search?q=' + encodeURIComponent('四格验收'), { token: ctx.emp.sessionToken })
+  assert.ok(skillSearch.json.hits.some((h) => h.kind === 'skill'), '示例技能应能被检索')
   assert.deepEqual(Object.keys(col.json.shared), ['01-projects', '02-methods', '03-evidence', '04-reviews', '05-logs', '90-system'])
   assert.ok(col.json.shared['02-methods'].files.some((f) => f.name === '详情页模块顺序.md'))
 })

@@ -16,6 +16,8 @@ const SNIPPET = 90
 
 export const KNOWLEDGE_KIND_LABELS = {
   handbook: '岗位手册',
+  skills: '公司技能',
+  skill: '公司技能',
   shared: '共享经验',
   personal: '个人记忆',
   deliverable: '交付物',
@@ -98,7 +100,7 @@ export class Knowledge {
   /** 该用户可检索的公司盘根：手册 + 共享 + 自己的椅子 + 与自己有关的任务格子。 */
   rootsFor(user) {
     const my = this.tasks.visibleTo(user).map((t) => `projects/inbox/${t.id}`)
-    return ['_shared/handbook', '_shared/_memory', `_office/${user.username}/_memory`, ...my]
+    return ['_shared/handbook', '_shared/skills', '_shared/_memory', `_office/${user.username}/_memory`, ...my]
   }
 
   *walkTextFiles(user, roots) {
@@ -147,6 +149,7 @@ export class Knowledge {
   describeFile(rel) {
     const z = this.drive.zoneOf(rel)
     if (z.zone === 'handbook') return { kind: 'handbook', who: '公司手册', taskId: null }
+    if (z.zone === 'skills') return { kind: 'skill', who: '公司技能', taskId: null }
     if (z.zone === 'shared') {
       const layer = MEMORY_LAYERS.find((l) => l.dir === z.parts[2])
       return { kind: 'shared', who: '公司共享', layer: layer?.label ?? null, taskId: null }
@@ -238,6 +241,7 @@ export class Knowledge {
     for (const layer of MEMORY_LAYERS) shared[layer.dir] = { label: layer.label, files: listFiles(`_shared/_memory/${layer.dir}`) }
     return {
       handbook: listFiles('_shared/handbook'),
+      skills: listFiles('_shared/skills'),
       shared,
       personal: listFiles(`_office/${user.username}/_memory`),
     }

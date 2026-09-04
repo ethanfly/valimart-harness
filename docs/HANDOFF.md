@@ -6,7 +6,8 @@
 
 - 仓库：<https://git.ethan.team/ethanfly/company-harness>，分支 `main`（安装包工作用户同意直接提交在 `main` 上）
 - 目标：复刻视频里的「企业交付工作台」THE DIVA —— 统一服务端 + 共享模型 token + 桌面客户端
-- 状态：视频里出现的功能全部落地并有截图证据（`docs/evidence/00–18`）；`npm test` 29 个用例全绿（服务端 12 + 脚本 17）；
+- 状态：视频里出现的功能全部落地并有截图证据（`docs/evidence/00–18`）；`npm test` **67** 个用例全绿（含 sqlite / Anthropic 转译 / 备份）；
+  Playwright 冒烟另跑 `npm run test:e2e`。
   内核由仓库自己安装打补丁（`scripts/install-kernel.mjs`），**不再依赖 `TDHarness-coding` 仓库**
 - **安装包：完成**（提交 `ba2d0b6`（计划）→ `4f016a2`（Task 8 审查修复）+ 随后的文档提交；设计 `docs/superpowers/specs/2026-09-04-installers-design.md`，
   计划 `docs/superpowers/plans/2026-09-04-installers.md`，按计划 9 个任务逐个实现 / 审查 / 提交）。
@@ -15,6 +16,9 @@
   本机（构建机）已实测：客户端装 → 冷启动 19 s / 热启动 2.4 s → 卸载；网关装成服务 → 安装版客户端登录 `boss` 到 `http://<本机名>:8790`（内核由安装版客户端拉起，页面在 IDE 浏览器里操作）、Mock Echo 有回复 →
   网关覆盖升级（`config.local.json` 保留）→ 两边卸载（数据保留）。**一台真正没有 Node 的机器还没试过**（见下面第 1 项）。用法与细节见 README §2.5。
 - **内核门禁更新：完成**（设计 `docs/superpowers/specs/2026-09-04-kernel-auto-update-design.md`）。GitHub Release 发现 → `kernel:prepare` / 管理页试打 16 处补丁 → 发布 `current`；员工登录后后台拉 tar，下次启动再切换。壳没有自动更新。`pin.json` 仍是 0.1.1-rc.2，未升 0.1.2。
+- **服务端可部署：完成**。默认 `gateway.sqlite`（`node:sqlite`），旧 JSON/JSONL 首次打开空库时迁入、旧文件不删；`DESK_GATEWAY_STORE=json` 回退。README 有 Caddy/Nginx HTTPS 反代与 `publicUrl` 改法。`npm run backup` / `scripts/backup-gateway.mjs`（安装包下次 `dist:gateway` 会带上）。
+- **小项：完成**。公司技能示例 `_shared/skills/company-briefing/SKILL.md`（`Drive.ensureLayout` 播种；管理页 / 知识检索可见）。Playwright：`e2e/admin.smoke.spec.js` + `e2e/desk-flow.smoke.spec.js`（`npm run test:e2e`，用本机 Edge）。`launch.mjs` 重复装内核早已修掉。
+- **ChatGPT / Claude 协议：完成一半**。Claude/Anthropic 走官方 Messages API（`x-api-key` + `/v1/messages`，流式转成 OpenAI chunk）；ChatGPT/OpenAI 仍是 `/chat/completions`。单测 + 本地假上游覆盖。**公网真跑仍要你提供 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`，然后 `npm run probe:channels`。**
 - 跑起来（开发机）：`npm install` → `npm run dev`（首次会从 npm 下载内核，约 20 秒）；账号见 README §3
 
 ### 关键决定（别轻易推翻）
@@ -49,28 +53,28 @@
 - 切入点：`scripts/lib/bootstrap.mjs`（启动编排，开发与安装版共用；`preparePackaged` + NDJSON CLI）、`desktop/main.js`（Electron 主进程）、
   `scripts/build-payload.mjs`、`scripts/build-client-installer.mjs`、`scripts/build-gateway-installer.mjs`、`installer/gateway.nsi` + `installer/gateway/init.mjs`
 
-### 2. 服务端从演示级到可部署
+### 2. 服务端可部署（已做，剩余运维）
 
-- 数据层：现在是 JSON 文件 + JSONL（`server/src/store.js`），单实例。人多之后换 SQLite（`node:sqlite`，Node 22+ 自带）最省事；
-  `db.js` / `tasks.js` / `ledger.js` 的读写都经过 `store.js`，从那里换。注意安装版的数据目录是 `%ProgramData%\THE DIVA Gateway\data`（`DESK_GATEWAY_DATA`）
-- HTTPS：加反向代理（Caddy / Nginx）说明，或服务端直接支持证书；客户端 `gatewayUrl` 已经是任意 URL；安装版的防火墙规则 / `publicUrl` 要跟着改
-- 备份：`data/` 与公司盘 `data/drive/` 的定时备份脚本（服务安装版可以做成第二个 WinSW 服务或计划任务）
+- SQLite / HTTPS 说明 / 备份脚本已落地。还没做：网关自己终结 TLS（现在只反代）、把计划任务写进 NSIS、备份轮转
+- 注意安装版数据目录仍是 `%ProgramData%\THE DIVA Gateway\data`（`DESK_GATEWAY_DATA`）
 
-### 3. 小项
+### 3. 小项（剩余）
 
-- 公司技能目录 `_shared/skills/` 根路径已接好（预设补丁 `company-preset-skills-v2`；安装版首次启动由 `pinSkillsRoot` 改成本机路径），放一个示例
-  `SKILL.md` 并验证 Agent 能列出、能用
-- 客户端自动化测试：现在全靠浏览器走查。可以用 Playwright 对 `/desk/api/*` + 页面做几条冒烟（登录遮罩 → 登录 → 新会话 → 任务新建 → 提交验收）
+- 示例 `SKILL.md` + Playwright 冒烟已落地。完整内核桌面页要设 `DESK_SMOKE_URL=http://127.0.0.1:3470` 再 `npm run test:e2e`
 - UI 像素级对齐视频（现在是按画面还原，不是逐像素）
-- （`launch.mjs` 里 `install-kernel` 跑两次的问题已在安装包 Task 1 修掉：`launch.mjs` / `setup-profile.mjs` 都是 `scripts/lib/bootstrap.mjs` 的薄壳）
+- Agent 真机列出技能：登录后等公司盘镜像同步，新会话里应能看到 `company-briefing`（本轮用网关检索 / 管理页验证，没再开一轮 Agent）
 
-### 4. 用真实账号跑一次 ChatGPT / Claude 通道
+### 4. ChatGPT / Claude 真跑（等 key）
 
-目前只有 DeepSeek 与 Grok 真跑过完整对话。ChatGPT / Claude 的接入流程、目录更新、凭据不外泄在测试里有覆盖，
-但没用真实订阅验证过上游协议细节（尤其是 Anthropic 的 messages 格式与流式事件）。需要用户提供真实订阅账号或 API key。
+协议适配已做。把 key 放到环境变量后执行：
 
-- 切入点：`server/src/channels.js`（通道种类与探测）、`server/src/llm-proxy.js`（请求改写 / 流式透传）
-- 验收：设置 → 同事 → 模型通道 接入 → 客户端模型菜单出现分组 → 发消息有流式回复 → 账本有记录
+```powershell
+$env:OPENAI_API_KEY = "sk-..."          # 或 CHATGPT_API_KEY
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+npm run probe:channels
+```
+
+然后在客户端「设置 → 同事 → 模型通道」接入，发一条看流式回复和账本。ChatGPT 订阅令牌如果不是 OpenAI API 兼容，需要自备反代并把通道 `baseUrl` 指过去。
 
 ### 审查留下的小问题（安装包各任务的代码审查，均非阻塞）
 

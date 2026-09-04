@@ -21,9 +21,13 @@
     "dist:client": "node scripts/build-payload.mjs && node scripts/build-client-installer.mjs",
     "dist:gateway": "node scripts/build-gateway-installer.mjs",
     "dist": "npm run dist:client && npm run dist:gateway",
-    "test": "node --test server/test/*.test.js scripts/test/*.test.mjs"
+    "backup": "node scripts/backup-gateway.mjs",
+    "probe:channels": "node scripts/probe-channels.mjs",
+    "test": "node --test server/test/*.test.js scripts/test/*.test.mjs",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "esbuild": "^0.25.0"
   }
 }

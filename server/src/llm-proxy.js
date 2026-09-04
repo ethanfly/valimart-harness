@@ -5,6 +5,14 @@
  */
 import { HttpError, readBody, sendJson, bearer } from './http.js'
 import { estimateCostCny } from './ledger.js'
+import {
+  anthropicHeaders,
+  anthropicMessagesUrl,
+  createAnthropicSseTranslator,
+  toAnthropicBody,
+  toOpenAIResponse,
+  usesAnthropicMessages,
+} from './upstream-anthropic.js'
 
 export class LlmProxy {
   constructor({ db, cfg, ledger, catalog }) {
@@ -74,19 +82,11 @@ export class LlmProxy {
 
     if (upstream.kind === 'mock') return this.mock(body, model, res, stream, finish)
 
-    const url = `${upstream.baseUrl.replace(/\/+$/, '')}/chat/completions`
-    const forward = { ...body, model: model.upstreamModel }
-    if (stream) forward.stream_options = { ...(body.stream_options ?? {}), include_usage: true }
     const ac = new AbortController()
     req.on('close', () => ac.abort())
     let upstreamRes
     try {
-      upstreamRes = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: stream ? 'text/event-stream' : 'application/json' },
-        body: JSON.stringify(forward),
-        signal: ac.signal,
-      })
+      upstreamRes = await this.fetchUpstream(upstream, body, model, { stream, signal: ac.signal })
     } catch (err) {
       if (ac.signal.aborted) return
       finish(undefined, 'upstream_unreachable')
@@ -99,21 +99,58 @@ export class LlmProxy {
       res.end(text)
       return
     }
+    const anthropic = usesAnthropicMessages(upstream)
     if (!stream) {
       const text = await upstreamRes.text()
+      let payload = text
       let usage
-      try {
-        usage = JSON.parse(text).usage
-      } catch {
-        /* ignore */
+      if (anthropic) {
+        try {
+          const converted = toOpenAIResponse(JSON.parse(text), model.id)
+          usage = converted.usage
+          payload = JSON.stringify(converted)
+        } catch {
+          /* 原样回传 */
+        }
+      } else {
+        try {
+          usage = JSON.parse(text).usage
+        } catch {
+          /* ignore */
+        }
       }
       finish(usage, 'ok')
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(text)
+      res.end(payload)
       return
     }
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' })
     res.flushHeaders?.()
+    if (anthropic) return this.pipeAnthropicStream(upstreamRes, res, model, finish, ac)
+    return this.pipeOpenAIStream(upstreamRes, res, finish, ac)
+  }
+
+  fetchUpstream(upstream, body, model, { stream, signal }) {
+    if (usesAnthropicMessages(upstream)) {
+      const forward = toAnthropicBody({ ...body, stream }, model)
+      return fetch(anthropicMessagesUrl(upstream.baseUrl), {
+        method: 'POST',
+        headers: { ...anthropicHeaders(upstream.resolvedKey), accept: stream ? 'text/event-stream' : 'application/json' },
+        body: JSON.stringify(forward),
+        signal,
+      })
+    }
+    const forward = { ...body, model: model.upstreamModel }
+    if (stream) forward.stream_options = { ...(body.stream_options ?? {}), include_usage: true }
+    return fetch(`${upstream.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: stream ? 'text/event-stream' : 'application/json' },
+      body: JSON.stringify(forward),
+      signal,
+    })
+  }
+
+  async pipeOpenAIStream(upstreamRes, res, finish, ac) {
     const reader = upstreamRes.body.getReader()
     const decoder = new TextDecoder()
     let usage
@@ -142,8 +179,31 @@ export class LlmProxy {
       }
       finish(usage, 'ok')
       res.end()
-    } catch (err) {
+    } catch {
       finish(usage, ac.signal.aborted ? 'client_aborted' : 'stream_error')
+      try {
+        res.end()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  async pipeAnthropicStream(upstreamRes, res, model, finish, ac) {
+    const translator = createAnthropicSseTranslator({ model: model.id })
+    const reader = upstreamRes.body.getReader()
+    const decoder = new TextDecoder()
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        for (const piece of translator.push(decoder.decode(value, { stream: true }))) res.write(piece)
+      }
+      for (const piece of translator.end()) res.write(piece)
+      finish(translator.usage, 'ok')
+      res.end()
+    } catch {
+      finish(translator.usage, ac.signal.aborted ? 'client_aborted' : 'stream_error')
       try {
         res.end()
       } catch {
@@ -169,13 +229,12 @@ export class LlmProxy {
       content = `【Mock 快速推理】${typeof last?.content === 'string' ? last.content.slice(0, 120) : ''} → 好的，已处理。`
       usage = { prompt_tokens: Math.ceil(JSON.stringify(messages).length / 3), completion_tokens: Math.ceil(content.length / 1.5) }
     } else {
-      const url = `${upstream.baseUrl.replace(/\/+$/, '')}/chat/completions`
       const body = { model: model.upstreamModel, messages, stream: false, max_tokens: maxTokens }
       if (model.compat?.thinkingFormat === 'deepseek' && model.reasoningEfforts) body.thinking = { type: 'disabled' }
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}` }, body: JSON.stringify(body) })
+      const r = await this.fetchUpstream(upstream, body, model, { stream: false })
       const text = await r.text()
       if (!r.ok) throw new HttpError(502, `上游返回 ${r.status}: ${text.slice(0, 300)}`, 'upstream_error')
-      const json = JSON.parse(text)
+      const json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
       content = json.choices?.[0]?.message?.content ?? ''
       usage = json.usage
     }

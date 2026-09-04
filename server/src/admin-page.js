@@ -254,6 +254,8 @@ export function renderAdminHtml({ companyName }) {
           <h2>知识 / 手册合集</h2>
           <p class="desc">岗位手册 / 公司技能手册（全员只读，管理员可写）</p>
           \${collections.handbook.length ? '<ul class="files">' + collections.handbook.map((f) => '<li>' + esc(f.name) + ' <span class="muted">' + fmtBytes(f.size) + '</span></li>').join('') + '</ul>' : '<div class="empty">还没有手册</div>'}
+          <p class="desc" style="margin-top:14px">公司技能 _shared/skills</p>
+          \${(collections.skills && collections.skills.length) ? '<ul class="files">' + collections.skills.map((f) => '<li>' + esc(f.path) + ' <span class="muted">' + fmtBytes(f.size) + '</span></li>').join('') + '</ul>' : '<div class="empty">还没有技能</div>'}
           <p class="desc" style="margin-top:14px">共享经验 _shared/_memory</p>
           <ul class="files">
             \${Object.entries(collections.shared).map(([dir, layer]) => '<li><span class="mono">' + esc(dir) + '</span> ' + esc(layer.label) + ' <span class="muted">' + layer.files.length + ' 个文件</span></li>').join('')}

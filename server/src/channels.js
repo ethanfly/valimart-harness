@@ -2,11 +2,11 @@
  * 模型通道（设置 → 同事 里的「通道 / 种类 / 状态」表）：
  *   - 种类 subscription（订阅：Grok / ChatGPT / Claude 这类按账号订阅的通道）或 key（按 API key 接入）
  *   - 状态 已接 / 未接：config.json 里配好密钥的上游算「已接」；管理员也可以在界面上“加入订阅 / 加入模型”，
- *     凭据只落在服务端 data/channels.json，绝不下发给客户端。
+ *     凭据只落在服务端（默认 gateway.sqlite 的 channels.json 集合），绝不下发给客户端。
  * 接入后的通道会合并进 cfg.upstreams，网关 /v1 目录随之更新（客户端下次同步就能选到新模型）。
  */
-import path from 'node:path'
-import { JsonFile } from './store.js'
+import { createPersistence } from './store.js'
+import { inferUpstreamApi } from './upstream-anthropic.js'
 import { HttpError } from './http.js'
 
 export const CHANNEL_KIND_LABELS = { subscription: '订阅', key: 'key' }
@@ -14,7 +14,8 @@ export const CHANNEL_KIND_LABELS = { subscription: '订阅', key: 'key' }
 export class Channels {
   constructor(cfg, dataDir) {
     this.cfg = cfg
-    this.store = new JsonFile(path.join(dataDir, 'channels.json'), () => ({ items: {} }))
+    this.persist = createPersistence(dataDir)
+    this.store = this.persist.file('channels.json', () => ({ items: {} }))
     this.applyAll()
   }
 
@@ -32,7 +33,7 @@ export class Channels {
     return channel.upstream ?? channel.id
   }
 
-  /** 把 data/channels.json 里接入的通道合并进 cfg.upstreams（凭据仅内存 + 服务端文件）。 */
+  /** 把已接入通道合并进 cfg.upstreams（凭据仅内存 + 服务端库）。 */
   applyAll() {
     for (const [id, item] of Object.entries(this.store.load().items)) {
       const channel = this.catalog().find((x) => x.id === id)
@@ -44,12 +45,14 @@ export class Channels {
     const upstreamId = this.upstreamIdOf(channel)
     this.cfg.upstreams ??= {}
     const existing = this.cfg.upstreams[upstreamId]
+    const baseUrl = item.baseUrl || existing?.baseUrl || channel.baseUrl
     this.cfg.upstreams[upstreamId] = {
       ...(existing ?? {}),
       id: upstreamId,
       kind: 'openai-compatible',
+      api: channel.api ?? existing?.api ?? inferUpstreamApi(baseUrl),
       label: existing?.label ?? channel.label,
-      baseUrl: item.baseUrl || existing?.baseUrl || channel.baseUrl,
+      baseUrl,
       resolvedKey: item.credential,
       channel: channel.id,
       channelKind: channel.kind,

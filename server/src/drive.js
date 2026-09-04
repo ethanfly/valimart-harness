@@ -1,7 +1,8 @@
 /**
  * 公司盘（Company Drive）：
  *   _shared/_memory/<层>/…   共享经验（全员只读；管理员/总监可写；05-logs 全员可追加）
- *   _shared/handbook/…       岗位手册 / 公司技能手册（全员只读；管理员可写）
+ *   _shared/handbook/…       岗位手册（全员只读；管理员可写）
+ *   _shared/skills/…         公司技能（SKILL.md；全员只读；管理员可写）
  *   _office/<账号>/_memory/… 个人记忆（一人一座，跟人走；仅本人读写，管理员可读）
  *   projects/inbox/<任务ID>/… 任务交付物（任务相关人可读；提交人可写）
  *
@@ -9,8 +10,11 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import { HttpError } from './http.js'
+
+const BUNDLED_SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'company-briefing', 'SKILL.md')
 
 export const MEMORY_LAYERS = [
   { dir: '01-projects', label: '项目' },
@@ -55,6 +59,7 @@ export class Drive {
   ensureLayout() {
     for (const layer of MEMORY_LAYERS) fs.mkdirSync(path.join(this.root, '_shared', '_memory', layer.dir), { recursive: true })
     fs.mkdirSync(path.join(this.root, '_shared', 'handbook'), { recursive: true })
+    fs.mkdirSync(path.join(this.root, '_shared', 'skills', 'company-briefing'), { recursive: true })
     fs.mkdirSync(path.join(this.root, 'projects', 'inbox'), { recursive: true })
     const readme = path.join(this.root, '_shared', '_memory', 'README.md')
     if (!fs.existsSync(readme)) {
@@ -88,6 +93,16 @@ export class Drive {
         ].join('\n'),
       )
     }
+    const skill = path.join(this.root, '_shared', 'skills', 'company-briefing', 'SKILL.md')
+    if (!fs.existsSync(skill)) {
+      if (fs.existsSync(BUNDLED_SKILL)) fs.copyFileSync(BUNDLED_SKILL, skill)
+      else {
+        fs.writeFileSync(
+          skill,
+          ['---', 'name: company-briefing', 'description: 公司交付工作台怎么用。', '---', '', '# 公司交付简报', '', '以任务卡为准，产物进 inbox，四格验收。', ''].join('\n'),
+        )
+      }
+    }
   }
 
   ensureOffice(username) {
@@ -100,7 +115,11 @@ export class Drive {
 
   zoneOf(rel) {
     const parts = normalizeRel(rel).split('/')
-    if (parts[0] === '_shared') return { zone: parts[1] === 'handbook' ? 'handbook' : 'shared', parts }
+    if (parts[0] === '_shared') {
+      if (parts[1] === 'handbook') return { zone: 'handbook', parts }
+      if (parts[1] === 'skills') return { zone: 'skills', parts }
+      return { zone: 'shared', parts }
+    }
     if (parts[0] === '_office') return { zone: 'personal', owner: parts[1], parts }
     if (parts[0] === 'projects' && parts[1] === 'inbox') return { zone: 'inbox', taskId: parts[2], parts }
     return { zone: 'other', parts }
@@ -108,7 +127,7 @@ export class Drive {
 
   canRead(user, rel) {
     const z = this.zoneOf(rel)
-    if (z.zone === 'shared' || z.zone === 'handbook') return true
+    if (z.zone === 'shared' || z.zone === 'handbook' || z.zone === 'skills') return true
     if (z.zone === 'personal') return user.role === 'admin' || z.owner === user.username || z.owner === undefined
     if (z.zone === 'inbox') {
       if (user.role === 'admin' || user.role === 'director') return true
@@ -123,7 +142,7 @@ export class Drive {
   /** @returns {'full'|'append'|false} */
   canWrite(user, rel) {
     const z = this.zoneOf(rel)
-    if (z.zone === 'handbook') return user.role === 'admin' ? 'full' : false
+    if (z.zone === 'handbook' || z.zone === 'skills') return user.role === 'admin' ? 'full' : false
     if (z.zone === 'shared') {
       if (user.role === 'admin' || user.role === 'director') return 'full'
       return z.parts[2] === '05-logs' ? 'append' : false
