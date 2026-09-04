@@ -5,8 +5,10 @@
  * 安装版（--packaged，见 preparePackaged）：内核从 payload/kernel.tar 解到 ~/.company-desk/app/kernel；profile 名 desk-app；永不联网。
  *
  * 作为 CLI（安装版的 Electron 主进程用随包 node.exe 调用）：
- *   node scripts/lib/bootstrap.mjs --packaged --payload <dir> --app-dir <dir> [--dsh-home <dir>]
- * stdout 每行一个 JSON：{ step, status, detail }，最后一行 { step: "ready", kernelBin, profileName, ... }。
+ *   node scripts/lib/bootstrap.mjs --packaged --payload <dir> [--app-dir <dir>] [--dsh-home <dir>]
+ * （默认 --app-dir ~/.company-desk/app，--dsh-home $DSH_HOME 或 ~/.dsh）
+ * stdout 每行一个 JSON：{ step, status, detail }，最后一行 { step: "ready", status: "ok", kernelBin, profileName, nodeExe, ... }；
+ * 出错时最后一行 { step: "error", status: "fail", detail }，退出码 1；用法错误退出码 64。
  */
 import fs from 'node:fs'
 import net from 'node:net'

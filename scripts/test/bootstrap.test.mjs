@@ -81,9 +81,10 @@ test('ensureProfile：写 manifest、链接插件与 dsh 回退目录（selfHeal
   assert.ok(logs.some((l) => /desk-ui kept/.test(l)))
 })
 
-test('pinSkillsRoot：戳记里的技能根与目标一致且补丁齐 → 不动；不一致 → 重写戳记', () => {
+test('pinSkillsRoot：戳记里的技能根与目标一致且补丁齐 → 不动；不一致 → 重写戳记', (t) => {
   // 用一个假内核前缀：只需要 stamp 文件 + missingPatches 能跑（缺补丁文件会抛，所以这里只测 skip 分支）
   const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
   fs.mkdirSync(kernelRoot, { recursive: true })
   const skillsDir = path.join(dir, 'skills')
@@ -93,9 +94,10 @@ test('pinSkillsRoot：戳记里的技能根与目标一致且补丁齐 → 不�
   assert.throws(() => pinSkillsRoot({ kernelPrefix: dir, kernel: { root: kernelRoot, bin: 'x', version: '0' }, skillsDir, log: (o) => logs.push(o) }), /PATCH_FAIL target-missing/)
 })
 
-test('pinSkillsRoot：补丁齐但戳记里是构建机的技能根 → 预设改成本机路径并重写戳记；再跑一次跳过', () => {
+test('pinSkillsRoot：补丁齐但戳记里是构建机的技能根 → 预设改成本机路径并重写戳记；再跑一次跳过', (t) => {
   // 假内核：每个补丁文件只放 mark（代码补丁见 mark 即跳过），预设放 v2 骨架（只会同步技能根那两行）
   const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
   const buildSkills = 'C:/Users/builder/.dsh/desk/drive/_shared/skills'
   const preset = (withSkills) =>
@@ -151,10 +153,9 @@ test('pinSkillsRoot：补丁齐但戳记里是构建机的技能根 → 预设�
   assert.equal(pinSkillsRoot({ kernelPrefix: dir, kernel, skillsDir, log: (o) => again.push(o) }), false)
   assert.deepEqual(again.map((e) => [e.step, e.status]), [['kernel', 'skip']])
   assert.equal(fs.readFileSync(path.join(kernelRoot, 'config', 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8'), yaml)
-  fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test('CLI：缺参数 → 退出码 64；payload 目录不存在 → 退出码 1 且 stdout 最后一行是 error 事件', () => {
+test('CLI：缺参数 → 退出码 64；payload 目录不存在 → 退出码 1 且 stdout 最后一行是 error 事件', (t) => {
   const cli = path.join(repo, 'scripts', 'lib', 'bootstrap.mjs')
   const run = (argv) => {
     try {
@@ -166,17 +167,18 @@ test('CLI：缺参数 → 退出码 64；payload 目录不存在 → 退出码 1
   assert.equal(run([]).status, 64)
   assert.equal(run(['--packaged']).status, 64)
   const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const bad = run(['--packaged', '--payload', path.join(dir, 'nope'), '--app-dir', path.join(dir, 'app'), '--dsh-home', path.join(dir, 'dsh')])
   assert.equal(bad.status, 1)
   const events = bad.stdout.trim().split(/\r?\n/).map((l) => JSON.parse(l))
   assert.deepEqual([events.at(-1).step, events.at(-1).status], ['error', 'fail'])
   assert.match(events.at(-1).detail, /payload\.json/)
   assert.ok(!fs.existsSync(path.join(dir, 'app')), '读不到 payload.json 就不该动 app 目录')
-  fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写 state.json；第二次跳过', { skip: !fs.existsSync(path.join(repo, 'build', 'payload', 'kernel.tar')) && '需要先 node scripts/build-payload.mjs' }, () => {
+test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写 state.json；第二次跳过', { skip: !fs.existsSync(path.join(repo, 'build', 'payload', 'kernel.tar')) && '需要先 node scripts/build-payload.mjs' }, (t) => {
   const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const appDir = path.join(dir, 'app')
   const dshHome = path.join(dir, 'dsh')
   const events = []
@@ -199,5 +201,4 @@ test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写
   const again = []
   preparePackaged({ payloadDir: path.join(repo, 'build', 'payload'), appDir, dshHome, log: (o) => again.push(o) })
   assert.ok(again.every((e) => e.status === 'skip'), JSON.stringify(again))
-  fs.rmSync(dir, { recursive: true, force: true })
 })
