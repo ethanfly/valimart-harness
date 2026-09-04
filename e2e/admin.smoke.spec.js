@@ -39,5 +39,7 @@ test('管理页：登录后可见内核与公司技能', async ({ page }) => {
   await page.locator('form#loginForm button[type="submit"]').click()
   await expect(page.locator('#kernel h2')).toHaveText('内核', { timeout: 10_000 })
   await expect(page.locator('body')).toContainText('company-briefing')
-  await expect(page.locator('body')).toContainText('THE DIVA')
+  await expect(page.locator('header .logo .word')).toBeVisible()
+  await expect(page.locator('header .logo .mark')).toHaveCount(0)
+  await expect(page.locator('header .logo small')).toHaveCount(0)
 })

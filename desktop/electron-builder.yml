@@ -1,13 +1,16 @@
-appId: team.ethan.thediva
-productName: THE DIVA
-copyright: THE DIVA
+appId: team.ethan.valimart-harness
+productName: valimart harness
+copyright: Valimart
 directories:
   output: ../dist
   buildResources: build
 files:
   - main.js
+  - preload.js
   - splash.html
   - build/icon.png
+  - build/valimart-wordmark.png
+  - build/valimart-mark.png
   - package.json
 extraResources:
   - from: ../build/payload
@@ -18,15 +21,15 @@ npmRebuild: false
 win:
   target:
     - nsis
-  icon: build/icon.png
-  artifactName: THE-DIVA-Setup-${version}.${ext}
+  icon: build/icon.ico
+  artifactName: valimart-harness-Setup-${version}.${ext}
 nsis:
   oneClick: true
   perMachine: false
   allowElevation: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: THE DIVA
+  shortcutName: valimart harness
   deleteAppDataOnUninstall: false
   runAfterFinish: true
   language: "2052"

@@ -10,8 +10,10 @@ import { TASK_STATUS } from './tasks.js'
 import { MEMORY_LAYERS } from './drive.js'
 import { openKernelCatalog } from './kernel-catalog.js'
 import { KernelPatchError } from '../../scripts/kernel/patches.mjs'
-import { prepareKernelTarball } from '../../scripts/lib/kernel-prepare.mjs'
+import { assertPublishedOnNpm, prepareKernelTarball } from '../../scripts/lib/kernel-prepare.mjs'
 import { hasNpm } from '../../scripts/lib/npm-cli.mjs'
+import { fetchNpmVersions, resolveNpmRegistry } from '../../scripts/lib/kernel-update.mjs'
+import { registerOAuthSubscribe, decorateChannels } from './oauth-subscribe.js'
 
 /** 客户端内核锁定版本（scripts/kernel/pin.json）：KERNEL_LABEL 给 /api/status，pinVersion 给 bundled 回退。 */
 const KERNEL_PIN = (() => {
@@ -29,8 +31,17 @@ function throwCatalog(err) {
 }
 
 export function registerApi(router, ctx) {
-  const { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt } = ctx
-  const kernels = ctx.kernels ?? openKernelCatalog(cfg.dataDir, { pinVersion: KERNEL_PIN?.version, fetchReleases: ctx.fetchReleases })
+  const { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt, oauth } = ctx
+  const kernels =
+    ctx.kernels ??
+    openKernelCatalog(cfg.dataDir, {
+      pinVersion: KERNEL_PIN?.version,
+      fetchReleases: ctx.fetchReleases,
+      fetchNpmVersions: ctx.fetchNpmVersions,
+      npmRegistry: cfg.kernel?.npmRegistry,
+    })
+  const fetchNpm = ctx.fetchNpmVersions ?? fetchNpmVersions
+  const npmRegistry = resolveNpmRegistry(cfg.kernel?.npmRegistry)
 
   const auth = (req, { allowDisabled = false } = {}) => {
     const token = bearer(req)
@@ -76,6 +87,70 @@ export function registerApi(router, ctx) {
     company: companyView(),
     quota: ledger.quotaView(user, providers()),
     serverTime: new Date().toISOString(),
+  })
+
+  const needsSetup = () => db.listUsers().length === 0
+
+  const parseNewUser = (raw, { label, role }) => {
+    const username = String(raw?.username ?? '').trim()
+    const password = raw?.password
+    const displayName = String(raw?.displayName ?? '').trim() || username
+    const department = String(raw?.department ?? '').trim() || (role === 'admin' ? '管理层' : '未分组')
+    if (!/^[a-zA-Z0-9_.-]{2,32}$/.test(username)) throw new HttpError(400, `${label}账号只能包含字母、数字、._-，长度 2-32`)
+    if (typeof password !== 'string' || password.length < 6) throw new HttpError(400, `${label}密码至少 6 位`)
+    if (raw?.passwordConfirm !== undefined && raw.passwordConfirm !== password) throw new HttpError(400, '两次输入的密码不一致')
+    if (role && !ROLES.includes(role)) throw new HttpError(400, `未知角色 ${role}`)
+    return { username, password, displayName, role: role ?? 'employee', department }
+  }
+
+  router.get('/api/setup', async (_req, res) => {
+    sendJson(res, 200, {
+      needsSetup: needsSetup(),
+      companyName: db.companySettings().name ?? cfg.company?.name ?? 'valimart harness',
+    })
+  })
+
+  router.post('/api/setup', async (req, res) => {
+    if (!needsSetup()) throw new HttpError(409, '已经完成初始设置，请直接登录', 'already_setup')
+    const body = await readJson(req)
+    const companyName = String(body.companyName ?? '').trim()
+    if (!companyName) throw new HttpError(400, '请填写公司名称')
+    const adminIn = parseNewUser(body.admin, { label: '管理员', role: 'admin' })
+    const colleagueIn = []
+    for (const c of Array.isArray(body.colleagues) ? body.colleagues : []) {
+      if (!c || (!c.username && !c.password)) continue
+      const role = ROLES.includes(c.role) ? c.role : 'employee'
+      colleagueIn.push(parseNewUser(c, { label: `同事 ${c.username ?? ''}`.trim(), role }))
+    }
+    const seen = new Set([adminIn.username.toLowerCase()])
+    for (const c of colleagueIn) {
+      if (seen.has(c.username.toLowerCase())) throw new HttpError(400, `账号 ${c.username} 重复`)
+      seen.add(c.username.toLowerCase())
+    }
+    let admin
+    try {
+      admin = db.createUser({ ...adminIn, seed: true })
+    } catch (err) {
+      throw new HttpError(400, err.message)
+    }
+    drive.ensureOffice(admin.username)
+    db.updateCompanySettings({ name: companyName, ...(body.plan ? { plan: String(body.plan).trim() } : {}) })
+    const colleagues = []
+    for (const c of colleagueIn) {
+      try {
+        const created = db.createUser(c)
+        drive.ensureOffice(created.username)
+        colleagues.push(publicUser(created))
+      } catch (err) {
+        throw new HttpError(400, `${c.username}: ${err.message}`)
+      }
+    }
+    const { token, item: session } = db.createLoginSession(admin.id, cfg.loginTtlDays ?? 30, body.device ?? 'setup')
+    const gatewayToken = body.gatewayToken === false ? null : db.issueGatewayToken(admin.id, body.device ?? 'desktop', session.id).token
+    db.updateUser(admin.id, { lastLoginAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() })
+    presence.touch(admin.id)
+    console.log(`[gateway] 初始设置完成：管理员 ${admin.username}，公司「${companyName}」${colleagues.length ? `，同事 ${colleagues.length} 人` : ''}`)
+    sendJson(res, 201, { ...loginPayload(db.getUser(admin.id), token, gatewayToken), colleagues })
   })
 
   // ---------- 认证 ----------
@@ -154,7 +229,7 @@ export function registerApi(router, ctx) {
       ledger7d: { totalCny: ledger7.totalCny, requests: ledger7.requests, byModel: ledger7.byModel },
       users,
       me: publicUser(user),
-      channels: channels?.view() ?? [],
+      channels: decorateChannels(channels?.view() ?? [], cfg),
       quickInferenceModel: companyView().quickInferenceModel,
       canEditChannels: user.role === 'admin',
     })
@@ -163,7 +238,7 @@ export function registerApi(router, ctx) {
   // ---------- 模型通道（订阅 / key）----------
   router.get('/api/channels', async (req, res) => {
     const { user } = auth(req)
-    sendJson(res, 200, { channels: channels?.view() ?? [], canEdit: user.role === 'admin' })
+    sendJson(res, 200, { channels: decorateChannels(channels?.view() ?? [], cfg), canEdit: user.role === 'admin' })
   })
 
   router.post('/api/channels/:id/connect', async (req, res) => {
@@ -184,6 +259,9 @@ export function registerApi(router, ctx) {
     console.log(`[gateway] ${user.username} 断开通道 ${channel.label}`)
     sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
   })
+
+  // desk-oauth-subscribe：官方 OAuth 挂载（实现见 oauth-subscribe.js，勿把 prepare/内核逻辑并入）
+  registerOAuthSubscribe(router, { cfg, channels, auth, requireAdmin, oauth })
 
   // ---------- 人员 ----------
   const personnelView = () => {
@@ -486,6 +564,17 @@ export function registerApi(router, ctx) {
     if (version.includes('/') || version.includes('\\') || version.includes('..') || version === 'current.json') {
       throw new HttpError(400, '非法版本号', 'bad_version')
     }
+    let npmVersions
+    try {
+      npmVersions = await fetchNpm({ registry: npmRegistry })
+    } catch {
+      npmVersions = undefined
+    }
+    try {
+      assertPublishedOnNpm(version, npmVersions)
+    } catch (err) {
+      throw new HttpError(400, err.message, err.code ?? 'not_on_npm')
+    }
     if (!hasNpm()) throw new HttpError(501, '本机没有可用的 npm，无法试打内核', 'npm_missing')
     const stage = path.join(cfg.dataDir, 'kernels', `.stage-${version}`)
     fs.rmSync(stage, { recursive: true, force: true })
@@ -498,12 +587,16 @@ export function registerApi(router, ctx) {
         prefix,
         outDir,
         skillsDir,
+        registry: npmRegistry,
+        npmVersions,
+        installer: ctx.prepareInstaller,
         log: (m) => console.log(`[kernel:prepare] ${m}`),
       })
       const saved = kernels.saveArtifact({ version, tarPath, manifest })
       sendJson(res, 200, saved)
     } catch (err) {
       if (err instanceof HttpError) throw err
+      if (err.code === 'not_on_npm') throw new HttpError(400, err.message, err.code)
       if (err instanceof KernelPatchError) throw new HttpError(400, `补丁失败 ${err.code}: ${err.detail}`, err.code)
       throw new HttpError(500, err.message, err.code ?? 'prepare_failed')
     } finally {

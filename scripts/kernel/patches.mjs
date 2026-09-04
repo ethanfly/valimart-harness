@@ -22,6 +22,24 @@ export class KernelPatchError extends Error {
 }
 
 const SEE = 'company patch; see company-desk/scripts/kernel/patches.mjs'
+
+/** 一条编辑的锚点变体：升内核后源码改写时并列旧/新 from，恰好命中一条才套用。 */
+export function editVariants(edit) {
+  if (Array.isArray(edit.variants) && edit.variants.length) return edit.variants
+  return [{ from: edit.from, to: edit.to }]
+}
+
+export function applyEdit(text, edit, file = '') {
+  const variants = editVariants(edit)
+  const scored = variants.map((v, i) => ({ i, v, n: text.split(v.from).length - 1 }))
+  const matched = scored.filter((s) => s.n === 1)
+  if (matched.length !== 1) {
+    const got = scored.length === 1 ? String(scored[0].n) : scored.map((s) => `v${s.i}=${s.n}`).join(',')
+    throw new KernelPatchError('anchor-not-unique', `${file}|${edit.name}|expected=1|got=${got}|内核升过版本？请对着新源码重审这条补丁`)
+  }
+  return text.replace(matched[0].v.from, matched[0].v.to)
+}
+
 const MARK = 'company-sandbox-local-unc-v1'
 const SKILL_MARK = 'company-skill-custom-trusted-v1'
 
@@ -207,13 +225,27 @@ export const CODE_PATCHES = [
     edits: [
       {
         name: 'resume-already-armed-noop',
-        from: '\t\t\tif (current.phase === "active" && cache.activation === "armed") throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n',
-        to:
-          '\t\t\tif (current.phase === "active" && cache.activation === "armed") {\n' +
-          '\t\t\t\tconst view = this.view(cache);\n' +
-          '\t\t\t\tif (view === void 0) throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n' +
-          '\t\t\t\treturn view;\n' +
-          '\t\t\t}\n',
+        variants: [
+          {
+            from: '\t\t\tif (current.phase === "active" && cache.activation === "armed") throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n',
+            to:
+              '\t\t\tif (current.phase === "active" && cache.activation === "armed") {\n' +
+              '\t\t\t\tconst view = this.view(cache);\n' +
+              '\t\t\t\tif (view === void 0) throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n' +
+              '\t\t\t\treturn view;\n' +
+              '\t\t\t}\n',
+          },
+          {
+            // 0.1.2-rc.1：cache → [state, runtime]
+            from: '\t\t\tif (current.phase === "active" && runtime.activation === "armed") throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n',
+            to:
+              '\t\t\tif (current.phase === "active" && runtime.activation === "armed") {\n' +
+              '\t\t\t\tconst view = this.view(currentState, runtime);\n' +
+              '\t\t\t\tif (view === void 0) throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n' +
+              '\t\t\t\treturn view;\n' +
+              '\t\t\t}\n',
+          },
+        ],
       },
     ],
   },
@@ -227,57 +259,125 @@ export const CODE_PATCHES = [
     edits: [
       {
         name: 'win-junction-mklink',
-        from:
-          'function ensureSymlink(link, target) {\n' +
-          '\tlet stat;\n' +
-          '\ttry {\n' +
-          '\t\tstat = lstatSync(link);\n' +
-          '\t} catch {\n' +
-          '\t\tstat = void 0;\n' +
-          '\t}\n' +
-          '\tif (stat !== void 0) {\n' +
-          '\t\tif (!stat.isSymbolicLink()) throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`);\n' +
-          '\t\tif (readlinkSync(link) === target) return;\n' +
-          '\t\tunlinkSync(link);\n' +
-          '\t}\n' +
-          '\ttry {\n' +
-          '\t\tsymlinkSync(target, link, "junction");\n' +
-          '\t} catch (error) {\n' +
-          '\t\t/* v8 ignore next 4 */\n' +
-          '\t\tif (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) throw error;\n' +
-          '\t}\n' +
-          '}\n',
-        to:
-          'function companyWinJunction(link, target) {\n' +
-          '\tconst { spawnSync } = createRequire(import.meta.url)("node:child_process");\n' +
-          '\tmkdirSync(dirname(link), { recursive: true });\n' +
-          '\tconst r = spawnSync("cmd.exe", ["/c", "mklink", "/J", link, target], { encoding: "utf8", windowsHide: true });\n' +
-          '\treturn r.status === 0;\n' +
-          '}\n' +
-          'function ensureSymlink(link, target) {\n' +
-          '\tlet stat;\n' +
-          '\ttry {\n' +
-          '\t\tstat = lstatSync(link);\n' +
-          '\t} catch {\n' +
-          '\t\tstat = void 0;\n' +
-          '\t}\n' +
-          '\tif (stat !== void 0) {\n' +
-          '\t\tif (!stat.isSymbolicLink()) throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`);\n' +
-          '\t\tif (readlinkSync(link) === target) return;\n' +
-          '\t\tunlinkSync(link);\n' +
-          '\t}\n' +
-          '\tif (process.platform === "win32") {\n' +
-          '\t\tif (companyWinJunction(link, target)) return;\n' +
-          '\t\tthrow new Error("dsh: win-junction-failed " + link + " -> " + target);\n' +
-          '\t}\n' +
-          '\ttry {\n' +
-          '\t\tsymlinkSync(target, link, "junction");\n' +
-          '\t} catch (error) {\n' +
-          '\t\tif (error.code === "EEXIST" && readlinkSync(link) === target) return;\n' +
-          '\t\t/* v8 ignore next 4 */\n' +
-          '\t\tif (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) throw error;\n' +
-          '\t}\n' +
-          '}\n',
+        variants: [
+          {
+            from:
+              'function ensureSymlink(link, target) {\n' +
+              '\tlet stat;\n' +
+              '\ttry {\n' +
+              '\t\tstat = lstatSync(link);\n' +
+              '\t} catch {\n' +
+              '\t\tstat = void 0;\n' +
+              '\t}\n' +
+              '\tif (stat !== void 0) {\n' +
+              '\t\tif (!stat.isSymbolicLink()) throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`);\n' +
+              '\t\tif (readlinkSync(link) === target) return;\n' +
+              '\t\tunlinkSync(link);\n' +
+              '\t}\n' +
+              '\ttry {\n' +
+              '\t\tsymlinkSync(target, link, "junction");\n' +
+              '\t} catch (error) {\n' +
+              '\t\t/* v8 ignore next 4 */\n' +
+              '\t\tif (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) throw error;\n' +
+              '\t}\n' +
+              '}\n',
+            to:
+              'function companyWinJunction(link, target) {\n' +
+              '\tconst { spawnSync } = createRequire(import.meta.url)("node:child_process");\n' +
+              '\tmkdirSync(dirname(link), { recursive: true });\n' +
+              '\tconst r = spawnSync("cmd.exe", ["/c", "mklink", "/J", link, target], { encoding: "utf8", windowsHide: true });\n' +
+              '\treturn r.status === 0;\n' +
+              '}\n' +
+              'function ensureSymlink(link, target) {\n' +
+              '\tlet stat;\n' +
+              '\ttry {\n' +
+              '\t\tstat = lstatSync(link);\n' +
+              '\t} catch {\n' +
+              '\t\tstat = void 0;\n' +
+              '\t}\n' +
+              '\tif (stat !== void 0) {\n' +
+              '\t\tif (!stat.isSymbolicLink()) throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`);\n' +
+              '\t\tif (readlinkSync(link) === target) return;\n' +
+              '\t\tunlinkSync(link);\n' +
+              '\t}\n' +
+              '\tif (process.platform === "win32") {\n' +
+              '\t\tif (companyWinJunction(link, target)) return;\n' +
+              '\t\tthrow new Error("dsh: win-junction-failed " + link + " -> " + target);\n' +
+              '\t}\n' +
+              '\ttry {\n' +
+              '\t\tsymlinkSync(target, link, "junction");\n' +
+              '\t} catch (error) {\n' +
+              '\t\tif (error.code === "EEXIST" && readlinkSync(link) === target) return;\n' +
+              '\t\t/* v8 ignore next 4 */\n' +
+              '\t\tif (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) throw error;\n' +
+              '\t}\n' +
+              '}\n',
+          },
+          {
+            from:
+              'function ensureSymlink(link, target) {\n' +
+              '\tlet stat;\n' +
+              '\ttry {\n' +
+              '\t\tstat = lstatSync(link);\n' +
+              '\t} catch {\n' +
+              '\t\tstat = void 0;\n' +
+              '\t}\n' +
+              '\tif (stat !== void 0) {\n' +
+              '\t\tif (!stat.isSymbolicLink()) {\n' +
+              '\t\t\tif ((stat.isDirectory() ? readModuleProxyRecord(link) : void 0)?.dsh?.moduleFallback?.targets === void 0) throw new Error(`dsh: ${link} exists and is not a symlink or dsh-managed module proxy; remove it so dsh can manage the installation fallback`);\n' +
+              '\t\t\trmSync(link, { recursive: true });\n' +
+              '\t\t\tstat = void 0;\n' +
+              '\t\t}\n' +
+              '\t\tif (stat !== void 0) {\n' +
+              '\t\t\tif (symlinkPointsTo(link, target)) return;\n' +
+              '\t\t\tunlinkSync(link);\n' +
+              '\t\t}\n' +
+              '\t}\n' +
+              '\ttry {\n' +
+              '\t\tsymlinkSync(target, link, "junction");\n' +
+              '\t} catch (error) {\n' +
+              '\t\t/* v8 ignore next 4 */\n' +
+              '\t\tif (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || !symlinkPointsTo(link, target)) throw error;\n' +
+              '\t}\n' +
+              '}\n',
+            to:
+              'function companyWinJunction(link, target) {\n' +
+              '\tconst { spawnSync } = createRequire(import.meta.url)("node:child_process");\n' +
+              '\tmkdirSync(dirname(link), { recursive: true });\n' +
+              '\tconst r = spawnSync("cmd.exe", ["/c", "mklink", "/J", link, target], { encoding: "utf8", windowsHide: true });\n' +
+              '\treturn r.status === 0;\n' +
+              '}\n' +
+              'function ensureSymlink(link, target) {\n' +
+              '\tlet stat;\n' +
+              '\ttry {\n' +
+              '\t\tstat = lstatSync(link);\n' +
+              '\t} catch {\n' +
+              '\t\tstat = void 0;\n' +
+              '\t}\n' +
+              '\tif (stat !== void 0) {\n' +
+              '\t\tif (!stat.isSymbolicLink()) {\n' +
+              '\t\t\tif ((stat.isDirectory() ? readModuleProxyRecord(link) : void 0)?.dsh?.moduleFallback?.targets === void 0) throw new Error(`dsh: ${link} exists and is not a symlink or dsh-managed module proxy; remove it so dsh can manage the installation fallback`);\n' +
+              '\t\t\trmSync(link, { recursive: true });\n' +
+              '\t\t\tstat = void 0;\n' +
+              '\t\t}\n' +
+              '\t\tif (stat !== void 0) {\n' +
+              '\t\t\tif (symlinkPointsTo(link, target)) return;\n' +
+              '\t\t\tunlinkSync(link);\n' +
+              '\t\t}\n' +
+              '\t}\n' +
+              '\tif (process.platform === "win32") {\n' +
+              '\t\tif (companyWinJunction(link, target)) return;\n' +
+              '\t\tthrow new Error("dsh: win-junction-failed " + link + " -> " + target);\n' +
+              '\t}\n' +
+              '\ttry {\n' +
+              '\t\tsymlinkSync(target, link, "junction");\n' +
+              '\t} catch (error) {\n' +
+              '\t\t/* v8 ignore next 4 */\n' +
+              '\t\tif (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || !symlinkPointsTo(link, target)) throw error;\n' +
+              '\t}\n' +
+              '}\n',
+          },
+        ],
       },
     ],
   },
@@ -396,6 +496,29 @@ export const CODE_PATCHES = [
 const PRESET_STANDARD = path.join('config', 'agent-presets', 'standard', 'agent.cordis.yml')
 const PRESET_CODE = path.join('config', 'agent-presets', 'code', 'agent.cordis.yml')
 
+export function presetCandidates(name) {
+  return [
+    path.join('config', 'agent-presets', name, 'agent.cordis.yml'),
+    path.join('node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets', name, 'agent.cordis.yml'),
+  ]
+}
+
+export function resolvePresetRel(kernelRoot, name) {
+  for (const rel of presetCandidates(name)) {
+    if (fs.existsSync(path.join(kernelRoot, rel))) return rel
+  }
+  return null
+}
+
+export function resolveMarkFile(kernelRoot, entry) {
+  const candidates = entry.files ?? [entry.file]
+  for (const rel of candidates) {
+    const abs = path.join(kernelRoot, rel)
+    if (fs.existsSync(abs)) return abs
+  }
+  return null
+}
+
 const SKILLS_MARK_V1 = 'company-preset-skills-v1'
 const SKILLS_MARK_V2 = 'company-preset-skills-v2'
 const SKILLS_TAG = '# company-desk skills root'
@@ -406,9 +529,9 @@ const yamlStr = (s) => `'${String(s).replace(/\\/g, '/').replace(/'/g, "''")}'`
  * 不看官方默认根。v1（上游版本）留下的是字面占位符 __DESK_SKILLS__；v2 写真实路径，并在路径变化时同步。
  */
 function pinPresetSkills(kernelRoot, skillsDir, log, counters) {
-  const rel = PRESET_STANDARD
+  const rel = resolvePresetRel(kernelRoot, 'standard')
+  if (!rel) throw new KernelPatchError('preset-missing', 'standard')
   const file = path.join(kernelRoot, rel)
-  if (!fs.existsSync(file)) throw new KernelPatchError('preset-missing', file)
   let text = fs.readFileSync(file, 'utf8')
   const dirLine = (indent, key) => `${indent}${key}${yamlStr(skillsDir)}   ${SKILLS_TAG}`
   const wantBundled = dirLine('    ', 'bundledSkillDir: ')
@@ -461,14 +584,15 @@ function pinPresetSkills(kernelRoot, skillsDir, log, counters) {
  * 宿主 overlay 里 `tool-web.fetch: true` 不会注册模型工具——web_fetch 归会话预设管，官方 standard/code 都是 fetch: false。
  * 直接把预设钉成 fetch: true，并放宽超时。
  */
-function pinPresetFetch(kernelRoot, rel, log, counters) {
+function pinPresetFetch(kernelRoot, name, log, counters) {
+  const rel = resolvePresetRel(kernelRoot, name)
+  if (!rel) {
+    log(`PRESET_FETCH_SKIP=${name}|missing`)
+    return
+  }
   const file = path.join(kernelRoot, rel)
   const mark = 'company-preset-web-fetch-v1'
   const mark2 = 'company-preset-web-fetch-v2'
-  if (!fs.existsSync(file)) {
-    log(`PRESET_FETCH_SKIP=${rel}|missing`)
-    return
-  }
   let text = fs.readFileSync(file, 'utf8')
   const want = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: true\n    searchTimeoutMs: 60000\n    fetchTimeoutMs: 90000\n"
   if (text.includes(mark2) && text.includes('fetchTimeoutMs: 90000')) {
@@ -486,10 +610,11 @@ function pinPresetFetch(kernelRoot, rel, log, counters) {
     counters.applied++
     return
   }
-  const from = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: false\n    searchTimeoutMs: 60000\n"
+  const fromFalse = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: false\n    searchTimeoutMs: 60000\n"
+  const fromTrue = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: true\n    searchTimeoutMs: 60000\n"
   const to = want + `# --- ${mark} ---\n# --- ${mark2} ---\n`
-  const hits = text.split(from).length - 1
-  if (hits !== 1) throw new KernelPatchError('preset-fetch-anchor', `${rel}|expected=1|got=${hits}`)
+  const from = text.split(fromFalse).length - 1 === 1 ? fromFalse : text.split(fromTrue).length - 1 === 1 && !text.includes('fetchTimeoutMs: 90000') ? fromTrue : null
+  if (!from) throw new KernelPatchError('preset-fetch-anchor', `${rel}|expected=1|got=0`)
   fs.writeFileSync(file, text.replace(from, to), 'utf8')
   log(`PATCHED=${rel}|web-fetch`)
   counters.applied++
@@ -532,24 +657,25 @@ function pinPresetInstrRoot(kernelRoot, rel, log, counters) {
 /** 所有 mark（代码 + 预设），供 --check 判断「补丁齐了没」。 */
 export const ALL_MARKS = [
   ...CODE_PATCHES.map((p) => ({ file: p.file, marks: [p.mark, ...(p.already ?? [])] })),
-  { file: PRESET_STANDARD, marks: [SKILLS_MARK_V2] },
-  { file: PRESET_STANDARD, marks: ['company-preset-web-fetch-v2'] },
-  { file: PRESET_CODE, marks: ['company-preset-web-fetch-v2'] },
-  { file: PRESET_STANDARD, marks: ['company-preset-instr-root-v1'] },
-  { file: PRESET_CODE, marks: ['company-preset-instr-root-v1'] },
+  { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: [SKILLS_MARK_V2] },
+  { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: ['company-preset-web-fetch-v2'] },
+  { file: PRESET_CODE, files: presetCandidates('code'), marks: ['company-preset-web-fetch-v2'], optional: true },
+  { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: ['company-preset-instr-root-v1'] },
+  { file: PRESET_CODE, files: presetCandidates('code'), marks: ['company-preset-instr-root-v1'], optional: true },
 ]
 
 /** 只读检查：返回还缺哪些 mark（空数组 = 补丁齐全）。 */
 export function missingPatches(kernelRoot) {
   const missing = []
-  for (const { file, marks } of ALL_MARKS) {
-    const target = path.join(kernelRoot, file)
-    if (!fs.existsSync(target)) {
-      missing.push(`${file}|missing`)
+  for (const entry of ALL_MARKS) {
+    const target = resolveMarkFile(kernelRoot, entry)
+    if (!target) {
+      if (entry.optional) continue
+      missing.push(`${entry.file}|missing`)
       continue
     }
     const text = fs.readFileSync(target, 'utf8')
-    if (!marks.some((m) => text.includes(m))) missing.push(`${file}|${marks[0]}`)
+    if (!entry.marks.some((m) => text.includes(m))) missing.push(`${entry.file}|${entry.marks[0]}`)
   }
   return missing
 }
@@ -576,10 +702,7 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log })
       continue
     }
     for (const edit of patch.edits) {
-      const hits = text.split(edit.from).length - 1
-      // 内核动过了。不猜：半套用到沙箱上比拒绝套用更糟。
-      if (hits !== 1) throw new KernelPatchError('anchor-not-unique', `${patch.file}|${edit.name}|expected=1|got=${hits}|内核升过版本？请对着新源码重审这条补丁`)
-      text = text.replace(edit.from, edit.to)
+      text = applyEdit(text, edit, patch.file)
     }
     text = text.trimEnd() + '\n' + patch.append
     fs.writeFileSync(target, text, 'utf8')
@@ -593,14 +716,14 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log })
   }
 
   pinPresetSkills(kernelRoot, skillsDir, log, counters)
-  pinPresetFetch(kernelRoot, PRESET_STANDARD, log, counters)
-  pinPresetFetch(kernelRoot, PRESET_CODE, log, counters)
+  pinPresetFetch(kernelRoot, 'standard', log, counters)
+  pinPresetFetch(kernelRoot, 'code', log, counters)
   for (const rel of [
-    PRESET_STANDARD,
-    PRESET_CODE,
+    resolvePresetRel(kernelRoot, 'standard'),
+    resolvePresetRel(kernelRoot, 'code'),
     path.join('config', 'agent-presets', 'company-think', 'agent.cordis.yml'),
     path.join('config', 'agent-presets', 'company-think-eval', 'agent.cordis.yml'),
-  ])
+  ].filter(Boolean))
     pinPresetInstrRoot(kernelRoot, rel, log, counters)
 
   return counters

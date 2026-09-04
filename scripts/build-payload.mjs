@@ -16,7 +16,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { PIN, defaultPrefix, locateKernel } from './kernel/locate.mjs'
-import { ALL_MARKS, missingPatches } from './kernel/patches.mjs'
+import { ALL_MARKS, missingPatches, resolveMarkFile } from './kernel/patches.mjs'
 import { findTar, readGatewayUrl } from './lib/bootstrap.mjs'
 import { digestFiles, makeBuildId, patchGatewayUrl, shouldPrune } from './lib/payload.mjs'
 
@@ -84,12 +84,17 @@ if (!has('--no-prune')) {
 // 4. 校验：补丁齐、补丁文件语法完好
 const left = missingPatches(kernel.root)
 if (left.length) die(`修剪后缺补丁：${left.join(', ')}`)
-for (const { file } of ALL_MARKS) {
+for (const entry of ALL_MARKS) {
+  const file = resolveMarkFile(kernel.root, entry)
+  if (!file) {
+    if (entry.optional) continue
+    die(`补丁文件缺失 ${entry.file}`)
+  }
   if (!file.endsWith('.js')) continue
   try {
-    execFileSync(process.execPath, ['--check', path.join(kernel.root, file)], { stdio: 'pipe' })
+    execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' })
   } catch (err) {
-    die(`补丁文件语法检查失败 ${file}: ${err.stderr || err.message}`)
+    die(`补丁文件语法检查失败 ${entry.file}: ${err.stderr || err.message}`)
   }
 }
 log(`内核 ${kernel.version}，${ALL_MARKS.length} 处补丁齐全`)
@@ -115,13 +120,13 @@ const repoPatch = path.join(root, 'profile', 'cordis.patch.yml')
 fs.writeFileSync(path.join(out, 'profile', 'cordis.patch.yml'), patchGatewayUrl(fs.readFileSync(repoPatch, 'utf8'), gateway))
 
 // 8. 脚本
-for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 'scripts/kernel/pin.json', 'scripts/lib/bootstrap.mjs', 'scripts/lib/find-tar.mjs', 'scripts/lib/kernel-update.mjs']) {
+for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 'scripts/kernel/pin.json', 'scripts/lib/bootstrap.mjs', 'scripts/lib/find-tar.mjs', 'scripts/lib/kernel-update.mjs', 'scripts/lib/lan-protocol.mjs']) {
   fs.mkdirSync(path.dirname(path.join(out, rel)), { recursive: true })
   fs.copyFileSync(path.join(root, rel), path.join(out, rel))
 }
 
 // 9. payload.json
-const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
+const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
 const payload = {
   buildId: makeBuildId({ version, kernelVersion: kernel.version, digest }),
   version,

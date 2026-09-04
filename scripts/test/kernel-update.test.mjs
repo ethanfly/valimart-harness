@@ -9,9 +9,10 @@ import { fileURLToPath } from 'node:url'
 import {
   parseReleaseTag, newerThan, filterDiscoverable, hashFile,
   pendingPaths, readPending, writePending, clearPending,
+  annotateDiscoverWithNpm, fetchNpmVersions, resolveNpmRegistry,
 } from '../lib/kernel-update.mjs'
 import { fetchKernelUpdate } from '../../plugins/desk-host/lib/kernel-update.js'
-import { packPatchedPrefix } from '../lib/kernel-prepare.mjs'
+import { packPatchedPrefix, formatNpmInstallError, prepareKernelTarball } from '../lib/kernel-prepare.mjs'
 import { ALL_MARKS, KernelPatchError } from '../kernel/patches.mjs'
 import { locateKernel } from '../kernel/locate.mjs'
 import { applyPendingKernel, findTar, preparePackaged } from '../lib/bootstrap.mjs'
@@ -80,6 +81,115 @@ test('newerThan：核心版本与预发布', () => {
   assert.equal(newerThan('0.1.2-rc.1', '0.1.2-alpha.5'), true)
   assert.equal(newerThan('0.1.1-rc.2', '0.1.2-rc.1'), false)
   assert.equal(newerThan('0.1.1-rc.2', '0.1.1-rc.2'), false)
+})
+
+test('formatNpmInstallError：带退出码和 stderr，不说检查网络', () => {
+  const msg = formatNpmInstallError({
+    status: 1,
+    stdout: 'npm notice',
+    stderr: 'npm ERR! 404 Not Found - GET https://registry.npmmirror.com/@deepseek-ai/dsh/0.1.3-alpha.1',
+  })
+  assert.match(msg, /退出码 1/)
+  assert.match(msg, /404 Not Found/)
+  assert.match(msg, /0\.1\.3-alpha\.1/)
+  assert.equal(msg.includes('检查网络'), false)
+})
+
+test('formatNpmInstallError：只留输出尾部约 800 字', () => {
+  const stderr = 'HEAD' + 'e'.repeat(900) + 'TAIL-404-not-found'
+  const msg = formatNpmInstallError({ status: 1, stdout: '', stderr })
+  assert.match(msg, /退出码 1/)
+  assert.match(msg, /TAIL-404-not-found/)
+  assert.equal(msg.includes('HEAD'), false)
+  assert.ok(msg.length < 950)
+})
+
+test('annotateDiscoverWithNpm：按 npm versions 标记 onNpm', () => {
+  const discover = [
+    { tag: 'dsh-v0.1.3-alpha.1', version: '0.1.3-alpha.1', name: 'a', prerelease: true },
+    { tag: 'dsh-v0.1.2-rc.1', version: '0.1.2-rc.1', name: 'b', prerelease: true },
+  ]
+  const out = annotateDiscoverWithNpm(discover, ['0.1.2-rc.1', '0.1.2-alpha.5'])
+  assert.equal(out[0].onNpm, false)
+  assert.equal(out[0].tag, 'dsh-v0.1.3-alpha.1')
+  assert.equal(out[1].onNpm, true)
+})
+
+test('annotateDiscoverWithNpm：查询失败标 unknown，不谎称已核对', () => {
+  const discover = [{ tag: 'dsh-v0.1.2-rc.1', version: '0.1.2-rc.1', name: 'b', prerelease: true }]
+  const out = annotateDiscoverWithNpm(discover, null, { queryFailed: true })
+  assert.equal(out[0].onNpm, null)
+})
+
+test('fetchNpmVersions：注入 fetch，读 packument versions', async () => {
+  const calls = []
+  const versions = await fetchNpmVersions({
+    registry: 'https://registry.npmmirror.com',
+    fetchImpl: async (url) => {
+      calls.push(url)
+      return { ok: true, json: async () => ({ versions: { '0.1.2-rc.1': {}, '0.1.2-alpha.5': {} } }) }
+    },
+  })
+  assert.deepEqual(versions, ['0.1.2-rc.1', '0.1.2-alpha.5'])
+  assert.equal(calls.length, 1)
+  assert.match(calls[0], /@deepseek-ai%2Fdsh/)
+  assert.match(calls[0], /^https:\/\/registry\.npmmirror\.com\//)
+})
+
+test('resolveNpmRegistry：调用方优先于环境变量，缺省 npmmirror', () => {
+  const prev = process.env.npm_config_registry
+  try {
+    delete process.env.npm_config_registry
+    assert.equal(resolveNpmRegistry(), 'https://registry.npmmirror.com')
+    assert.equal(resolveNpmRegistry('https://registry.npmjs.org/'), 'https://registry.npmjs.org')
+    process.env.npm_config_registry = 'https://example.com/npm/'
+    assert.equal(resolveNpmRegistry(), 'https://example.com/npm')
+    assert.equal(resolveNpmRegistry('https://custom.example/'), 'https://custom.example')
+  } finally {
+    if (prev === undefined) delete process.env.npm_config_registry
+    else process.env.npm_config_registry = prev
+  }
+})
+
+test('prepareKernelTarball：版本不在 npm 时提前失败，不调 installer', () => {
+  let installed = false
+  assert.throws(
+    () =>
+      prepareKernelTarball({
+        version: '0.1.3-alpha.1',
+        prefix: path.join(os.tmpdir(), 'diva-no-npm-prefix'),
+        outDir: path.join(os.tmpdir(), 'diva-no-npm-out'),
+        skillsDir: path.join(os.tmpdir(), 'diva-no-npm-skills'),
+        installer: () => {
+          installed = true
+        },
+        npmVersions: ['0.1.2-rc.1'],
+      }),
+    (err) =>
+      err.code === 'not_on_npm' &&
+      /GitHub 有 tag/.test(err.message) &&
+      err.message.includes('@deepseek-ai/dsh@0.1.3-alpha.1'),
+  )
+  assert.equal(installed, false)
+})
+
+test('prepareKernelTarball：未提供 npmVersions 时不拦截', () => {
+  let installed = false
+  assert.throws(
+    () =>
+      prepareKernelTarball({
+        version: '9.0.0',
+        prefix: 'x',
+        outDir: 'y',
+        skillsDir: 'z',
+        installer: () => {
+          installed = true
+          throw new Error('stop-before-pack')
+        },
+      }),
+    (err) => err.message === 'stop-before-pack',
+  )
+  assert.equal(installed, true)
 })
 
 test('filterDiscoverable：丢掉 draft / 旧版 / 坏 tag', () => {

@@ -22,3 +22,6 @@ Thumbs.db
 /build/
 dist/
 desktop/dist/
+desktop/build/verify-app/
+desktop/build/titlebar-verify.*
+desktop/build/argv.json

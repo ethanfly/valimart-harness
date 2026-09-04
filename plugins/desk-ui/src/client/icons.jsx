@@ -71,3 +71,35 @@ export const IconCheck = ({ size = 16 }) => (
     <path d="m3 8.5 3 3 7-7" />
   </svg>
 )
+
+const winIcon = {
+  width: 10,
+  height: 10,
+  viewBox: '0 0 10 10',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1,
+  'aria-hidden': true,
+}
+
+export const IconWinMin = () => (
+  <svg {...winIcon}>
+    <path d="M1 5h8" />
+  </svg>
+)
+export const IconWinMax = () => (
+  <svg {...winIcon}>
+    <rect x="1.5" y="1.5" width="7" height="7" />
+  </svg>
+)
+export const IconWinRestore = () => (
+  <svg {...winIcon}>
+    <rect x="1.5" y="3" width="5.5" height="5.5" />
+    <path d="M3.5 3V1.5h5.5V7H7" />
+  </svg>
+)
+export const IconWinClose = () => (
+  <svg {...winIcon}>
+    <path d="M2 2l6 6M8 2L2 8" />
+  </svg>
+)

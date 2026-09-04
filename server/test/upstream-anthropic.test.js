@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  anthropicHeaders,
   anthropicMessagesUrl,
   createAnthropicSseTranslator,
   inferUpstreamApi,
@@ -9,6 +10,16 @@ import {
   toOpenAIResponse,
   usesAnthropicMessages,
 } from '../src/upstream-anthropic.js'
+
+test('anthropicHeaders：订阅 OAuth 用 Bearer，不用 x-api-key', () => {
+  const key = anthropicHeaders('sk-ant-key')
+  assert.equal(key['x-api-key'], 'sk-ant-key')
+  assert.equal(key.authorization, undefined)
+  const oauth = anthropicHeaders('sk-oauth', { authStyle: 'anthropic-oauth' })
+  assert.equal(oauth.authorization, 'Bearer sk-oauth')
+  assert.equal(oauth['anthropic-beta'], 'oauth-2025-04-20')
+  assert.equal(oauth['x-api-key'], undefined)
+})
 
 test('infer / uses：官方 Anthropic 走 messages，其它走 OpenAI 兼容', () => {
   assert.equal(inferUpstreamApi('https://api.anthropic.com/v1'), 'anthropic-messages')

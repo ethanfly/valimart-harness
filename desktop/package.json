@@ -1,10 +1,10 @@
 {
-  "name": "the-diva-desktop",
-  "productName": "THE DIVA",
+  "name": "valimart-harness",
+  "productName": "valimart harness",
   "version": "0.1.0",
   "private": true,
-  "description": "THE DIVA · 企业交付工作台 桌面客户端",
-  "author": "THE DIVA",
+  "description": "valimart harness · 企业交付工作台 桌面客户端",
+  "author": "Valimart",
   "main": "main.js",
   "scripts": {
     "start": "electron . --payload ../build/payload",

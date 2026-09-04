@@ -56,10 +56,14 @@ export class Drive {
     return full
   }
 
-  ensureLayout() {
+  /**
+   * 建空目录结构。`seedSamples: true` 才写入岗位手册 / 示例技能（开发机）；
+   * 安装版空库只留目录，不出现假内容。
+   */
+  ensureLayout({ seedSamples = false } = {}) {
     for (const layer of MEMORY_LAYERS) fs.mkdirSync(path.join(this.root, '_shared', '_memory', layer.dir), { recursive: true })
     fs.mkdirSync(path.join(this.root, '_shared', 'handbook'), { recursive: true })
-    fs.mkdirSync(path.join(this.root, '_shared', 'skills', 'company-briefing'), { recursive: true })
+    fs.mkdirSync(path.join(this.root, '_shared', 'skills'), { recursive: true })
     fs.mkdirSync(path.join(this.root, 'projects', 'inbox'), { recursive: true })
     const readme = path.join(this.root, '_shared', '_memory', 'README.md')
     if (!fs.existsSync(readme)) {
@@ -68,17 +72,17 @@ export class Drive {
         [
           '# 共享经验（_shared/_memory）',
           '',
-          '全员只读。老同事把踩过的坑、做成的法写进去，新人打开即用。',
+          '全员只读。按层放入项目、方法、证据、复盘与日志。',
           '',
           '| 层 | 用途 |',
           '| --- | --- |',
           ...MEMORY_LAYERS.map((l) => `| \`${l.dir}\` | ${l.label} |`),
           '',
-          '写入方式：管理员/总监直接写；普通员工用 `company_memory_write zone=shared` 只能追加到 `05-logs`。',
-          '',
         ].join('\n'),
       )
     }
+    if (!seedSamples) return
+    fs.mkdirSync(path.join(this.root, '_shared', 'skills', 'company-briefing'), { recursive: true })
     const handbook = path.join(this.root, '_shared', 'handbook', '00-岗位手册-总则.md')
     if (!fs.existsSync(handbook)) {
       fs.writeFileSync(

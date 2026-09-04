@@ -406,7 +406,19 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.equal(page.status, 200)
   assert.match(page.headers.get('content-type'), /text\/html/)
   const html = await page.text()
-  for (const s of ['THE DIVA', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '试打补丁', '回滚到上一版']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  for (const s of ['valimart harness', 'harness', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '试打补丁', '回滚到上一版', '初始设置']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  assert.ok(html.includes('/admin/brand/valimart-mark.png'), 'favicon 仍用花标')
+  assert.ok(html.includes('class="word"'), '管理页 logo 用完整字标蒙版（图里已含花标）')
+  assert.ok(!html.includes('class="mark"'), '字标图已含花标，不要再并一枚 mark')
+  assert.ok(!html.includes('<small>harness</small>'), '管理页不应把 harness 当 logo 文字')
+  const mark = await fetch(base + '/admin/brand/valimart-mark.png')
+  assert.equal(mark.status, 200)
+  assert.match(mark.headers.get('content-type'), /image\/png/)
+  const markBuf = Buffer.from(await mark.arrayBuffer())
+  assert.equal(markBuf[0], 0x89)
+  assert.equal(markBuf[1], 0x50)
+  const fav = await fetch(base + '/favicon.ico')
+  assert.equal(fav.status, 200)
   const root = await fetch(base + '/', { redirect: 'manual' })
   assert.equal(root.status, 302)
   assert.equal(root.headers.get('location'), '/admin')
@@ -516,4 +528,45 @@ test('内核：prepare 缺 version 为 400；员工 403（不跑 npm）', async 
   const r = await api('POST', '/api/admin/kernel/prepare', { token: ctx.boss.sessionToken, body: {} })
   assert.equal(r.status, 400)
   assert.equal(r.json.error.code, 'bad_request')
+})
+
+test('内核：prepare 对不在 npm 的 version 返回 400 且不跑 npm', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-gw-npm-'))
+  let installs = 0
+  const extra = createGateway({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir: dir,
+    upstreams: { mock: { kind: 'mock', label: 'Mock', models: [{ id: 'mock-echo', name: 'Mock Echo', priceCnyPerM: { input: 1, output: 2, cachedInput: 0.1 } }] } },
+    channels: [],
+    defaultModel: 'mock-echo',
+    fetchReleases: async () => [],
+    fetchNpmVersions: async () => ['0.1.2-rc.1'],
+    prepareInstaller: () => {
+      installs++
+    },
+  })
+  const url = await extra.listen()
+  try {
+    const login = await fetch(url + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'boss', password: 'boss123456', device: 'test' }),
+    })
+    const { sessionToken } = await login.json()
+    const r = await fetch(url + '/api/admin/kernel/prepare', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + sessionToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ version: '0.1.3-alpha.1' }),
+    })
+    const json = await r.json()
+    assert.equal(r.status, 400)
+    assert.equal(json.error.code, 'not_on_npm')
+    assert.match(json.error.message, /GitHub 有 tag/)
+    assert.match(json.error.message, /@deepseek-ai\/dsh@0\.1\.3-alpha\.1/)
+    assert.equal(installs, 0)
+  } finally {
+    await extra.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })

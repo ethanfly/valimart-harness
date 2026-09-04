@@ -3,7 +3,7 @@
  *   node scripts/backup-gateway.mjs
  *   node scripts/backup-gateway.mjs --data-dir <dir> --out <zip或目录>
  *
- * 默认 data-dir：DESK_GATEWAY_DATA → %ProgramData%\THE DIVA Gateway\data → server/data
+ * 默认 data-dir：DESK_GATEWAY_DATA → %ProgramData%\valimart harness Gateway\data（旧版 THE DIVA Gateway 仍识别）→ server/data
  * 默认 out：<data-dir 的上一级>/backups/gateway-YYYYMMDD-HHMMSS.zip
  */
 import fs from 'node:fs'
@@ -22,7 +22,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export function defaultDataDir() {
   if (process.env.DESK_GATEWAY_DATA) return path.resolve(process.env.DESK_GATEWAY_DATA)
   if (process.platform === 'win32' && process.env.ProgramData) {
-    return path.join(process.env.ProgramData, 'THE DIVA Gateway', 'data')
+    const next = path.join(process.env.ProgramData, 'valimart harness Gateway', 'data')
+    const legacy = path.join(process.env.ProgramData, 'THE DIVA Gateway', 'data')
+    if (fs.existsSync(next)) return next
+    if (fs.existsSync(legacy)) return legacy
+    return next
   }
   return path.join(root, 'server', 'data')
 }
@@ -46,9 +50,10 @@ export function snapshotDataDir(dataDir, destDir) {
   if (fs.existsSync(dbFile)) {
     const db = new DatabaseSync(dbFile, { readOnly: true })
     try {
-      const buf = db.serialize()
       sqlite = path.join(destDir, 'gateway.sqlite')
-      fs.writeFileSync(sqlite, buf)
+      // node:sqlite 的 DatabaseSync 没有 serialize()；VACUUM INTO 是一致快照。
+      const dest = sqlite.replaceAll('\\', '/').replaceAll("'", "''")
+      db.exec(`VACUUM INTO '${dest}'`)
     } finally {
       db.close()
     }

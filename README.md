@@ -1,11 +1,11 @@
-# THE DIVA · 企业交付工作台
+# valimart harness · 企业交付工作台
 
 基于 `@deepseek-ai/dsh`（DeepSeek Harness）内核的**公司内部交付工作台**。内核由本仓库自己安装并打补丁
 （`scripts/install-kernel.mjs`），**不依赖任何其他仓库**——克隆这个目录、`npm install`、`npm run dev` 即可。
 
 > 接手先看 [`docs/HANDOFF.md`](docs/HANDOFF.md)（现在在哪、关键决定、下次该干嘛）；过程记录在 [`docs/sessions/`](docs/sessions/)。
 
-- **桌面客户端（THE DIVA）**：左侧「会话 / 任务」双栏，个人与团队工作区，会话页可选模型、切换标准模式、
+- **桌面客户端（valimart harness）**：左侧「会话 / 任务」双栏，个人与团队工作区，会话页可选模型、切换标准模式、
   `Full access` 权限，输入框「文件」芯片把本机文件放进工作目录并作为 `@` 引用；Agent 在本机执行，
   流式输出。
 - **任务卡**：新建 / 列表 / 详情（概览、工作日志），提交信息、交付物（公司盘）、
@@ -29,7 +29,7 @@ company-desk/
 │  └─ test/                # 网关端到端 + sqlite / Anthropic 转译（node --test）
 ├─ plugins/
 │  ├─ desk-host/           # dsh 宿主插件：网关登录态、模型路由、公司盘镜像、任务工具、/desk/api
-│  └─ desk-ui/             # dsh 浏览器端插件：THE DIVA 外壳、侧栏、任务页、设置页、登录遮罩
+│  └─ desk-ui/             # dsh 浏览器端插件：valimart harness 外壳、侧栏、任务页、设置页、登录遮罩
 ├─ profile/cordis.patch.yml# dsh "desk" profile 补丁层（关官方外壳、插公司插件、默认全访问）
 ├─ desktop/                # Electron 壳（安装版客户端，§2.5）：main.js、splash.html、electron-builder.yml、build/icon.*；独立 npm 子项目
 ├─ installer/              # 网关安装包（§2.5）：gateway.nsi、gateway/init.mjs + TheDivaGateway.xml.tpl（WinSW 服务定义）、pins.json
@@ -126,8 +126,8 @@ Claude / Anthropic 官方端点走 Messages API（`x-api-key` + `/v1/messages`�
 
 | 产物 | 给谁 | 安装方式 |
 | --- | --- | --- |
-| `dist/THE-DIVA-Setup-<ver>.exe`（约 150 MB） | 员工电脑 | 一键**按用户**安装，不需要管理员；装到 `%LOCALAPPDATA%\Programs\the-diva-desktop`（落盘约 600 MB；桌面 / 开始菜单快捷方式叫 **THE DIVA**，「应用和功能」里显示为 **THE DIVA 0.1.0**（含版本号））；首次启动把内核解压到 `~/.company-desk/app`（本机实测约 19 s），之后约 2–3 s 开 |
-| `dist/THE-DIVA-Gateway-Setup-<ver>.exe`（约 25 MB） | 公司服务器 | 需要管理员（UAC）；装到 `%ProgramFiles%\THE DIVA Gateway`，注册 Windows 服务 `TheDivaGateway`（随系统自启，崩了自动重启），防火墙放行 TCP 8790；数据在 `%ProgramData%\THE DIVA Gateway\{data,logs}`（卸载保留） |
+| `dist/valimart-harness-Setup-<ver>.exe`（约 150 MB） | 员工电脑 | 一键**按用户**安装，不需要管理员；装到 `%LOCALAPPDATA%\Programs\valimart-harness`（落盘约 600 MB；桌面 / 开始菜单快捷方式叫 **valimart harness**，「应用和功能」里显示为 **valimart harness 0.1.0**）；首次启动把内核解压到 `~/.company-desk/app`（本机实测约 19 s），之后约 2–3 s 开 |
+| `dist/valimart-harness-Gateway-Setup-<ver>.exe`（约 25 MB） | 公司服务器 | 需要管理员（UAC）；装到 `%ProgramFiles%\valimart harness Gateway`，注册 Windows 服务 `TheDivaGateway`（随系统自启，崩了自动重启），防火墙放行 TCP 8790；数据在 `%ProgramData%\valimart harness Gateway\{data,logs}`（卸载保留） |
 
 两个包都**未签名**：首次运行 SmartScreen 会拦，「更多信息 → 仍要运行」。安装器 / 卸载器都支持静默参数 `/S`。
 
@@ -135,8 +135,8 @@ Claude / Anthropic 官方端点走 Messages API（`x-api-key` + `/v1/messages`�
 
 ```powershell
 npm --prefix desktop install   # 首次：装 Electron 44 / electron-builder 26（只在 desktop/ 子项目里；根 package.json 仍只有 esbuild）
-npm run dist:client            # = build-payload.mjs（→ build/payload）+ build-client-installer.mjs → dist/THE-DIVA-Setup-<ver>.exe
-npm run dist:gateway           # = build-gateway-installer.mjs（→ build/gateway）→ dist/THE-DIVA-Gateway-Setup-<ver>.exe
+npm run dist:client            # = build-payload.mjs（→ build/payload）+ build-client-installer.mjs → dist/valimart-harness-Setup-<ver>.exe
+npm run dist:gateway           # = build-gateway-installer.mjs（→ build/gateway）→ dist/valimart-harness-Gateway-Setup-<ver>.exe
 npm run dist                   # 两个都出
 ```
 
@@ -153,50 +153,50 @@ npm run dist                   # 两个都出
   所以**要先成功跑过一次 `npm run dist:client`**；或自装 NSIS 3 并设 `MAKENSIS` 指向 `makensis.exe`（查找顺序：`MAKENSIS` 环境变量 → electron-builder 缓存 → PATH 里的 `makensis`）。
 - 内核来源：本机默认前缀（`~/.company-desk/kernel`；也认 `DESK_KERNEL_PREFIX` 和旧位置 `~/.tdh-coding-prefix`，同 `scripts/kernel/locate.mjs`）版本等于 `scripts/kernel/pin.json` 且 16 处补丁齐 → 直接复制；否则重新 `install-kernel.mjs` 到 `build/kernel-stage`（要网络）。
   修剪 `.d.ts` / source map / 非 win32-x64 的 node-pty 预编译后打成 `kernel.tar`（约 134 MB），用 Windows 自带的 `tar.exe`（bsdtar，Win10 1803+）。
-- 图标 `desktop/build/icon.png|ico` 已入库；改图标才需要 `npm run icon`（用本机 Edge/Chrome 渲染 SVG）。
+- 图标 `desktop/build/icon.png`（1024）/`icon-512.png`/`icon.ico`（16–256）已入库；改图标才需要 `npm run icon`（本机 Edge/Chrome 渲矢量花标，再面积采样）。
 - `build/`、`dist/` 不入库；改了 `scripts/lib/bootstrap.mjs`、`scripts/kernel/*`、`plugins/**`、`profile/cordis.patch.yml` 要重新 `npm run dist:client`（它们都随包）。
 - 本机 shell 是 Windows PowerShell 5.1：多条命令用 `;` 连接，不支持 `&&`。
 
-### 客户端（THE DIVA）
+### 客户端（valimart harness）
 
 - 启动流程：启动页 → 随包 `node.exe` 跑 `bootstrap.mjs --packaged`（首次 / 升级后解压 `kernel.tar` 到 `~/.company-desk/app/kernel`，
   把内核预设里的技能根改成本机 `~/.dsh/desk/drive/_shared/skills`，装 dsh profile `desk-app`）→ 选端口起内核 → 等 HTTP 就绪 → 主窗口。
-  任务管理器里内核进程是 `…\Programs\the-diva-desktop\resources\payload\runtime\node.exe`。
+  任务管理器里内核进程是 `…\Programs\valimart-harness\resources\payload\runtime\node.exe`。
 - 登录页「公司网关」填 `http://<服务器名或 IP>:8790`（打包时可预置，见上）。
 - 端口 3470 被占会顺延 3471…3479，再不行随机；内核页面的偏好存在浏览器端、按端口（origin）区分，换端口会重置主题等偏好。
 - 运行期状态全部在用户目录：`~/.company-desk/app`（解压的内核、插件 / profile / scripts 副本、`state.json`，以及 Electron 自身的 userData `electron/`）、
   `~/.company-desk/logs/desktop.log`（5 MB 滚动保留 3 份，含 bootstrap 与内核输出）、`~/.dsh/profiles/desk-app`；
   登录态 / 公司盘镜像 / 会话仍在 `~/.dsh/desk`、`~/.dsh/sessions`。安装目录运行期只读。
-- 排障：F12 开 DevTools、F5 重载；启动失败弹「THE DIVA 无法启动」对话框，可直接打开日志目录。
+- 排障：F12 开 DevTools、F5 重载；启动失败弹「valimart harness 无法启动」对话框，可直接打开日志目录。
 - 升级：直接装新版本（一键安装器会先卸旧的）；首次启动发现 `buildId` 变了会重新解压内核（`~/.company-desk/app` 里本程序建的条目整体换新，`~/.dsh/profiles/desk-app` 随之刷新，`~/.dsh/desk`、`~/.dsh/sessions` 不动；
   这条升级路径有单测，安装器层面的覆盖安装本机还没单独试过）。
-  卸载（「设置 → 应用」，或 `"%LOCALAPPDATA%\Programs\the-diva-desktop\Uninstall THE DIVA.exe" /S`）不删 `~/.company-desk` 与 `~/.dsh`。
+  卸载（「设置 → 应用」，或 `"%LOCALAPPDATA%\Programs\valimart-harness\Uninstall valimart harness.exe" /S`）不删 `~/.company-desk` 与 `~/.dsh`。
 - 开发机上安装版与 `npm run dev` 并存：安装版用 profile `desk-app` + `~/.company-desk/app/kernel`，开发版用 `desk` + `~/.company-desk/kernel`；
   登录态、公司盘镜像、会话（`~/.dsh/desk`、`~/.dsh/sessions`）共用，两边看到的是同一个登录账号。
   开发调试 Electron 壳请用 `npm --prefix desktop start -- --app-dir <dir> --dsh-home <dir>` 指到专用目录（绝对路径），不要与已安装的客户端共用 `~/.company-desk/app`：两边 `buildId` 不同，每次切换都会重新解压内核。
   `--app-dir` 指到含 `package.json` / `.git` 的目录（如仓库根）会被 `bootstrap.mjs` 直接拒绝。
 
-### 服务端（THE DIVA Gateway）
+### 服务端（valimart harness Gateway）
 
-- 安装向导：欢迎 → 目录 → 安装 → 完成（显示管理页地址与种子管理员 `boss / boss123456`，可勾选「打开管理页」）。
+- 安装向导：欢迎 → 目录 → 安装 → 完成（显示管理页地址；首次打开管理页会引导设置公司名、初始管理员账号与密码，**没有演示数据**）。
   安装 = 停旧服务 → 复制文件 → `runtime\node.exe service\init.mjs <INSTDIR>` 生成配置与服务定义 → `icacls` 收紧数据目录 → WinSW 注册并启动服务 → 防火墙放行 TCP 8790。
 - 安装目录：`runtime\node.exe`、`server\{src, config.json, package.json, config.local.json}`、
   `service\{TheDivaGateway.exe（WinSW 2.12.0）, TheDivaGateway.xml.tpl, TheDivaGateway.xml, init.mjs}`、
   `scripts\`（`kernel\{patches.mjs, locate.mjs, pin.json}` 与 `lib\{kernel-update,kernel-prepare,payload,npm-cli,find-tar}.mjs`：`api.js` 启动时静态导入，做内核目录与试打；pin 也给管理页显示版本）、
   `README.txt`（配置 / 密钥 / 日志说明，装完请读）、`Uninstall.exe`。
-- 配置 `server\config.local.json`：首次安装生成（`host 0.0.0.0`、`port 8790`、`publicUrl http://<主机名小写>:8790`、`dataDir`、`seedUsers []`——首次启动只创建种子管理员 `boss`，不创建 `config.json` 里的演示账号），**升级不覆盖**，改完重启服务。
-  改端口后要同步改防火墙规则「THE DIVA Gateway」——安装器只放行 8790，升级时会把规则重置回 8790。
-- 数据目录固定在 `%ProgramData%\THE DIVA Gateway\data`：服务定义里的 `DESK_GATEWAY_DATA` 优先于 `config.local.json` 的 `dataDir`；
-  安装器用 `icacls` 把 `%ProgramData%\THE DIVA Gateway` 收紧为仅 SYSTEM 与 Administrators 完全控制（服务跑在 LocalSystem；失败只在安装日志里警告）；
+- 配置 `server\config.local.json`：首次安装生成（`host 0.0.0.0`、`port 8790`、`publicUrl http://<主机名小写>:8790`、`dataDir`、`seedAdmin: false`、`seedUsers []`——不播种 boss / 演示账号，打开管理页或客户端完成引导），**升级不覆盖**，改完重启服务。
+  改端口后要同步改防火墙规则「valimart harness Gateway」——安装器只放行 8790，升级时会把规则重置回 8790。
+- 数据目录固定在 `%ProgramData%\valimart harness Gateway\data`：服务定义里的 `DESK_GATEWAY_DATA` 优先于 `config.local.json` 的 `dataDir`；
+  安装器用 `icacls` 把 `%ProgramData%\valimart harness Gateway` 收紧为仅 SYSTEM 与 Administrators 完全控制（服务跑在 LocalSystem；失败只在安装日志里警告）；
   `service\TheDivaGateway.xml` 每次安装 / 升级都由 `init.mjs` 按模板重新生成，**不要手改**（包括往里加 `<env>`）。
-  日志在 `%ProgramData%\THE DIVA Gateway\logs\TheDivaGateway.{out,err,wrapper}.log`。
+  日志在 `%ProgramData%\valimart harness Gateway\logs\TheDivaGateway.{out,err,wrapper}.log`。
 - 上游模型密钥（服务跑在 LocalSystem，`~/.dsh/.credentials.yaml` 这条路不可用），三种方式都能跨升级保留：
   ① 管理员在客户端「设置 → 同事 → 模型通道」接入（落 `data\gateway.sqlite`）；
   ② `server\config.local.json` 写 `{ "upstreams": { "deepseek": { "apiKey": "sk-…" } } }`（`upstreams.<id>.apiKey`，id 见 `config.json`）；
   ③ 机器级环境变量，变量名是 `config.json` 里该上游的 `apiKeyEnv`（DeepSeek 为 `DEEPSEEK_API_KEY`）：管理员 `setx /M DEEPSEEK_API_KEY sk-…` 后重启服务（个别机器要重启系统才生效）。
 - 管理：`services.msc`（服务 `TheDivaGateway`）或 `service\TheDivaGateway.exe start|stop|restart|status`；`sc.exe query TheDivaGateway`。
 - 升级 = 重跑新版本安装包（停服务 → 覆盖文件 → `config.local.json` 与数据不动 → 重注册并启动）。
-  卸载（「设置 → 应用」或 `Uninstall.exe /S`）：停并注销服务、删防火墙规则、删安装目录（只删自己装的东西）与注册表项，**保留** `%ProgramData%\THE DIVA Gateway`，
+  卸载（「设置 → 应用」或 `Uninstall.exe /S`）：停并注销服务、删防火墙规则、删安装目录（只删自己装的东西）与注册表项，**保留** `%ProgramData%\valimart harness Gateway`，
   并把 `server\config.local.json` 备份为那里的 `config.local.json.bak`（重装后复制回 `server\` 再重启服务即可恢复端口 / publicUrl / 密钥）。
   「应用和功能」项在 `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\TheDivaGateway`（含 `QuietUninstallString`）。
 
@@ -238,23 +238,23 @@ server {
 
 ```powershell
 npm run backup
-npm run backup -- --data-dir "$env:ProgramData\THE DIVA Gateway\data" --out D:\backups\diva.zip
+npm run backup -- --data-dir "$env:ProgramData\valimart harness Gateway\data" --out D:\backups\valimart-harness.zip
 ```
 
 脚本会 `serialize` 一份一致的 `gateway.sqlite`，再拷公司盘 `drive/` 和遗留的 json/jsonl。计划任务（每天凌晨，用 SYSTEM 跑）：
 
 ```
-schtasks /Create /TN "THE DIVA Gateway Backup" /SC DAILY /ST 02:30 /RU SYSTEM /TR "\"C:\Program Files\THE DIVA Gateway\runtime\node.exe\" \"C:\Program Files\THE DIVA Gateway\scripts\backup-gateway.mjs\" --data-dir \"%ProgramData%\THE DIVA Gateway\data\" --out \"%ProgramData%\THE DIVA Gateway\backups\latest.zip\""
+schtasks /Create /TN "valimart harness Gateway Backup" /SC DAILY /ST 02:30 /RU SYSTEM /TR "\"C:\Program Files\valimart harness Gateway\runtime\node.exe\" \"C:\Program Files\valimart harness Gateway\scripts\backup-gateway.mjs\" --data-dir \"%ProgramData%\valimart harness Gateway\data\" --out \"%ProgramData%\valimart harness Gateway\backups\latest.zip\""
 ```
 
 安装版网关会带上 `scripts/backup-gateway.mjs`（下次重打 `dist:gateway` 后生效）。
 
 ### 无 Node 机器验收 checklist
 
-1. 服务器：双击网关安装包 → `sc.exe query TheDivaGateway` 为 `RUNNING` → 浏览器打开 `http://<服务器名>:8790/admin` 能登录。
-2. 员工机：双击客户端安装包 → 桌面快捷方式「THE DIVA」启动 → 登录页填 `http://<服务器名>:8790`、`boss / boss123456` → 新会话发一句 → 有回复
-   → 任务管理器里内核进程是 `…\Programs\the-diva-desktop\resources\payload\runtime\node.exe` → 关窗后无残留 `node.exe` → 再开一次秒开。
-3. 服务器重跑同一安装包（升级）→ `config.local.json` 不变、服务 `RUNNING`；卸载 → `%ProgramData%\THE DIVA Gateway` 仍在。
+1. 服务器：双击网关安装包 → `sc.exe query TheDivaGateway` 为 `RUNNING` → 浏览器打开 `http://<服务器名>:8790/admin` → 走首次引导设置公司名与管理员 → 进入管理页。
+2. 员工机：双击客户端安装包 → 桌面快捷方式「valimart harness」启动 → 登录页填 `http://<服务器名>:8790`、刚设好的管理员账号 → 新会话发一句 → 有回复
+   → 任务管理器里内核进程是 `…\Programs\valimart-harness\resources\payload\runtime\node.exe` → 关窗后无残留 `node.exe` → 再开一次秒开。
+3. 服务器重跑同一安装包（升级）→ `config.local.json` 不变、服务 `RUNNING`；卸载 → `%ProgramData%\valimart harness Gateway` 仍在。
 
 构建机（本机）已于 2026-09-04 以等价方式走过以上流程（两个包均 `/S` 静默安装、脚本启动客户端、在 IDE 浏览器里操作内核页面完成登录 / 发消息；管理页只核对了 HTTP 200，未在管理页登录；见 `docs/sessions/2026-09-04.md`）；一台真正没有 Node 的机器、双击安装 / 桌面快捷方式启动 / 管理页登录都还没试过。
 
@@ -274,7 +274,7 @@ npm run kernel:publish -- --gateway http://127.0.0.1:8790 --user boss --password
 
 ## 3. 启动
 
-以下是开发机上的跑法；员工机 / 服务器用 §2.5 的安装包，装完双击桌面「THE DIVA」即可，不需要这些命令。
+以下是开发机上的跑法；员工机 / 服务器用 §2.5 的安装包，装完双击桌面「valimart harness」即可，不需要这些命令。
 
 单机演示（网关 + 客户端 + 桌面窗口，一条命令）：
 
@@ -326,7 +326,7 @@ npm run desktop             # 客户端 + 独立桌面窗口（Edge/Chrome 应�
 
 ## 4. 走一遍视频里的流程
 
-1. **登录**：遮罩里输入 `boss / boss123456`；左下角显示头像、部门、在线状态。
+1. **登录**：开发机遮罩里输入 `boss / boss123456`（`config.json` 的种子管理员）；安装版没有演示账号，首次打开走引导设置公司名与初始管理员。左下角显示头像、部门、在线状态。
 2. **会话**：侧栏「会话」Tab → 团队工作区「新会话」→ 选模型（DeepSeek V4 Pro / Flash、
    接入的 Grok 等）→ 「文件」芯片选本机文件，文件落到 `<工作目录>/_attachments/`，草稿里出现 `@文件名` 芯片 →
    发送，Agent 在本机流式执行（读文件 / 跑命令 / 写交付物）。会话标题由模型自动生成。
@@ -346,7 +346,7 @@ npm run desktop             # 客户端 + 独立桌面窗口（Edge/Chrome 应�
 
 | 文件 | 对应视频画面 |
 | --- | --- |
-| `00-home-hero.png` | 首页：THE DIVA 字标、个人 / 团队工作区、模型 · 标准模式 · Full access · 文件 |
+| `00-home-hero.png` | 首页：valimart harness 字标、个人 / 团队工作区、模型 · 标准模式 · Full access · 文件 |
 | `01-login-mask.png` | 公司账号登录遮罩 |
 | `02-session-agent-reply.png` | 会话页流式回复（本机 Agent） |
 | `03-task-new.png` → `06-task-approved.png` | 新建任务 → 打开进程 → 审核人初审 → 终审通过 |
@@ -394,5 +394,5 @@ Playwright（`npm run test:e2e`）用本机 Edge：管理页登录、页面流�
 - 内核：`~/.company-desk/kernel/`（打过补丁的 `@deepseek-ai/dsh`，`.company-desk-kernel.json` 是安装戳记）；
   profile 在 `~/.dsh/profiles/desk/`。删掉这两处再 `npm run setup` 即可重装，不影响会话与登录态。
 - 安装版（§2.5）：客户端在 `~/.company-desk/app/`（内核 + Electron userData）、`~/.company-desk/logs/`、`~/.dsh/profiles/desk-app/`，
-  登录态与会话仍是上面的 `~/.dsh/desk`、`~/.dsh/sessions`；服务端在 `%ProgramData%\THE DIVA Gateway\{data,logs}`，
-  配置在 `%ProgramFiles%\THE DIVA Gateway\server\config.local.json`。
+  登录态与会话仍是上面的 `~/.dsh/desk`、`~/.dsh/sessions`；服务端在 `%ProgramData%\valimart harness Gateway\{data,logs}`，
+  配置在 `%ProgramFiles%\valimart harness Gateway\server\config.local.json`。

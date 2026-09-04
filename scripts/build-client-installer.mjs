@@ -27,6 +27,6 @@ process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??= 'https://npmmirror.com/mirrors/
 console.log(`[dist:client] electron-builder --win nsis  version=${version}`)
 const r = spawnSync(process.execPath, [cli, '--win', 'nsis', `--config.extraMetadata.version=${version}`], { cwd: desktop, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } })
 if (r.status !== 0) die(`electron-builder 退出码 ${r.status}`)
-const outFile = path.join(root, 'dist', `THE-DIVA-Setup-${version}.exe`)
+const outFile = path.join(root, 'dist', `valimart-harness-Setup-${version}.exe`)
 if (!fs.existsSync(outFile)) die(`没找到产物 ${outFile}`)
 console.log(`[dist:client] ${outFile} (${(fs.statSync(outFile).size / 1024 / 1024).toFixed(1)} MB)`)

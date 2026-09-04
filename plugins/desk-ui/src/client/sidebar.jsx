@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react'
 import { deskStore, useStoreValue } from './store.js'
 import { layoutActions, layoutStore } from './layout.jsx'
 import { fmtTime } from './api.js'
-import { Logotype } from './login.jsx'
+import { BrandMark, Logotype, PRODUCT_NAME } from './brand.jsx'
 import { IconPanel, IconPlus, IconSearch, IconChat, IconTask, IconRefresh } from './icons.jsx'
 import { NewTaskDialog } from './tasks.jsx'
 import { STATUS_LABEL } from './tasks.jsx'
@@ -33,7 +33,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
         <button className="dk-iconbtn" title="展开侧边栏" onClick={toggleSidebar} style={{ marginBottom: 4 }}>
           <IconPanel />
         </button>
-        <span className="dk-monogram" title="THE DIVA">D</span>
+        <span className="dk-monogram" title={PRODUCT_NAME}><BrandMark size={16} /></span>
         <button className="dk-iconbtn" title="新会话" onClick={() => startSession()}>
           <IconPlus />
         </button>
@@ -56,7 +56,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
   return (
     <>
       <div className="dk-brand">
-        <Logotype tagline={desk?.company?.name && desk.company.name.toUpperCase() !== 'THE DIVA' ? desk.company.name : undefined} />
+        <Logotype tagline={desk?.company?.name && desk.company.name.toLowerCase() !== PRODUCT_NAME ? desk.company.name : undefined} />
         <div className="dk-row" style={{ gap: 2 }}>
           <button className="dk-iconbtn" title="新会话" onClick={() => startSession()}>
             <IconPlus />

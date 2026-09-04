@@ -5,6 +5,37 @@ import path from 'node:path'
 
 export const SOURCE_REPO = 'https://github.com/deepseek-ai/deepseek-harness'
 export const SOURCE_API = 'https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=20'
+export const DEFAULT_NPM_REGISTRY = 'https://registry.npmmirror.com'
+
+export function resolveNpmRegistry(explicit) {
+  const fromArg = typeof explicit === 'string' ? explicit.trim().replace(/\/+$/, '') : ''
+  if (fromArg) return fromArg
+  const fromEnv = typeof process.env.npm_config_registry === 'string' ? process.env.npm_config_registry.trim().replace(/\/+$/, '') : ''
+  if (fromEnv) return fromEnv
+  return DEFAULT_NPM_REGISTRY
+}
+
+export function npmPackumentUrl(registry) {
+  return `${resolveNpmRegistry(registry)}/@deepseek-ai%2Fdsh`
+}
+
+export async function fetchNpmVersions({ registry, fetchImpl } = {}) {
+  const fetchFn = fetchImpl ?? globalThis.fetch
+  const r = await fetchFn(npmPackumentUrl(registry), {
+    headers: { Accept: 'application/json', 'User-Agent': 'the-diva-gateway' },
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!r.ok) throw new Error('npm registry HTTP ' + r.status)
+  const j = await r.json()
+  return Object.keys(j.versions ?? {})
+}
+
+export function annotateDiscoverWithNpm(discover, npmVersions, { queryFailed = false } = {}) {
+  return (discover ?? []).map((d) => {
+    if (queryFailed || npmVersions == null) return { ...d, onNpm: null }
+    return { ...d, onNpm: npmVersions.includes(d.version) }
+  })
+}
 
 export function parseReleaseTag(tag) {
   const m = /^dsh-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(String(tag ?? ''))

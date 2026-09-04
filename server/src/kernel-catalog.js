@@ -3,7 +3,16 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { SOURCE_API, SOURCE_REPO, filterDiscoverable, hashFile, parseReleaseTag } from '../../scripts/lib/kernel-update.mjs'
+import {
+  SOURCE_API,
+  SOURCE_REPO,
+  annotateDiscoverWithNpm,
+  fetchNpmVersions as defaultFetchNpmVersions,
+  filterDiscoverable,
+  hashFile,
+  parseReleaseTag,
+  resolveNpmRegistry,
+} from '../../scripts/lib/kernel-update.mjs'
 
 function catalogError(message, code) {
   const err = new Error(message)
@@ -30,10 +39,12 @@ async function defaultFetchReleases() {
   return r.json()
 }
 
-export function openKernelCatalog(dataDir, { pinVersion, fetchReleases } = {}) {
+export function openKernelCatalog(dataDir, { pinVersion, fetchReleases, fetchNpmVersions, npmRegistry } = {}) {
   const root = path.join(dataDir, 'kernels')
   const currentFile = path.join(root, 'current.json')
   const fetchFn = fetchReleases ?? defaultFetchReleases
+  const fetchNpm = fetchNpmVersions ?? defaultFetchNpmVersions
+  const registry = resolveNpmRegistry(npmRegistry)
 
   const versionDir = (version) => path.join(root, version)
   const tarOf = (version) => path.join(versionDir(version), 'kernel.tar')
@@ -180,6 +191,14 @@ export function openKernelCatalog(dataDir, { pinVersion, fetchReleases } = {}) {
       discover = filterDiscoverable(releases, current?.version ?? pinVersion)
     } catch (err) {
       discoverError = err.message ?? String(err)
+    }
+    if (discover.length) {
+      try {
+        const versions = await fetchNpm({ registry })
+        discover = annotateDiscoverWithNpm(discover, versions)
+      } catch {
+        discover = annotateDiscoverWithNpm(discover, null, { queryFailed: true })
+      }
     }
     return { current, stored: listStored(), discover, discoverError, pinVersion }
   }

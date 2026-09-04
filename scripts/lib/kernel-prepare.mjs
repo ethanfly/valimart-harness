@@ -9,7 +9,7 @@ import { ALL_MARKS, applyKernelPatches, missingPatches } from '../kernel/patches
 import { locateKernel, refuseLivePrefix, stampPath } from '../kernel/locate.mjs'
 import { findTar } from './find-tar.mjs'
 import { shouldPrune } from './payload.mjs'
-import { SOURCE_REPO, hashFile } from './kernel-update.mjs'
+import { SOURCE_REPO, hashFile, resolveNpmRegistry } from './kernel-update.mjs'
 import { npmInvocation } from './npm-cli.mjs'
 
 const KERNEL_PACKAGE = '@deepseek-ai/dsh'
@@ -22,18 +22,44 @@ function assertSafeVersion(version) {
   }
 }
 
-function defaultInstall({ version, prefix, log }) {
+export function formatNpmInstallError({ status, signal, stdout = '', stderr = '' }) {
+  const code = status ?? signal ?? '?'
+  const text = `${stdout || ''}\n${stderr || ''}`.replace(/\r\n/g, '\n').trim()
+  const tail = text.length > 800 ? text.slice(-800) : text
+  const extra = tail ? `\n${tail}` : ''
+  return `npm install 失败（退出码 ${code}）。${extra}`
+}
+
+export function assertPublishedOnNpm(version, npmVersions) {
+  if (npmVersions == null) return
+  if (!npmVersions.includes(version)) {
+    const err = new Error(`GitHub 有 tag，npm 没有 @deepseek-ai/dsh@${version}`)
+    err.code = 'not_on_npm'
+    throw err
+  }
+}
+
+function defaultInstall({ version, prefix, log, registry }) {
   fs.mkdirSync(prefix, { recursive: true })
   const spec = `${KERNEL_PACKAGE}@${version}`
   log(`安装 ${spec} → ${prefix}`)
   const npm = npmInvocation()
+  const resolved = resolveNpmRegistry(registry)
   const r = spawnSync(npm.cmd, [...npm.pre, 'install', '-g', spec, '--prefix', prefix, '--no-fund', '--no-audit'], {
-    stdio: 'inherit',
+    encoding: 'utf8',
+    windowsHide: true,
     shell: npm.shell,
-    env: { ...process.env, npm_config_prefix: prefix },
+    env: { ...process.env, npm_config_prefix: prefix, npm_config_registry: resolved },
   })
   if (r.status !== 0) {
-    const err = new Error(`npm install 失败（退出码 ${r.status ?? r.signal}）。检查网络 / npm registry 后重试。`)
+    const err = new Error(
+      formatNpmInstallError({
+        status: r.status,
+        signal: r.signal,
+        stdout: r.stdout,
+        stderr: r.stderr || r.error?.message,
+      }),
+    )
     err.code = 'npm_install_failed'
     throw err
   }
@@ -127,9 +153,10 @@ export function packPatchedPrefix({ prefix, version, outDir, skillsDir, log = ()
  * npm 安装指定版本后再 packPatchedPrefix。
  * `installer` 可注入（测试用）；默认才 spawn npm。
  */
-export function prepareKernelTarball({ version, prefix, outDir, skillsDir, log = () => {}, installer }) {
+export function prepareKernelTarball({ version, prefix, outDir, skillsDir, log = () => {}, installer, registry, npmVersions }) {
   assertSafeVersion(version)
-  const install = installer ?? defaultInstall
-  install({ version, prefix, log })
+  assertPublishedOnNpm(version, npmVersions)
+  const install = installer ?? ((opts) => defaultInstall({ ...opts, registry }))
+  install({ version, prefix, log, registry })
   return packPatchedPrefix({ prefix, version, outDir, skillsDir, log })
 }

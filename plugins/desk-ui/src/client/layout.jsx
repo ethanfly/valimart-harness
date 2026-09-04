@@ -8,6 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createStore, useStoreValue, deskStore } from './store.js'
 import { TaskPanel, TaskChatColumn } from './tasks.jsx'
 import { LoginOverlay, Toast } from './login.jsx'
+import { DeskTitlebar, useDeskElectron } from './titlebar.jsx'
 
 const SIDEBAR_AUTO_COLLAPSE = 900
 const RAIL = 56
@@ -84,6 +85,7 @@ export class ThemePresenter {
     }
     this.meta.content = getComputedStyle(body).backgroundColor
     if (!this.meta.isConnected) document.head.append(this.meta)
+    window.deskShell?.setBackground?.(this.meta.content)
   }
   dispose() {
     document.documentElement.style.removeProperty('color-scheme')
@@ -181,9 +183,11 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
   const onChatDrag = useCallback((dx) => layoutActions.setTaskChat(chatBase.current + dx), [])
 
   const conversation = renderSlot('conversation', {})
+  const electron = useDeskElectron()
 
   return (
-    <div ref={frameRef} className="dk-frame" data-mode={panels.mode} data-sidebar-collapsed={sidebarCollapsed || undefined}>
+    <div ref={frameRef} className="dk-frame" data-mode={panels.mode} data-sidebar-collapsed={sidebarCollapsed || undefined} data-electron={electron || undefined}>
+      {electron && <DeskTitlebar sidebarWidth={sidebarWidth} />}
       {narrow && panels.narrowExpanded && <div className="dk-mask" onClick={() => layoutActions.toggleSidebar()} />}
       <div className={`dk-col-sidebar${narrow && panels.narrowExpanded ? ' dk-drawer' : ''}`} style={{ width: narrow && panels.narrowExpanded ? 280 : sidebarWidth }}>
         {renderSlot('sidebar', { collapsed: narrow ? !panels.narrowExpanded : sidebarCollapsed, width: narrow && panels.narrowExpanded ? 280 : sidebarWidth })}
@@ -218,7 +222,7 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
         </>
       )}
 
-      <div data-shell-overlay style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 30 }}>
+      <div data-shell-overlay style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 1000 }}>
         {renderSlot('shell.overlay', {})}
       </div>
       {/* 未登录，或本机网关令牌已被吊销 / 失效（needsRelogin）→ 立刻回到登录遮罩，不让人对着「API key is invalid」发懵 */}

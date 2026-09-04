@@ -4,6 +4,44 @@
  *   服务器状态 · 内核 · 公司盘 · 模型通道（加入订阅 / 加入模型）· 模型目录 · 知识库查询 · 知识 / 工具合集
  * 凭据只在浏览器与网关之间走一次，随后只保存登录会话令牌（sessionStorage）。
  */
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const BRAND_MARK = 'valimart-mark.png'
+const BRAND_WORD = 'valimart-wordmark.png'
+
+function resolveBrandPng(name) {
+  for (const p of [
+    path.join(HERE, '../../plugins/desk-ui/src/client/assets', name),
+    path.join(HERE, 'brand', name),
+  ]) {
+    if (fs.existsSync(p)) return p
+  }
+  return ''
+}
+
+function brandDataUri(filePath) {
+  return filePath ? `data:image/png;base64,${fs.readFileSync(filePath).toString('base64')}` : ''
+}
+
+const MARK_FILE = resolveBrandPng(BRAND_MARK)
+const WORD_FILE = resolveBrandPng(BRAND_WORD)
+const WORD_MASK = brandDataUri(WORD_FILE) || `/admin/brand/${BRAND_WORD}`
+
+const LOGO_HTML = `<div class="logo" role="img" aria-label="valimart harness"><span class="word"></span></div>`
+
+function sendBrandPng(res, filePath) {
+  if (!filePath) {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+    res.end('not found')
+    return
+  }
+  const buf = fs.readFileSync(filePath)
+  res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store', 'content-length': buf.length })
+  res.end(buf)
+}
 
 export function registerAdminPage(router, { cfg }) {
   const html = renderAdminHtml({ companyName: cfg.company?.name ?? 'Company' })
@@ -13,6 +51,9 @@ export function registerAdminPage(router, { cfg }) {
   }
   router.get('/admin', serve)
   router.get('/admin/index.html', serve)
+  router.get(`/admin/brand/${BRAND_MARK}`, (_req, res) => sendBrandPng(res, MARK_FILE))
+  router.get(`/admin/brand/${BRAND_WORD}`, (_req, res) => sendBrandPng(res, WORD_FILE))
+  router.get('/favicon.ico', (_req, res) => sendBrandPng(res, MARK_FILE))
   router.get('/', (_req, res) => {
     res.writeHead(302, { location: '/admin' })
     res.end()
@@ -37,14 +78,17 @@ export function renderAdminHtml({ companyName }) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(companyName)} · 服务器 — THE DIVA</title>
+<title>${escapeHtml(companyName)} · 服务器 — valimart harness</title>
+<link rel="icon" type="image/png" href="/admin/brand/valimart-mark.png" />
+<link rel="apple-touch-icon" href="/admin/brand/valimart-mark.png" />
 <style>
   :root { --bg:#f6f6f4; --card:#fff; --text:#1c1c1c; --muted:#6b6b6b; --line:#e6e6e2; --accent:#1c1c1c; --ok:#0a7d37; --warn:#b26a00; --bad:#b3261e; --chip:#f0efe9; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
   header { display:flex; align-items:center; gap:16px; padding:18px 32px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; }
-  .logo { font: 600 20px/1 "Didot", "Bodoni MT", "Times New Roman", serif; letter-spacing:.32em; }
-  .logo small { display:block; font: 500 8px/1 sans-serif; letter-spacing:.18em; color:var(--muted); margin-bottom:6px; }
+  .logo { display:flex; align-items:center; color:var(--text); }
+  .logo .word { display:block; height:18px; width:calc(18px * 4.97); background:currentColor; -webkit-mask:url("${WORD_MASK}") center / contain no-repeat; mask:url("${WORD_MASK}") center / contain no-repeat; }
+  .login .logo .word { height:22px; width:calc(22px * 4.97); }
   header .sp { flex:1; }
   header .who { color:var(--muted); font-size:13px; }
   main { max-width: 1080px; margin: 0 auto; padding: 24px 32px 64px; }
@@ -81,7 +125,11 @@ export function renderAdminHtml({ companyName }) {
   .field { display:flex; flex-direction:column; gap:4px; margin-top:12px; font-size:13px; }
   .field label { color:var(--muted); font-size:12px; }
   .login { max-width:380px; margin: 60px auto; }
-  .login .logo { text-align:center; margin-bottom:6px; }
+  .login.setup { max-width:460px; }
+  .login .logo { justify-content:center; margin:0 auto 6px; }
+  .steps { display:flex; gap:6px; margin: 8px 0 16px; }
+  .steps i { flex:1; text-align:center; font-style:normal; font-size:11px; color:var(--muted); padding-bottom:6px; border-bottom:2px solid var(--line); }
+  .steps i.on { color:var(--text); border-bottom-color:var(--text); font-weight:600; }
   .toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:#1c1c1c; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.show { opacity:1; }
   .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
@@ -93,7 +141,7 @@ export function renderAdminHtml({ companyName }) {
 </head>
 <body>
 <header>
-  <div class="logo"><small>BORN IN SPOTLIGHT · RAISED IN STARDUST</small>THE DIVA</div>
+  ${LOGO_HTML}
   <div class="muted">服务器 · ${escapeHtml(companyName)}</div>
   <div class="sp"></div>
   <div class="who" id="who"></div>
@@ -119,12 +167,79 @@ export function renderAdminHtml({ companyName }) {
     return j;
   }
 
+  function renderSetup(info) {
+    $('#who').textContent = '';
+    $('#logout').style.display = 'none';
+    const state = { step: 1, companyName: (info && info.companyName) || 'valimart harness', admin: {}, colleague: {} };
+    const paint = (err) => {
+      const s = state.step;
+      $('#main').innerHTML = \`
+        <section class="login setup">
+          ${LOGO_HTML}
+          <p class="desc" style="text-align:center">首次安装 · 初始设置</p>
+          <div class="steps"><i class="\${s===1?'on':''}">1 公司</i><i class="\${s===2?'on':''}">2 管理员</i><i class="\${s===3?'on':''}">3 同事</i></div>
+          <form id="setupForm">
+            \${s===1 ? \`
+              <p class="desc">给这台网关起一个公司名。之后可在设置里改。</p>
+              <div class="field"><label>公司名称</label><input name="companyName" value="\${esc(state.companyName)}" required autofocus /></div>
+            \` : s===2 ? \`
+              <p class="desc">创建第一个管理员账号。没有演示数据，密码由你自己定。</p>
+              <div class="field"><label>管理员账号</label><input name="username" value="\${esc(state.admin.username||'')}" autocomplete="username" required autofocus placeholder="字母数字 ._-，2–32 位" /></div>
+              <div class="field"><label>显示名</label><input name="displayName" value="\${esc(state.admin.displayName||'')}" placeholder="例如：系统管理员" /></div>
+              <div class="field"><label>部门</label><input name="department" value="\${esc(state.admin.department||'管理层')}" /></div>
+              <div class="field"><label>密码</label><input name="password" type="password" autocomplete="new-password" required minlength="6" /></div>
+              <div class="field"><label>确认密码</label><input name="passwordConfirm" type="password" autocomplete="new-password" required minlength="6" /></div>
+            \` : \`
+              <p class="desc">可选：现在发第一个同事账号，也可以跳过，之后在「人员」里添加。</p>
+              <div class="field"><label>同事账号（可留空跳过）</label><input name="cUsername" value="\${esc(state.colleague.username||'')}" placeholder="留空则跳过" /></div>
+              <div class="field"><label>显示名</label><input name="cDisplayName" value="\${esc(state.colleague.displayName||'')}" /></div>
+              <div class="field"><label>部门</label><input name="cDepartment" value="\${esc(state.colleague.department||'')}" /></div>
+              <div class="field"><label>密码</label><input name="cPassword" type="password" autocomplete="new-password" /></div>
+            \`}
+            <p class="desc" id="setupErr" style="color:#b3261e;margin-top:10px">\${esc(err || '')}</p>
+            <div class="row" style="margin-top:8px;justify-content:space-between">
+              <button type="button" id="setupBack" \${s===1?'disabled':''}>上一步</button>
+              <button class="primary" type="submit">\${s===3?'完成并进入':'下一步'}</button>
+            </div>
+          </form>
+        </section>\`;
+      $('#setupBack').addEventListener('click', () => { state.step = Math.max(1, state.step - 1); paint(); });
+      $('#setupForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        if (s === 1) {
+          state.companyName = String(fd.get('companyName') || '').trim();
+          if (!state.companyName) return paint('请填写公司名称');
+          state.step = 2; return paint();
+        }
+        if (s === 2) {
+          if (fd.get('password') !== fd.get('passwordConfirm')) return paint('两次输入的密码不一致');
+          state.admin = { username: String(fd.get('username')||'').trim(), displayName: String(fd.get('displayName')||'').trim(), department: String(fd.get('department')||'').trim(), password: fd.get('password'), passwordConfirm: fd.get('passwordConfirm') };
+          state.step = 3; return paint();
+        }
+        const cUser = String(fd.get('cUsername')||'').trim();
+        const colleagues = [];
+        if (cUser) {
+          if (!fd.get('cPassword') || String(fd.get('cPassword')).length < 6) return paint('同事密码至少 6 位，或清空账号以跳过');
+          colleagues.push({ username: cUser, displayName: String(fd.get('cDisplayName')||'').trim(), department: String(fd.get('cDepartment')||'').trim(), password: fd.get('cPassword'), role: 'employee' });
+        }
+        try {
+          const r = await api('POST', '/api/setup', { companyName: state.companyName, admin: state.admin, colleagues, device: 'admin-page', gatewayToken: false });
+          token = r.sessionToken; sessionStorage.setItem('diva-admin-token', token); me = r.user;
+          toast('初始设置完成');
+          await renderMain();
+        } catch (err) { paint(err.message); }
+      });
+    };
+    paint();
+  }
+
   function renderLogin(err) {
     $('#who').textContent = '';
     $('#logout').style.display = 'none';
     $('#main').innerHTML = \`
       <section class="login">
-        <div class="logo"><small>BORN IN SPOTLIGHT · RAISED IN STARDUST</small>THE DIVA</div>
+        ${LOGO_HTML}
         <p class="desc" style="text-align:center">服务器管理页 · 管理员 / 总监登录</p>
         <form id="loginForm">
           <div class="field"><label>公司账号</label><input name="username" autocomplete="username" autofocus /></div>
@@ -190,12 +305,12 @@ export function renderAdminHtml({ companyName }) {
             <td style="text-align:right">\${isAdmin ? '<button data-kpub="' + esc(v.version) + '">发布</button>' : ''}</td>
           </tr>\`).join('')}
         </tbody></table>\` : '<div class="empty">还没有入库的内核包</div>'}
-        <p class="desc" style="margin-top:14px">发现（比当前新的 GitHub Release）</p>
+        <p class="desc" style="margin-top:14px">发现（比当前新的 GitHub Release；试打补丁需要 npm 已上架同一版本）</p>
         \${(kernel.discover && kernel.discover.length) ? \`<table><thead><tr><th>版本</th><th>tag</th><th></th></tr></thead><tbody>
           \${kernel.discover.map((d) => \`<tr>
-            <td class="mono">\${esc(d.version)}</td>
+            <td class="mono">\${esc(d.version)}\${d.onNpm === false ? '<div class="muted">未上架 npm</div>' : ''}</td>
             <td class="mono">\${esc(d.tag)}</td>
-            <td style="text-align:right">\${isAdmin ? '<button data-kprep="' + esc(d.version) + '">试打补丁</button>' : ''}</td>
+            <td style="text-align:right">\${isAdmin ? (d.onNpm === false ? '<span class="muted">未上架 npm</span>' : '<button data-kprep="' + esc(d.version) + '">试打补丁</button>') : ''}</td>
           </tr>\`).join('')}
         </tbody></table>\` : '<div class="empty">没有比当前更新的版本</div>'}
       </section>
@@ -308,6 +423,7 @@ export function renderAdminHtml({ companyName }) {
     });
   }
 
+  /* desk-oauth-subscribe: 只改加入订阅/接入通道弹窗，勿并入内核或 header 改动。 */
   function openConnect(list, kind, presetId) {
     const candidates = list.filter((c) => (presetId ? c.id === presetId : c.kind === kind) && (presetId || !c.connected));
     if (!candidates.length) return toast(kind === 'subscription' ? '订阅通道都已接入' : '模型通道都已接入');
@@ -316,33 +432,163 @@ export function renderAdminHtml({ companyName }) {
     const isSub = (presetId ? candidates[0].kind : kind) === 'subscription';
     wrap.innerHTML = \`<div class="dialog">
       <h3>\${isSub ? '加入订阅' : '加入模型'}</h3>
-      <p class="desc">\${isSub ? '把一个订阅账号（Grok / ChatGPT / Claude）共享给全公司：粘贴该订阅的访问令牌，服务端代为请求，员工不接触凭据。' : '按 API key 接入一个模型厂商，员工统一走公司网关，按人记账。'}</p>
+      <p class="desc" id="connDesc"></p>
       <form id="cf">
         <div class="field"><label>通道</label><select name="id">\${candidates.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.label) + '（' + esc(c.kindLabel) + '）</option>').join('')}</select></div>
-        <div class="field"><label>\${isSub ? '订阅凭据（访问令牌）' : 'API key'}</label><input name="credential" type="password" autocomplete="off" required /></div>
-        <div class="field"><label>模型 id（逗号分隔）</label><input name="models" placeholder="\${esc(candidates[0].hint)}" value="\${esc(candidates[0].hint)}" /></div>
-        <div class="field"><label>Base URL（可选，留空用默认）</label><input name="baseUrl" placeholder="\${esc(candidates[0].baseUrl)}" /></div>
-        <div class="row" style="margin-top:16px;justify-content:flex-end"><button type="button" id="cancel">取消</button><button class="primary" type="submit">接入</button></div>
+        <div id="oauthBox"></div>
+        <div class="field" id="credField"><label id="credLabel">\${isSub ? '订阅凭据（访问令牌）' : 'API key'}</label><input name="credential" type="password" autocomplete="off" /></div>
+        <div class="field"><label>模型 id（逗号分隔）</label><input name="models" /></div>
+        <div class="field"><label>Base URL（可选，留空用默认）</label><input name="baseUrl" /></div>
+        <div class="row" style="margin-top:16px;justify-content:flex-end"><button type="button" id="cancel">取消</button><button class="primary" type="submit" id="connSubmit">接入</button></div>
       </form>
     </div>\`;
     document.body.appendChild(wrap);
     const sel = wrap.querySelector('select[name=id]');
-    sel.addEventListener('change', () => { const c = candidates.find((x) => x.id === sel.value); wrap.querySelector('input[name=models]').value = c.hint; wrap.querySelector('input[name=models]').placeholder = c.hint; wrap.querySelector('input[name=baseUrl]').placeholder = c.baseUrl; });
-    wrap.querySelector('#cancel').addEventListener('click', () => wrap.remove());
-    wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+    const modelsIn = wrap.querySelector('input[name=models]');
+    const baseIn = wrap.querySelector('input[name=baseUrl]');
+    const credIn = wrap.querySelector('input[name=credential]');
+    const credField = wrap.querySelector('#credField');
+    const credLabel = wrap.querySelector('#credLabel');
+    const oauthBox = wrap.querySelector('#oauthBox');
+    const desc = wrap.querySelector('#connDesc');
+    let pollTimer = null;
+    const current = () => candidates.find((x) => x.id === sel.value) || candidates[0];
+    const setOAuthStatus = (msg, bad) => {
+      const el = wrap.querySelector('#oauthStatus');
+      if (el) { el.textContent = msg; el.className = bad ? 'desc bad' : 'desc'; }
+    };
+    const watchStatus = (channelId, state) => {
+      if (pollTimer) clearInterval(pollTimer);
+      const t0 = Date.now();
+      pollTimer = setInterval(async () => {
+        if (Date.now() - t0 > 10 * 60 * 1000) { clearInterval(pollTimer); setOAuthStatus('授权超时，请重试', true); return; }
+        try {
+          const st = await api('GET', '/api/channels/' + encodeURIComponent(channelId) + '/oauth/status?state=' + encodeURIComponent(state));
+          if (st.status === 'success') { clearInterval(pollTimer); toast('已接入 ' + st.channel.label + '：' + (st.channel.models || []).join(', ')); wrap.remove(); renderMain(); }
+          else if (st.status === 'error') { clearInterval(pollTimer); setOAuthStatus(st.error || '授权失败', true); }
+        } catch (err) { /* 进行中 */ }
+      }, 1200);
+    };
+    const showOAuthLink = (url) => {
+      const a = wrap.querySelector('#oauthOpenLink');
+      const box = wrap.querySelector('#oauthOpenWrap');
+      if (!a || !box) return;
+      if (url) { a.href = url; box.style.display = ''; }
+      else { a.removeAttribute('href'); box.style.display = 'none'; }
+    };
+    const openAuthorizePage = (url, popup) => {
+      if (!url) return;
+      try { if (popup && !popup.closed) { popup.location.replace(url); return; } } catch (e) { /* 已关 */ }
+      if (window.deskShell && window.deskShell.openExternal) { window.deskShell.openExternal(url); return; }
+      window.open(url, 'desk-oauth-subscribe', 'width=520,height=740');
+    };
+    const startOAuth = async () => {
+      const c = current();
+      const popup = (window.deskShell && window.deskShell.openExternal) ? null : window.open('about:blank', 'desk-oauth-subscribe', 'width=520,height=740');
+      setOAuthStatus('正在发起授权…');
+      showOAuthLink('');
+      try {
+        const r = await api('POST', '/api/channels/' + encodeURIComponent(c.id) + '/oauth/start', { models: modelsIn.value, baseUrl: baseIn.value || undefined });
+        if (r.flow === 'device_code') {
+          const openUrl = r.verificationUriComplete || r.verificationUri;
+          openAuthorizePage(openUrl, popup);
+          showOAuthLink(openUrl);
+          setOAuthStatus('在打开的页面输入代码 ' + (r.userCode || '') + '，登录订阅账号。');
+          const codeEl = wrap.querySelector('#oauthDeviceCode');
+          if (codeEl) codeEl.textContent = r.userCode || '';
+          watchStatus(c.id, r.state);
+          return;
+        }
+        openAuthorizePage(r.authorizeUrl, popup);
+        showOAuthLink(r.authorizeUrl);
+        wrap.dataset.oauthState = r.state || '';
+        if (r.flow === 'authorization_code_paste') {
+          setOAuthStatus('浏览器登录后，把回调页上的授权码（或整段网址）贴到下面。');
+          const paste = wrap.querySelector('#oauthPaste');
+          if (paste) paste.style.display = '';
+          return;
+        }
+        setOAuthStatus('已打开授权页，等待回调…');
+        watchStatus(c.id, r.state);
+      } catch (err) {
+        try { if (popup && !popup.closed) popup.close(); } catch (e) { /* 已关 */ }
+        setOAuthStatus(err.message, true);
+      }
+    };
+    const completeOAuth = async () => {
+      const c = current();
+      const code = (wrap.querySelector('#oauthPasteCode') || {}).value;
+      try {
+        const st = await api('POST', '/api/channels/' + encodeURIComponent(c.id) + '/oauth/complete', { state: wrap.dataset.oauthState, code });
+        if (st.status === 'success') { toast('已接入 ' + st.channel.label + '：' + (st.channel.models || []).join(', ')); wrap.remove(); renderMain(); }
+        else setOAuthStatus(st.error || '授权失败', true);
+      } catch (err) { setOAuthStatus(err.message, true); }
+    };
+    const paintChannel = () => {
+      const c = current();
+      modelsIn.value = c.hint; modelsIn.placeholder = c.hint; baseIn.placeholder = c.baseUrl;
+      if (!isSub) {
+        desc.textContent = '按 API key 接入一个模型厂商，员工统一走公司网关，按人记账。';
+        oauthBox.innerHTML = '';
+        credField.style.display = '';
+        credLabel.textContent = 'API key';
+        credIn.required = true;
+        return;
+      }
+      const o = c.oauth || {};
+      if (o.available && o.configured) {
+        desc.textContent = '用官方 OAuth 登录订阅账号，令牌只保存在服务端；员工不接触凭据。';
+        const flowHint = o.flow === 'device_code'
+          ? '将打开浏览器，输入一次性代码登录订阅账号。'
+          : o.flow === 'authorization_code_paste'
+            ? '将打开浏览器登录；登录后把授权码贴回来。'
+            : '浏览器打开授权页，完成后自动接入。';
+        oauthBox.innerHTML = '<div class="field"><button type="button" class="primary" id="oauthLogin">登录账号</button><p class="desc" id="oauthStatus">' + flowHint + '</p><p class="mono" id="oauthDeviceCode" style="font-size:22px;letter-spacing:2px;margin:6px 0 0"></p><p id="oauthOpenWrap" style="display:none;margin:8px 0 0"><a id="oauthOpenLink" target="_blank" rel="noopener noreferrer">如果浏览器拦截了弹窗，点这里打开授权页</a></p><div id="oauthPaste" style="display:none;margin-top:10px"><input id="oauthPasteCode" placeholder="授权码或回调网址" /><button type="button" id="oauthComplete" style="margin-top:8px">提交授权码</button></div><details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12px">高级：手动粘贴</summary></details></div>';
+        credLabel.textContent = '订阅凭据（访问令牌）';
+        credIn.required = false;
+        credField.style.display = 'none';
+        wrap.querySelector('details').addEventListener('toggle', (e) => { credField.style.display = e.target.open ? '' : 'none'; });
+        wrap.querySelector('#oauthLogin').addEventListener('click', startOAuth);
+        wrap.querySelector('#oauthComplete').addEventListener('click', completeOAuth);
+      } else if (o.available && !o.configured) {
+        desc.textContent = '该通道支持官方 OAuth，但网关还没配置应用。';
+        oauthBox.innerHTML = '<p class="desc">' + esc(o.reason || '请先配置 OAuth 应用') + '</p><p class="muted" style="font-size:12px">开发者后台请登记 callback：<span class="mono">' + esc(o.callbackUrl || '') + '</span></p><details style="margin-top:10px" open><summary class="muted" style="cursor:pointer;font-size:12px">高级：手动粘贴</summary></details>';
+        credLabel.textContent = '订阅凭据（访问令牌）';
+        credIn.required = true;
+        credField.style.display = '';
+      } else {
+        desc.textContent = '把订阅账号共享给全公司：该平台无官方 OAuth，仍需粘贴令牌。服务端代为请求，员工不接触凭据。';
+        oauthBox.innerHTML = '<p class="desc">' + esc((o && o.reason) || '该平台无官方 OAuth，仍需粘贴令牌') + (o && o.detail ? ' ' + esc(o.detail) : '') + '</p>';
+        credField.style.display = '';
+        credLabel.textContent = '订阅凭据（访问令牌）';
+        credIn.required = true;
+      }
+    };
+    sel.addEventListener('change', paintChannel);
+    paintChannel();
+    wrap.querySelector('#cancel').addEventListener('click', () => { if (pollTimer) clearInterval(pollTimer); wrap.remove(); });
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) { if (pollTimer) clearInterval(pollTimer); wrap.remove(); } });
     wrap.querySelector('#cf').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       try {
         const r = await api('POST', '/api/channels/' + encodeURIComponent(fd.get('id')) + '/connect', { credential: fd.get('credential'), models: fd.get('models'), baseUrl: fd.get('baseUrl') || undefined });
         toast('已接入 ' + r.channel.label + '：' + r.channel.models.join(', '));
+        if (pollTimer) clearInterval(pollTimer);
         wrap.remove(); renderMain();
       } catch (err) { toast(err.message, true); }
     });
   }
 
-  $('#logout').addEventListener('click', async () => { try { await api('POST', '/api/auth/logout'); } catch {} token = ''; me = null; sessionStorage.removeItem('diva-admin-token'); renderLogin(); });
-  if (token) renderMain(); else renderLogin();
+  $('#logout').addEventListener('click', async () => { try { await api('POST', '/api/auth/logout'); } catch {} token = ''; me = null; sessionStorage.removeItem('diva-admin-token'); boot(); });
+  async function boot() {
+    try {
+      const s = await fetch('/api/setup').then((r) => r.json());
+      if (s && s.needsSetup) return renderSetup(s);
+    } catch {}
+    if (token) renderMain(); else renderLogin();
+  }
+  boot();
 })();
 </script>
 </body>

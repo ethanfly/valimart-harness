@@ -9,22 +9,25 @@
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig, modelCatalog } from './config.js'
+import { isSeedAdmin, loadConfig, modelCatalog, shouldSeedDriveSamples } from './config.js'
 import { Db, ROLE_LABELS } from './db.js'
 import { Ledger } from './ledger.js'
 import { Drive } from './drive.js'
 import { Tasks } from './tasks.js'
 import { LlmProxy } from './llm-proxy.js'
 import { Channels } from './channels.js'
+import { OAuthSubscribe } from './oauth-subscribe.js'
 import { Knowledge } from './knowledge.js'
 import { registerApi } from './api.js'
 import { registerAdminPage } from './admin-page.js'
+import { createLanBeacon, shouldStartLanBeacon } from './lan-beacon.js'
+import { LAN_PRODUCT } from '../../scripts/lib/lan-protocol.mjs'
 import { createRouter, parseUrl, sendError, sendJson, HttpError } from './http.js'
 
 const startedAt = Date.now()
 
 export function createGateway(overrides = {}) {
-  const { fetchReleases, kernels, ...cfgOverrides } = overrides
+  const { fetchReleases, kernels, fetchNpmVersions, prepareInstaller, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
   const ledger = new Ledger(db, cfg)
@@ -35,7 +38,8 @@ export function createGateway(overrides = {}) {
   const channels = new Channels(cfg, cfg.dataDir) // 界面上接入的通道合并进 cfg.upstreams
   const knowledge = new Knowledge({ drive, tasks, db }) // 第四层通道：检索「公司里有没有人做过」
   const catalog = () => modelCatalog(cfg)
-  const proxy = new LlmProxy({ db, cfg, ledger, catalog })
+  const oauth = new OAuthSubscribe({ cfg, channels })
+  const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth })
 
   // 在线状态：登录会话心跳（客户端本机 host 每 30s 一次）
   const lastSeen = new Map()
@@ -55,12 +59,41 @@ export function createGateway(overrides = {}) {
   bootstrap({ db, cfg, drive })
 
   const router = createRouter()
-  registerApi(router, { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt, fetchReleases, kernels })
+  registerApi(router, {
+    db,
+    cfg,
+    ledger,
+    tasks,
+    drive,
+    proxy,
+    catalog,
+    presence,
+    channels,
+    knowledge,
+    startedAt,
+    fetchReleases,
+    kernels,
+    fetchNpmVersions,
+    prepareInstaller,
+    oauth,
+  })
   registerAdminPage(router, { cfg })
   router.get('/v1/models', (req, res) => proxy.handleModels(req, res))
   router.post('/v1/chat/completions', (req, res) => proxy.handleChat(req, res))
-  router.get('/health', (_req, res) => sendJson(res, 200, { ok: true, name: cfg.company?.name, time: new Date().toISOString() }))
+  router.get('/health', (_req, res) => {
+    const addr = server.address()
+    sendJson(res, 200, {
+      ok: true,
+      product: LAN_PRODUCT,
+      name: db.companySettings().name ?? cfg.company?.name,
+      port: addr?.port ?? cfg.port,
+      publicUrl: cfg.publicUrl,
+      needsSetup: db.listUsers().length === 0,
+      time: new Date().toISOString(),
+    })
+  })
 
+  let beacon = null
   const server = http.createServer(async (req, res) => {
     const url = parseUrl(req)
     if (req.method === 'OPTIONS') {
@@ -91,25 +124,42 @@ export function createGateway(overrides = {}) {
     drive,
     proxy,
     channels,
+    oauth,
     knowledge,
     server,
     listen() {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         server.listen(cfg.port, cfg.host, () => {
           const addr = server.address()
           const url = `http://${cfg.host}:${addr.port}`
           console.log(`[gateway] ${cfg.company?.name ?? ''} 网关已启动 ${url}（管理页 ${url}/admin）`)
           console.log(`[gateway] 模型目录: ${catalog().map((m) => `${m.id}(${m.providerLabel})`).join(', ') || '（无可用上游：请配置密钥）'}`)
-          resolve(url)
+          const startBeacon = async () => {
+            if (!shouldStartLanBeacon(cfg)) return
+            beacon = createLanBeacon({
+              httpPort: addr.port,
+              publicUrl: cfg.publicUrl,
+              companyName: () => db.companySettings().name ?? cfg.company?.name,
+              needsSetup: () => db.listUsers().length === 0,
+              udpPort: cfg.lanDiscoverPort ?? undefined,
+              log: console.log,
+            })
+            await beacon.start()
+          }
+          startBeacon().then(() => resolve(url), reject)
         })
       })
     },
     close() {
       return new Promise((resolve) => {
-        server.close(() => {
-          db.persist?.close()
-          resolve()
-        })
+        const done = () => {
+          server.close(() => {
+            db.persist?.close()
+            resolve()
+          })
+        }
+        if (beacon) beacon.close().then(done, done)
+        else done()
       })
     },
   }
@@ -124,19 +174,23 @@ function corsHeaders() {
 }
 
 function bootstrap({ db, cfg, drive }) {
-  drive.ensureLayout()
+  drive.ensureLayout({ seedSamples: shouldSeedDriveSamples(cfg) })
   if (db.listUsers().length === 0) {
-    const seed = cfg.seedAdmin ?? { username: 'boss', password: 'boss123456', displayName: '老板' }
-    const admin = db.createUser({ ...seed, role: 'admin', seed: true })
-    drive.ensureOffice(admin.username)
-    console.log(`[gateway] 首次启动：已创建种子管理员 ${admin.username} / ${seed.password}（请尽快修改密码）`)
-    for (const u of cfg.seedUsers ?? []) {
-      try {
-        const created = db.createUser({ ...u, role: u.role ?? 'employee' })
-        drive.ensureOffice(created.username)
-        console.log(`[gateway] 演示账号 ${created.username} / ${u.password} (${ROLE_LABELS[created.role]} · ${created.department})`)
-      } catch (err) {
-        console.warn(`[gateway] 跳过演示账号 ${u.username}: ${err.message}`)
+    const seed = cfg.seedAdmin
+    if (!isSeedAdmin(seed)) {
+      console.log('[gateway] 首次启动：库里没有账号。打开管理页或客户端完成引导（设置公司名、初始管理员）。')
+    } else {
+      const admin = db.createUser({ ...seed, role: 'admin', seed: true })
+      drive.ensureOffice(admin.username)
+      console.log(`[gateway] 首次启动：已创建种子管理员 ${admin.username} / ${seed.password}（请尽快修改密码）`)
+      for (const u of cfg.seedUsers ?? []) {
+        try {
+          const created = db.createUser({ ...u, role: u.role ?? 'employee' })
+          drive.ensureOffice(created.username)
+          console.log(`[gateway] 演示账号 ${created.username} / ${u.password} (${ROLE_LABELS[created.role]} · ${created.department})`)
+        } catch (err) {
+          console.warn(`[gateway] 跳过演示账号 ${u.username}: ${err.message}`)
+        }
       }
     }
   } else {

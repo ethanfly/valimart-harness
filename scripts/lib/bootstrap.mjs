@@ -125,7 +125,7 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
   const manifest = {
     name: `dsh-profile-${profileName}`,
     private: true,
-    description: 'THE DIVA · 企业交付工作台（company-desk）',
+    description: 'valimart harness · 企业交付工作台（company-desk）',
     dependencies: {
       '@company-desk/desk-host': `file:${path.join(pluginsDir, 'desk-host').replace(/\\/g, '/')}`,
       '@company-desk/desk-ui': `file:${path.join(pluginsDir, 'desk-ui').replace(/\\/g, '/')}`,

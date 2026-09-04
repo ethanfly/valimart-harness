@@ -1,7 +1,7 @@
 /**
  * 设置面板里的公司页：账号 / 同事 / 人员 / 快速推理 / 订阅。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, refreshDeskState, fmtCny, fmtDateTime, fmtTime, loadPeople } from './api.js'
 import { deskStore, useStoreValue, toast } from './store.js'
 
@@ -327,32 +327,154 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
   const [baseUrl, setBaseUrl] = useState(channel?.baseUrl ?? '')
   const [models, setModels] = useState(channel?.hint ?? '')
   const [busy, setBusy] = useState(false)
+  const [oauthNote, setOauthNote] = useState('')
+  const [showPaste, setShowPaste] = useState(false)
+  const [oauthState, setOauthState] = useState('')
+  const [deviceCode, setDeviceCode] = useState('')
+  const [pasteCode, setPasteCode] = useState('')
+  const [needPasteCode, setNeedPasteCode] = useState(false)
+  const [oauthOpenUrl, setOauthOpenUrl] = useState('')
+  const pollRef = useRef(null)
   useEffect(() => {
     setBaseUrl(channel?.baseUrl ?? '')
     setModels(channel?.hint ?? '')
+    setOauthNote('')
+    setOauthState('')
+    setDeviceCode('')
+    setPasteCode('')
+    setNeedPasteCode(false)
+    setOauthOpenUrl('')
   }, [channelId])
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
   const isSub = channel?.kind === 'subscription'
+  const oauth = channel?.oauth
+  const canOAuth = !!(isSub && oauth?.available && oauth?.configured)
+  useEffect(() => {
+    setShowPaste(!(isSub && oauth?.available && oauth?.configured))
+  }, [channelId, isSub, oauth?.available, oauth?.configured])
+  const afterConnect = async (label, modelList) => {
+    toast(`已接入 ${label}：${(modelList || []).join(', ')}`, 'success')
+    await api.gw.get('/auth/me')
+    await refreshDeskState()
+    onDone?.()
+    onClose()
+  }
   const submit = async () => {
     if (!channel) return
     setBusy(true)
     try {
       const r = await api.gw.post(`/channels/${channel.id}/connect`, { credential, baseUrl, models })
-      toast(`已接入 ${r.channel.label}：${r.channel.models.join(', ')}`, 'success')
-      await api.gw.get('/auth/me') // 让本机 host 把新模型写进路由
-      await refreshDeskState()
-      onDone?.()
-      onClose()
+      await afterConnect(r.channel.label, r.channel.models)
     } catch (err) {
       toast(err.message, 'error')
     } finally {
       setBusy(false)
     }
   }
+  const watchStatus = (channelId, state) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    const t0 = Date.now()
+    pollRef.current = setInterval(async () => {
+      if (Date.now() - t0 > 10 * 60 * 1000) {
+        clearInterval(pollRef.current)
+        setOauthNote('授权超时，请重试')
+        setBusy(false)
+        return
+      }
+      try {
+        const st = await api.gw.get(`/channels/${channelId}/oauth/status?state=${encodeURIComponent(state)}`)
+        if (st.status === 'success') {
+          clearInterval(pollRef.current)
+          await afterConnect(st.channel.label, st.channel.models)
+          return
+        }
+        if (st.status === 'error') {
+          clearInterval(pollRef.current)
+          setOauthNote(st.error || '授权失败')
+          setBusy(false)
+        }
+      } catch {
+        /* 进行中 */
+      }
+    }, 1200)
+  }
+  const openAuthorizePage = (url, popup) => {
+    if (!url) return
+    try {
+      if (popup && !popup.closed) {
+        popup.location.replace(url)
+        return
+      }
+    } catch {
+      /* 已关 */
+    }
+    if (window.deskShell?.openExternal) {
+      window.deskShell.openExternal(url)
+      return
+    }
+    window.open(url, 'desk-oauth-subscribe', 'width=520,height=740')
+  }
+  const startOAuth = async () => {
+    if (!channel) return
+    const popup = window.deskShell?.openExternal ? null : window.open('about:blank', 'desk-oauth-subscribe', 'width=520,height=740')
+    setBusy(true)
+    setOauthNote('正在发起授权…')
+    setOauthOpenUrl('')
+    try {
+      const r = await api.gw.post(`/channels/${channel.id}/oauth/start`, { models, baseUrl: baseUrl || undefined })
+      setOauthState(r.state || '')
+      if (r.flow === 'device_code') {
+        setDeviceCode(r.userCode || '')
+        const openUrl = r.verificationUriComplete || r.verificationUri
+        openAuthorizePage(openUrl, popup)
+        setOauthOpenUrl(openUrl || '')
+        setOauthNote(`在打开的页面输入代码 ${r.userCode || ''}，登录订阅账号。`)
+        watchStatus(channel.id, r.state)
+        return
+      }
+      openAuthorizePage(r.authorizeUrl, popup)
+      setOauthOpenUrl(r.authorizeUrl || '')
+      if (r.flow === 'authorization_code_paste') {
+        setNeedPasteCode(true)
+        setOauthNote('浏览器登录后，把回调页上的授权码（或整段网址）贴到下面。')
+        setBusy(false)
+        return
+      }
+      setOauthNote('已打开授权页，等待回调…')
+      watchStatus(channel.id, r.state)
+    } catch (err) {
+      try { if (popup && !popup.closed) popup.close() } catch { /* 已关 */ }
+      setOauthNote(err.message)
+      setBusy(false)
+    }
+  }
+  const completeOAuth = async () => {
+    if (!channel || !oauthState) return
+    setBusy(true)
+    try {
+      const st = await api.gw.post(`/channels/${channel.id}/oauth/complete`, { state: oauthState, code: pasteCode })
+      if (st.status === 'success') await afterConnect(st.channel.label, st.channel.models)
+      else {
+        setOauthNote(st.error || '授权失败')
+        setBusy(false)
+      }
+    } catch (err) {
+      setOauthNote(err.message)
+      setBusy(false)
+    }
+  }
+  const subHint = !isSub
+    ? '用 API key 接入一个模型供应商：key 只存在网关服务器上。'
+    : canOAuth
+      ? '用官方 OAuth 登录订阅账号，令牌只保存在服务端；员工不接触凭据。'
+      : oauth?.available
+        ? `该通道支持官方 OAuth，但网关还没配置应用。${oauth.reason || ''}`
+        : (oauth?.reason || '该平台无官方 OAuth，仍需粘贴令牌')
   return (
     <div className="dk-overlay" onClick={onClose}>
       <div className="dk-dialog" onClick={(e) => e.stopPropagation()}>
         <h2>{isSub ? '加入订阅' : '加入模型'}</h2>
-        <div className="sub">{isSub ? '把公司订阅的 Grok / ChatGPT / Claude 账号接进网关：全员共用这份订阅，用量仍按人记账。' : '用 API key 接入一个模型供应商：key 只存在网关服务器上。'}</div>
+        <div className="sub">{subHint}</div>
         <div className="dk-field">
           <label>通道</label>
           <select className="dk-select" value={channelId} onChange={(e) => setChannelId(e.target.value)} disabled={!!initial.channel}>
@@ -363,10 +485,41 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
             ))}
           </select>
         </div>
-        <div className="dk-field">
-          <label>{isSub ? '订阅凭据（订阅账号的访问令牌）' : 'API key'}</label>
-          <input className="dk-input" type="password" autoFocus value={credential} onChange={(e) => setCredential(e.target.value)} placeholder={isSub ? '粘贴订阅账号的 access token' : 'sk-…'} />
-        </div>
+        {isSub && canOAuth && (
+          <div className="dk-field">
+            <button className="dk-btn primary" type="button" disabled={busy} onClick={startOAuth} style={{ height: 36, justifyContent: 'center' }}>
+              {busy ? '请稍候…' : '登录账号'}
+            </button>
+            {deviceCode && <div className="dk-mono" style={{ fontSize: 22, letterSpacing: 2, marginTop: 8 }}>{deviceCode}</div>}
+            {needPasteCode && (
+              <>
+                <input className="dk-input" value={pasteCode} onChange={(e) => setPasteCode(e.target.value)} placeholder="授权码或回调网址" style={{ marginTop: 8 }} />
+                <button className="dk-btn" type="button" disabled={busy || !pasteCode.trim()} onClick={completeOAuth} style={{ marginTop: 8 }}>提交授权码</button>
+              </>
+            )}
+            {oauthNote && <span className="hint">{oauthNote}</span>}
+            {oauthOpenUrl && (
+              <a className="hint" href={oauthOpenUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6 }}>
+                如果浏览器拦截了弹窗，点这里打开授权页
+              </a>
+            )}
+            {oauth?.flow === 'authorization_code' && oauth?.callbackUrl && <span className="hint">开发者后台登记 callback：{oauth.callbackUrl}</span>}
+          </div>
+        )}
+        {isSub && oauth?.available && !oauth?.configured && oauth?.callbackUrl && (
+          <p className="dk-xs dk-muted" style={{ margin: '0 0 10px' }}>开发者后台登记 callback：{oauth.callbackUrl}</p>
+        )}
+        {isSub && canOAuth && (
+          <button className="dk-btn sm ghost" type="button" onClick={() => setShowPaste((v) => !v)} style={{ marginBottom: 8 }}>
+            {showPaste ? '收起手动粘贴' : '高级：手动粘贴'}
+          </button>
+        )}
+        {(!isSub || showPaste || !canOAuth) && (
+          <div className="dk-field">
+            <label>{isSub ? '订阅凭据（订阅账号的访问令牌）' : 'API key'}</label>
+            <input className="dk-input" type="password" autoFocus={!canOAuth} value={credential} onChange={(e) => setCredential(e.target.value)} placeholder={isSub ? '粘贴订阅账号的 access token' : 'sk-…'} />
+          </div>
+        )}
         <div className="dk-field">
           <label>接口地址（OpenAI 兼容）</label>
           <input className="dk-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
@@ -379,9 +532,11 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
           <button className="dk-btn" onClick={onClose}>
             取消
           </button>
-          <button className="dk-btn primary" disabled={busy || !credential.trim() || !channel} onClick={submit}>
-            {isSub ? '接入订阅' : '接入模型'}
-          </button>
+          {(!isSub || showPaste || !canOAuth) && (
+            <button className="dk-btn primary" disabled={busy || !credential.trim() || !channel} onClick={submit}>
+              {isSub ? '接入订阅' : '接入模型'}
+            </button>
+          )}
         </div>
       </div>
     </div>

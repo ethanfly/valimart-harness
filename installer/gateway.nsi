@@ -14,13 +14,15 @@ Unicode True
   !error "需要 /DSTAGE=<暂存目录>"
 !endif
 !ifndef OUTFILE
-  !define OUTFILE "THE-DIVA-Gateway-Setup-${VERSION}.exe"
+  !define OUTFILE "valimart-harness-Gateway-Setup-${VERSION}.exe"
 !endif
 
-!define PRODUCT "THE DIVA Gateway"
+!define PRODUCT "valimart harness Gateway"
 !define SERVICE "TheDivaGateway"
 !define PORT "8790"
-!define FWRULE "THE DIVA Gateway"
+!define LANPORT "18790"
+!define FWRULE "valimart harness Gateway"
+!define FWRULE_LAN "valimart harness Gateway LAN"
 !define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${SERVICE}"
 
 Name "${PRODUCT}"
@@ -43,13 +45,13 @@ Var BackupNote
 
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "安装 ${PRODUCT} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "将安装 THE DIVA 公司网关，并注册为 Windows 服务（${SERVICE}），随系统自动启动。$\r$\n$\r$\n不需要预装 Node.js。安装后员工在客户端登录页填写本机地址即可使用。"
+!define MUI_WELCOMEPAGE_TEXT "将安装 valimart harness 公司网关，并注册为 Windows 服务（${SERVICE}），随系统自动启动。$\r$\n$\r$\n不需要预装 Node.js。安装后员工打开客户端，登录页会自动寻找局域网里的网关。"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TITLE "安装完成"
 !define MUI_FINISHPAGE_TEXT_LARGE
-!define MUI_FINISHPAGE_TEXT "服务 ${SERVICE} 已注册并启动，随系统自动运行。$\r$\n管理页：$PublicUrl/admin（种子管理员 boss / boss123456，请尽快修改密码）$\r$\n$\r$\n配置、密钥、日志与数据目录的说明见 $INSTDIR\README.txt；数据在 $ProgramDataDir\${PRODUCT}（卸载保留）。"
+!define MUI_FINISHPAGE_TEXT "服务 ${SERVICE} 已注册并启动，随系统自动运行。$\r$\n管理页：$PublicUrl/admin（首次打开会引导设置公司名、初始管理员账号与密码，没有演示数据）$\r$\n$\r$\n配置、密钥、日志与数据目录的说明见 $INSTDIR\README.txt；数据在 $ProgramDataDir\${PRODUCT}（卸载保留）。"
 !define MUI_FINISHPAGE_RUN ""
 !define MUI_FINISHPAGE_RUN_TEXT "打开管理页"
 !define MUI_FINISHPAGE_RUN_FUNCTION OpenAdmin
@@ -92,6 +94,9 @@ Section "网关" SecMain
   ; server\src\api.js 启动时静态导入 scripts\kernel 与 scripts\lib（catalog + prepare），缺了会 ERR_MODULE_NOT_FOUND；pin.json 也给管理页显示内核版本
   SetOutPath "$INSTDIR\scripts"
   File /r "${STAGE}\scripts\*.*"
+  ; 管理页 header / favicon 花标（与开发态 ../../plugins/desk-ui/src/client/assets 相对位置一致）
+  SetOutPath "$INSTDIR\plugins\desk-ui\src\client\assets"
+  File /r "${STAGE}\plugins\desk-ui\src\client\assets\*.*"
   SetOutPath "$INSTDIR"
   File "${STAGE}\README.txt"
 
@@ -126,16 +131,20 @@ Section "网关" SecMain
     MessageBox MB_OK|MB_ICONEXCLAMATION "服务已注册但启动失败（退出码 $0）。请查看 $ProgramDataDir\${PRODUCT}\logs。" /SD IDOK
   ${EndIf}
 
-  DetailPrint "防火墙放行 TCP ${PORT}…"
+  DetailPrint "防火墙放行 TCP ${PORT} 与 UDP ${LANPORT}…"
   nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE}"'
   Pop $0
+  nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE_LAN}"'
+  Pop $0
   nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall add rule name="${FWRULE}" dir=in action=allow protocol=TCP localport=${PORT}'
+  Pop $0
+  nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall add rule name="${FWRULE_LAN}" dir=in action=allow protocol=UDP localport=${LANPORT}'
   Pop $0
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKLM "${REGKEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${REGKEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "${REGKEY}" "Publisher" "THE DIVA"
+  WriteRegStr HKLM "${REGKEY}" "Publisher" "Valimart"
   WriteRegStr HKLM "${REGKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "${REGKEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKLM "${REGKEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
@@ -155,6 +164,8 @@ Section "Uninstall"
     MessageBox MB_OK|MB_ICONEXCLAMATION "服务注销失败（$0），请手工执行 sc delete ${SERVICE}。将继续删除文件。" /SD IDOK
   ${EndIf}
   nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE}"'
+  Pop $0
+  nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE_LAN}"'
   Pop $0
   ; 管理员改过的 config.local.json（端口 / publicUrl / 密钥）备份到数据目录，重装后可复制回 server 目录
   ; （注释末尾不能是反斜杠：NSIS 会把它当作续行符，吞掉下一行）

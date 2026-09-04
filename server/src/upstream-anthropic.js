@@ -8,6 +8,7 @@ export const ANTHROPIC_VERSION = '2023-06-01'
 export function inferUpstreamApi(baseUrl) {
   try {
     const u = new URL(String(baseUrl ?? ''))
+    if (u.hostname === 'chatgpt.com' && u.pathname.includes('/backend-api/codex')) return 'chatgpt-codex'
     if (u.hostname === 'api.anthropic.com' || /\/messages\/?$/.test(u.pathname)) return 'anthropic-messages'
   } catch {
     /* 非法 URL：按 OpenAI 兼容处理 */
@@ -28,12 +29,18 @@ export function anthropicMessagesUrl(baseUrl) {
   return `${u}/messages`
 }
 
-export function anthropicHeaders(apiKey) {
-  return {
+export function anthropicHeaders(apiKey, { authStyle } = {}) {
+  const headers = {
     'content-type': 'application/json',
-    'x-api-key': apiKey,
     'anthropic-version': ANTHROPIC_VERSION,
   }
+  if (authStyle === 'anthropic-oauth') {
+    headers.authorization = `Bearer ${apiKey}`
+    headers['anthropic-beta'] = 'oauth-2025-04-20'
+    return headers
+  }
+  headers['x-api-key'] = apiKey
+  return headers
 }
 
 function textOf(content) {

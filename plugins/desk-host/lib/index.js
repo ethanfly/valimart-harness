@@ -20,6 +20,8 @@ import { GatewayClient, GatewayError } from './gateway-client.js'
 import { DriveMirror } from './drive-mirror.js'
 import { ProducedIndex } from './produced.js'
 import { fetchKernelUpdate, readLocalKernelVersion, resolvePendingDir } from './kernel-update.js'
+import { discoverGateways } from './lan-discover.js'
+import { portFromUrl } from '../../../scripts/lib/lan-protocol.mjs'
 
 export const name = 'desk-host'
 export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry']
@@ -32,7 +34,7 @@ export const Config = z.object({
   /** 注册到 llm-pi-ai 的路由 id。 */
   providerId: z.string().default('desk-gateway'),
   /** 路由显示名。 */
-  providerName: z.string().default('THE DIVA 公司网关'),
+  providerName: z.string().default('valimart harness 公司网关'),
   /** 网关令牌的凭据引用名（环境变量风格）。 */
   credentialName: z.string().default('DESK_GATEWAY_TOKEN'),
   /** 心跳/同步周期（毫秒）。 */
@@ -233,6 +235,25 @@ export function apply(ctx, config) {
       log(`公司盘同步失败: ${err.message}`)
     }
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
+    scheduleKernelUpdate()
+    return state.publicView()
+  }
+
+  async function completeSetup({ gatewayUrl, companyName, admin, colleagues, device }) {
+    const url = (gatewayUrl || state.data.gatewayUrl || config.gatewayUrl).replace(/\/+$/, '')
+    state.data.gatewayUrl = url
+    const result = await gateway.post('/api/setup', { companyName, admin, colleagues, device: device ?? state.data.device }, { token: null })
+    state.setLogin({ gatewayUrl: url, sessionToken: result.sessionToken, gatewayToken: result.gatewayToken, user: result.user, company: result.company, quota: result.quota })
+    state.data.lastHeartbeatOk = true
+    state.data.lastHeartbeatAt = new Date().toISOString()
+    state.save()
+    await configureLlmRoute(result.company, result.gatewayToken)
+    try {
+      await syncAll()
+    } catch (err) {
+      log(`公司盘同步失败: ${err.message}`)
+    }
+    log(`初始设置完成，已登录 ${result.user.username}`)
     scheduleKernelUpdate()
     return state.publicView()
   }
@@ -620,6 +641,26 @@ export function apply(ctx, config) {
           const method = req.method ?? 'GET'
           try {
             if (method === 'GET' && rel === '/state') return json(res, 200, state.publicView())
+            if (method === 'GET' && rel === '/discover') {
+              const want = url.searchParams.get('gatewayUrl')
+              const last = (want || state.data.gatewayUrl || config.gatewayUrl || '').replace(/\/+$/, '')
+              const r = await discoverGateways({
+                lastUrl: last,
+                defaultPort: portFromUrl(last, 8790),
+              })
+              if (!state.loggedIn && r.picked) {
+                state.data.gatewayUrl = r.picked.replace(/\/+$/, '')
+                state.save()
+              }
+              return json(res, 200, r)
+            }
+            if (method === 'GET' && rel === '/setup') {
+              const want = url.searchParams.get('gatewayUrl')
+              if (want) state.data.gatewayUrl = want.replace(/\/+$/, '')
+              const r = await gateway.get('/api/setup', { token: null })
+              return json(res, 200, r)
+            }
+            if (method === 'POST' && rel === '/setup') return json(res, 200, await completeSetup(await readJson(req)))
             if (method === 'POST' && rel === '/login') return json(res, 200, await login(await readJson(req)))
             if (method === 'POST' && rel === '/logout') return json(res, 200, await logout())
             if (method === 'POST' && rel === '/drive/sync') {

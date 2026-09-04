@@ -5,14 +5,15 @@
 ## 现在在哪（2026-09-04 傍晚）
 
 - 仓库：<https://git.ethan.team/ethanfly/company-harness>，分支 `main`（安装包工作用户同意直接提交在 `main` 上）
-- 目标：复刻视频里的「企业交付工作台」THE DIVA —— 统一服务端 + 共享模型 token + 桌面客户端
+- 目标：复刻视频里的「企业交付工作台」—— 现产品名 **valimart harness**（统一服务端 + 共享模型 token + 桌面客户端）
 - 状态：视频里出现的功能全部落地并有截图证据（`docs/evidence/00–18`）；`npm test` **67** 个用例全绿（含 sqlite / Anthropic 转译 / 备份）；
   Playwright 冒烟另跑 `npm run test:e2e`。
   内核由仓库自己安装打补丁（`scripts/install-kernel.mjs`），**不再依赖 `TDHarness-coding` 仓库**
 - **安装包：完成**（提交 `ba2d0b6`（计划）→ `4f016a2`（Task 8 审查修复）+ 随后的文档提交；设计 `docs/superpowers/specs/2026-09-04-installers-design.md`，
   计划 `docs/superpowers/plans/2026-09-04-installers.md`，按计划 9 个任务逐个实现 / 审查 / 提交）。
-  `npm run dist` 出两个 Windows 安装包：客户端 `dist/THE-DIVA-Setup-<ver>.exe`（Electron 壳 + 随包 `node.exe` + 打好补丁的 `kernel.tar`，按用户一键安装）
-  与服务端 `dist/THE-DIVA-Gateway-Setup-<ver>.exe`（NSIS + `node.exe` + WinSW 注册 Windows 服务 `TheDivaGateway`）。
+  `npm run dist` 出两个 Windows 安装包：客户端 `dist/valimart-harness-Setup-<ver>.exe`（Electron 壳 + 随包 `node.exe` + 打好补丁的 `kernel.tar`，按用户一键安装到 `%LOCALAPPDATA%\\Programs\\valimart-harness`）
+  与服务端 `dist/valimart-harness-Gateway-Setup-<ver>.exe`（NSIS + `node.exe` + WinSW 注册 Windows 服务 `TheDivaGateway`，装到 `%ProgramFiles%\\valimart harness Gateway`）。
+  安装版首次启动不播种演示账号；打开管理页或客户端走「公司 → 管理员 → 同事」引导。
   本机（构建机）已实测：客户端装 → 冷启动 19 s / 热启动 2.4 s → 卸载；网关装成服务 → 安装版客户端登录 `boss` 到 `http://<本机名>:8790`（内核由安装版客户端拉起，页面在 IDE 浏览器里操作）、Mock Echo 有回复 →
   网关覆盖升级（`config.local.json` 保留）→ 两边卸载（数据保留）。**一台真正没有 Node 的机器还没试过**（见下面第 1 项）。用法与细节见 README §2.5。
 - **内核门禁更新：完成**（设计 `docs/superpowers/specs/2026-09-04-kernel-auto-update-design.md`）。GitHub Release 发现 → `kernel:prepare` / 管理页试打 16 处补丁 → 发布 `current`；员工登录后后台拉 tar，下次启动再切换。壳没有自动更新。`pin.json` 仍是 0.1.1-rc.2，未升 0.1.2。
@@ -33,10 +34,10 @@
 | `server/data/` 不入库 | 里面有通道凭据、令牌、密码哈希；首次启动按 `config.json` 自动播种 |
 | 安装版客户端 = Electron 壳 + **随包 `node.exe`**（构建机 `process.execPath`）+ **`kernel.tar`**（打好补丁的前缀，首次启动解到 `~/.company-desk/app/kernel`） | Electron 只做窗口与进程编排，内核运行时与 `npm run desktop` 完全同一份 node，零 ABI 风险；公司内网未必能到 npm registry，所以内核随包、首次启动不联网；单个 tar 比落 3 万个小文件装得快 |
 | 安装版 profile 叫 `desk-app`，内核在 `~/.company-desk/app/kernel`（开发版 `desk` / `~/.company-desk/kernel`） | 开发机上两套并存互不改链接；登录态 / 公司盘镜像 / 会话（`~/.dsh/desk`、`~/.dsh/sessions`）故意共用 |
-| 客户端安装目录接受 `%LOCALAPPDATA%\Programs\the-diva-desktop`（不是设计稿的 `Programs\THE DIVA`） | electron-builder 26 在 oneClick + 按用户模式下有意用包名作目录、yml 无选项可改；快捷方式 / 卸载项 / 窗口标题都还是「THE DIVA」，功能无差别，不值得为此改成向导式安装或加 NSIS 自定义脚本 |
+| 客户端安装目录 `%LOCALAPPDATA%\Programs\valimart-harness`（包名 `valimart-harness`） | electron-builder 26 在 oneClick + 按用户模式下用包名作目录；已把 `desktop/package.json` 的 name 从 `the-diva-desktop` 改掉 |
 | Electron 自身的 userData 放 `~/.company-desk/app/electron`（不是 `%APPDATA%\THE DIVA`） | 客户端运行期状态只在 `~/.company-desk/{app,logs}` 与 `~/.dsh` 三处，卸载 / 清理有据可依 |
 | `preparePackaged` 重新解压时只删自己建的六个条目（`kernel plugins profile scripts node_modules state.json`），不 `rmSync` 整个 appDir | `--app-dir` 误指到 `~/.company-desk` 之类有用目录时不能把开发内核、日志一起删掉 |
-| 网关数据固定在 `%ProgramData%\THE DIVA Gateway\data`，由服务定义 XML 的 `DESK_GATEWAY_DATA` 注入（优先于 `config.local.json` 的 `dataDir`）；XML 每次安装 / 升级由 `init.mjs` 重生成 | 数据不在 `%ProgramFiles%` 下、卸载保留；XML 以 INSTDIR 为准重渲染才能保证升级 / 换目录后路径正确——代价是 XML 不能手改（密钥走 `config.local.json` / 机器级环境变量 / 客户端通道接入） |
+| 网关数据固定在 `%ProgramData%\valimart harness Gateway\data`，由服务定义 XML 的 `DESK_GATEWAY_DATA` 注入（优先于 `config.local.json` 的 `dataDir`）；XML 每次安装 / 升级由 `init.mjs` 重生成 | 数据不在 `%ProgramFiles%` 下、卸载保留；旧目录 `%ProgramData%\THE DIVA Gateway` 备份脚本仍识别。安装版 `config.local.json` 写 `seedAdmin: false` + `seedUsers: []`，首次打开管理页 / 客户端走引导，不播种 boss 与演示账号 |
 | 网关卸载器只删 `runtime\ server\ service\ README.txt Uninstall.exe`，不 `RMDir /r $INSTDIR` | 用户在目录页选了已有目录时不能整个清空 |
 | `dist:gateway` 的 makensis 复用 electron-builder 缓存（`MAKENSIS` 环境变量可覆盖） | 不再装一套 NSIS；代价是要先跑过 `dist:client` |
 
@@ -56,7 +57,7 @@
 ### 2. 服务端可部署（已做，剩余运维）
 
 - SQLite / HTTPS 说明 / 备份脚本已落地。还没做：网关自己终结 TLS（现在只反代）、把计划任务写进 NSIS、备份轮转
-- 注意安装版数据目录仍是 `%ProgramData%\THE DIVA Gateway\data`（`DESK_GATEWAY_DATA`）
+- 注意安装版数据目录是 `%ProgramData%\valimart harness Gateway\data`（`DESK_GATEWAY_DATA`）；旧机若还在 `THE DIVA Gateway` 下，备份脚本会回退识别
 
 ### 3. 小项（剩余）
 

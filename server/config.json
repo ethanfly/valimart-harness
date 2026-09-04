@@ -4,7 +4,7 @@
   "publicUrl": "http://127.0.0.1:8790",
   "dataDir": "./data",
   "company": {
-    "name": "THE DIVA",
+    "name": "valimart harness",
     "plan": "团队版",
     "seats": 20
   },
@@ -23,6 +23,7 @@
     "displayName": "老板",
     "department": "管理层"
   },
+  "seedDriveSamples": true,
   "seedUsers": [
     { "username": "boss-b", "password": "boss123456", "displayName": "联合创始人", "role": "admin", "department": "管理层" },
     { "username": "director", "password": "director123", "displayName": "总监", "role": "director", "department": "内容部" },
@@ -86,9 +87,18 @@
     { "id": "anthropic", "label": "Anthropic", "kind": "key", "baseUrl": "https://api.anthropic.com/v1", "api": "anthropic-messages", "hint": "claude-opus-4-6, claude-sonnet-4-6" },
     { "id": "deepseek", "label": "DeepSeek", "kind": "key", "baseUrl": "https://api.deepseek.com", "hint": "deepseek-v4-pro, deepseek-v4-flash" }
   ],
+  "oauth": {
+    "grok": {
+      "clientId": "",
+      "clientSecret": ""
+    }
+  },
   "defaultModel": "deepseek-v4-pro",
   "quickInference": {
     "defaultModel": "deepseek-v4-flash"
+  },
+  "kernel": {
+    "npmRegistry": "https://registry.npmmirror.com"
   },
   "loginTtlDays": 30,
   "presenceOnlineSeconds": 90

@@ -3,6 +3,7 @@
  * - 员工端只持有按人签发的网关令牌，上游真实密钥仅在服务端内存中。
  * - 每次请求：校验令牌（吊销即时生效）→ 周额度检查 → 转发上游 → 按人记账。
  */
+import crypto from 'node:crypto'
 import { HttpError, readBody, sendJson, bearer } from './http.js'
 import { estimateCostCny } from './ledger.js'
 import {
@@ -13,13 +14,21 @@ import {
   toOpenAIResponse,
   usesAnthropicMessages,
 } from './upstream-anthropic.js'
+import {
+  chatgptHeaders,
+  chatgptResponsesUrl,
+  createCodexSseTranslator,
+  toCodexResponsesBody,
+  usesChatgptCodex,
+} from './upstream-chatgpt.js'
 
 export class LlmProxy {
-  constructor({ db, cfg, ledger, catalog }) {
+  constructor({ db, cfg, ledger, catalog, oauth }) {
     this.db = db
     this.cfg = cfg
     this.ledger = ledger
     this.catalog = catalog
+    this.oauth = oauth
   }
 
   authenticate(req) {
@@ -100,11 +109,26 @@ export class LlmProxy {
       return
     }
     const anthropic = usesAnthropicMessages(upstream)
+    const codex = usesChatgptCodex(upstream)
     if (!stream) {
       const text = await upstreamRes.text()
       let payload = text
       let usage
-      if (anthropic) {
+      if (codex) {
+        const translator = createCodexSseTranslator({ model: model.id })
+        translator.push(text)
+        translator.end()
+        const converted = {
+          id: `chatcmpl-${Date.now()}`,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model: model.id,
+          choices: [{ index: 0, message: { role: 'assistant', content: translator.text }, finish_reason: 'stop' }],
+          usage: translator.usage,
+        }
+        usage = converted.usage
+        payload = JSON.stringify(converted)
+      } else if (anthropic) {
         try {
           const converted = toOpenAIResponse(JSON.parse(text), model.id)
           usage = converted.usage
@@ -126,16 +150,53 @@ export class LlmProxy {
     }
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' })
     res.flushHeaders?.()
+    if (codex) return this.pipeCodexStream(upstreamRes, res, model, finish, ac)
     if (anthropic) return this.pipeAnthropicStream(upstreamRes, res, model, finish, ac)
     return this.pipeOpenAIStream(upstreamRes, res, finish, ac)
   }
 
-  fetchUpstream(upstream, body, model, { stream, signal }) {
+  liveUpstream(upstream) {
+    return this.cfg.upstreams[upstream.id] ?? upstream
+  }
+
+  async prepareUpstream(upstream, { force = false } = {}) {
+    if (!this.oauth || !upstream?.channel) return this.liveUpstream(upstream)
+    try {
+      await this.oauth.ensureFresh(upstream.channel, { force })
+    } catch (err) {
+      console.warn(`[gateway] OAuth 续期失败 ${upstream.channel}: ${err.message}`)
+    }
+    return this.liveUpstream(upstream)
+  }
+
+  async fetchUpstream(upstream, body, model, opts) {
+    let current = await this.prepareUpstream(upstream)
+    let res = await this.sendUpstream(current, body, model, opts)
+    if (res.status === 401 && this.oauth && current.channel) {
+      current = await this.prepareUpstream(current, { force: true })
+      res = await this.sendUpstream(current, body, model, opts)
+    }
+    return res
+  }
+
+  sendUpstream(upstream, body, model, { stream, signal }) {
+    if (usesChatgptCodex(upstream)) {
+      const forward = toCodexResponsesBody({ ...body, stream: true }, model)
+      return fetch(chatgptResponsesUrl(upstream.baseUrl), {
+        method: 'POST',
+        headers: {
+          ...chatgptHeaders(upstream.resolvedKey, { accountId: upstream.chatgptAccountId }),
+          session_id: crypto.randomUUID(),
+        },
+        body: JSON.stringify(forward),
+        signal,
+      })
+    }
     if (usesAnthropicMessages(upstream)) {
       const forward = toAnthropicBody({ ...body, stream }, model)
       return fetch(anthropicMessagesUrl(upstream.baseUrl), {
         method: 'POST',
-        headers: { ...anthropicHeaders(upstream.resolvedKey), accept: stream ? 'text/event-stream' : 'application/json' },
+        headers: { ...anthropicHeaders(upstream.resolvedKey, { authStyle: upstream.authStyle }), accept: stream ? 'text/event-stream' : 'application/json' },
         body: JSON.stringify(forward),
         signal,
       })
@@ -189,6 +250,29 @@ export class LlmProxy {
     }
   }
 
+  async pipeCodexStream(upstreamRes, res, model, finish, ac) {
+    const translator = createCodexSseTranslator({ model: model.id })
+    const reader = upstreamRes.body.getReader()
+    const decoder = new TextDecoder()
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        for (const piece of translator.push(decoder.decode(value, { stream: true }))) res.write(piece)
+      }
+      for (const piece of translator.end()) res.write(piece)
+      finish(translator.usage, 'ok')
+      res.end()
+    } catch {
+      finish(translator.usage, ac.signal.aborted ? 'client_aborted' : 'stream_error')
+      try {
+        res.end()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   async pipeAnthropicStream(upstreamRes, res, model, finish, ac) {
     const translator = createAnthropicSseTranslator({ model: model.id })
     const reader = upstreamRes.body.getReader()
@@ -234,7 +318,18 @@ export class LlmProxy {
       const r = await this.fetchUpstream(upstream, body, model, { stream: false })
       const text = await r.text()
       if (!r.ok) throw new HttpError(502, `上游返回 ${r.status}: ${text.slice(0, 300)}`, 'upstream_error')
-      const json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
+      let json
+      if (usesChatgptCodex(upstream)) {
+        const translator = createCodexSseTranslator({ model: model.id })
+        translator.push(text)
+        translator.end()
+        json = {
+          choices: [{ message: { role: 'assistant', content: translator.text } }],
+          usage: translator.usage,
+        }
+      } else {
+        json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
+      }
       content = json.choices?.[0]?.message?.content ?? ''
       usage = json.usage
     }

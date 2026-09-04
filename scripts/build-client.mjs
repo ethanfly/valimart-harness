@@ -26,7 +26,7 @@ async function bundle() {
     platform: 'browser',
     target: ['es2022'],
     jsx: 'automatic',
-    loader: { '.css': 'text' },
+    loader: { '.css': 'text', '.png': 'dataurl' },
     external: externals,
     sourcemap: 'inline',
     logLevel: 'silent',

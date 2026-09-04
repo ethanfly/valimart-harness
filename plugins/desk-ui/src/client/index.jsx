@@ -9,13 +9,13 @@ import { AccountSection, ColleaguesSection, PersonnelSection, QuickInferenceSect
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
 import { makeFileChip } from './composer.jsx'
-import { Logotype } from './login.jsx'
+import { Logotype, PRODUCT_NAME, markMask } from './brand.jsx'
 
 /** 空会话页中央的品牌字标（填 conversation.hero.brand.mark 槽；官方标题与「预览版」徽标由样式隐藏）。 */
 function HeroWordmark() {
   return (
     <span className="dk-hero-wordmark">
-      <Logotype size={40} />
+      <Logotype size={44} />
     </span>
   )
 }
@@ -33,16 +33,16 @@ export function apply(ctx) {
     return () => el.remove()
   }, 'desk-ui: styles')
 
-  // ---- 窗口标题：官方渲染器把产品名写死成 "DeepSeek Harness"，这里改写成 THE DIVA ----
+  // ---- 窗口标题：官方写死 "DeepSeek Harness"，改成 valimart harness ----
   ctx.effect(() => {
-    const PRODUCT = 'THE DIVA'
-    const STOCK = 'DeepSeek Harness'
+    const PRODUCT = PRODUCT_NAME
+    const STOCK = ['DeepSeek Harness', 'THE DIVA']
     let applying = false
     const fix = () => {
       if (applying) return
-      const t = document.title
-      const next = t.includes(STOCK) ? t.replaceAll(STOCK, PRODUCT) : t
-      if (next !== t) {
+      let next = document.title
+      for (const s of STOCK) if (next.includes(s)) next = next.replaceAll(s, PRODUCT)
+      if (next !== document.title) {
         applying = true
         document.title = next
         applying = false
@@ -52,12 +52,27 @@ export function apply(ctx) {
     const titleEl = document.querySelector('title') ?? document.head.appendChild(document.createElement('title'))
     const mo = new MutationObserver(fix)
     mo.observe(titleEl, { childList: true, characterData: true, subtree: true })
-    // 网页图标（桌面窗口的任务栏图标）也换成 THE DIVA 字标
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#111"/><text x="32" y="41" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="30" font-weight="700" letter-spacing="1" fill="#fff">TD</text></svg>`
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 64
+    const c = canvas.getContext('2d')
+    c.fillStyle = '#111'
+    c.beginPath()
+    c.roundRect(0, 0, 64, 64, 14)
+    c.fill()
+    const img = new Image()
+    img.onload = () => {
+      c.fillStyle = '#fff'
+      c.globalCompositeOperation = 'source-over'
+      const s = 40
+      c.drawImage(img, (64 - s) / 2, (64 - s) / 2, s, s)
+      icon.href = canvas.toDataURL('image/png')
+    }
+    const maskSrc = (markMask.maskImage || '').replace(/^url\(["']?/, '').replace(/["']?\)$/, '')
+    img.src = maskSrc
     const icon = document.createElement('link')
     icon.rel = 'icon'
-    icon.type = 'image/svg+xml'
-    icon.href = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+    icon.type = 'image/png'
     const stockIcons = [...document.querySelectorAll('link[rel~="icon"]')]
     for (const el of stockIcons) el.remove()
     document.head.append(icon)

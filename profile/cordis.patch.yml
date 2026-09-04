@@ -59,6 +59,6 @@
       config:
         gatewayUrl: 'http://127.0.0.1:8790'
         providerId: desk-gateway
-        providerName: 'THE DIVA 公司网关'
+        providerName: 'valimart harness 公司网关'
     - id: desk-ui
       name: '@company-desk/desk-ui'

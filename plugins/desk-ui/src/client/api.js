@@ -32,6 +32,9 @@ async function call(method, path, body, { raw = false } = {}) {
 export const api = {
   state: () => call('GET', '/state'),
   login: (payload) => call('POST', '/login', payload),
+  discover: (gatewayUrl) => call('GET', `/discover?gatewayUrl=${encodeURIComponent(gatewayUrl ?? '')}`),
+  probeSetup: (gatewayUrl) => call('GET', `/setup?gatewayUrl=${encodeURIComponent(gatewayUrl ?? '')}`),
+  completeSetup: (payload) => call('POST', '/setup', payload),
   logout: () => call('POST', '/logout', {}),
   syncDrive: () => call('POST', '/drive/sync', {}),
   produced: (sessionId) => call('GET', `/sessions/${encodeURIComponent(sessionId)}/produced`),

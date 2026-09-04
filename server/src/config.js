@@ -52,6 +52,56 @@ export function readKeyFromSimpleYaml(file, key) {
   return undefined
 }
 
+/** 安装版服务（WinSW XML）或显式 packaged 标志。开发机 `npm run server` / `npm run dev` 不会走到这里。 */
+export function isPackagedGateway(cfg = {}, env = process.env) {
+  return cfg.packaged === true || env.DESK_GATEWAY_PACKAGED === '1' || env.NODE_ENV === 'production'
+}
+
+export function isSeedAdmin(seed) {
+  return !!(seed && typeof seed === 'object' && seed.username && seed.password)
+}
+
+/** 把仓库开发 config 收成安装包可用的生产模板：不播种、无 mock 上游。不改入参。 */
+export function toProductionConfig(base = {}) {
+  const upstreams = {}
+  for (const [id, up] of Object.entries(base.upstreams ?? {})) {
+    if (!up || up.kind === 'mock') continue
+    upstreams[id] = structuredClone(up)
+  }
+  return {
+    ...structuredClone(base),
+    seedAdmin: false,
+    seedUsers: [],
+    seedDriveSamples: false,
+    allowMock: false,
+    packaged: true,
+    upstreams,
+  }
+}
+
+/** 生产/安装版：强制空种子、去掉 mock（除非 allowSeed / allowMock）。开发测试传 mock 覆盖时不受影响。 */
+export function applyInstallGuards(cfg, env = process.env) {
+  if (!isPackagedGateway(cfg, env)) return cfg
+  if (cfg.allowSeed !== true) {
+    cfg.seedAdmin = false
+    cfg.seedUsers = []
+    cfg.seedDriveSamples = false
+  }
+  if (cfg.allowMock !== true && cfg.upstreams) {
+    for (const id of Object.keys(cfg.upstreams)) {
+      if (cfg.upstreams[id]?.kind === 'mock') delete cfg.upstreams[id]
+    }
+  }
+  return cfg
+}
+
+export function shouldSeedDriveSamples(cfg, env = process.env) {
+  if (cfg?.seedDriveSamples === true) return true
+  if (cfg?.seedDriveSamples === false) return false
+  if (isPackagedGateway(cfg, env) && cfg?.allowSeed !== true) return false
+  return isSeedAdmin(cfg?.seedAdmin)
+}
+
 export function loadConfig(overrides = {}) {
   const base = readJsonIfExists(path.join(serverRoot, 'config.json')) ?? {}
   const local = readJsonIfExists(path.join(serverRoot, 'config.local.json')) ?? {}
@@ -61,6 +111,8 @@ export function loadConfig(overrides = {}) {
   if (process.env.DESK_GATEWAY_DATA) cfg.dataDir = process.env.DESK_GATEWAY_DATA
   cfg.dataDir = path.resolve(serverRoot, expandHome(cfg.dataDir ?? './data'))
   cfg.publicUrl = cfg.publicUrl ?? `http://${cfg.host}:${cfg.port}`
+
+  applyInstallGuards(cfg)
 
   // 解析上游密钥（仅内存，不落盘、不下发）
   for (const [id, up] of Object.entries(cfg.upstreams ?? {})) {

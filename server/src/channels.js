@@ -7,6 +7,8 @@
  */
 import { createPersistence } from './store.js'
 import { inferUpstreamApi } from './upstream-anthropic.js'
+import { accountIdFromToken, isOpenAiPublicApi } from './oauth-tokens.js'
+import { chatgptProvider } from './oauth-providers/chatgpt.js'
 import { HttpError } from './http.js'
 
 export const CHANNEL_KIND_LABELS = { subscription: '订阅', key: 'key' }
@@ -45,15 +47,22 @@ export class Channels {
     const upstreamId = this.upstreamIdOf(channel)
     this.cfg.upstreams ??= {}
     const existing = this.cfg.upstreams[upstreamId]
-    const baseUrl = item.baseUrl || existing?.baseUrl || channel.baseUrl
+    let baseUrl = item.baseUrl || existing?.baseUrl || channel.baseUrl
+    let api = item.api ?? channel.api ?? existing?.api ?? inferUpstreamApi(baseUrl)
+    if (item.oauthProvider === 'chatgpt' || item.api === 'chatgpt-codex') {
+      api = 'chatgpt-codex'
+      if (!baseUrl || isOpenAiPublicApi(baseUrl)) baseUrl = chatgptProvider.upstreamBaseUrl
+    }
     this.cfg.upstreams[upstreamId] = {
       ...(existing ?? {}),
       id: upstreamId,
       kind: 'openai-compatible',
-      api: channel.api ?? existing?.api ?? inferUpstreamApi(baseUrl),
+      api,
       label: existing?.label ?? channel.label,
       baseUrl,
       resolvedKey: item.credential,
+      authStyle: item.authStyle ?? existing?.authStyle,
+      chatgptAccountId: item.chatgptAccountId ?? accountIdFromToken(item.credential) ?? existing?.chatgptAccountId,
       channel: channel.id,
       channelKind: channel.kind,
       // 展示名/推理档位等默认值在加载时补齐（grok-4.6-fast → Grok 4.6 Fast），不固化进 data/channels.json
@@ -100,10 +109,32 @@ export class Channels {
     const baseUrl = String(input.baseUrl ?? '').trim() || channel.baseUrl
     if (!/^https?:\/\//.test(baseUrl)) throw new HttpError(400, 'baseUrl 必须是 http(s) 地址')
     const item = { baseUrl, credential, models, connectedAt: new Date().toISOString(), connectedBy: user?.username ?? null }
+    if (input.refreshToken) item.refreshToken = String(input.refreshToken)
+    if (input.oauthProvider) item.oauthProvider = String(input.oauthProvider)
+    if (input.authStyle) item.authStyle = String(input.authStyle)
+    if (input.tokenExpiresAt) item.tokenExpiresAt = String(input.tokenExpiresAt)
+    if (input.api) item.api = String(input.api)
+    if (input.chatgptAccountId) item.chatgptAccountId = String(input.chatgptAccountId)
     this.store.update((d) => {
       d.items[id] = item
     })
     this.applyOne(channel, item)
+    return this.view().find((c) => c.id === id)
+  }
+
+  /** 续期后只改令牌字段，不碰模型列表。 */
+  updateTokens(id, patch = {}) {
+    const channel = this.find(id)
+    const current = this.store.load().items[id]
+    if (!current) throw new HttpError(404, `通道 ${id} 尚未接入`, 'channel_not_connected')
+    this.store.update((d) => {
+      const item = d.items[id]
+      if (patch.credential) item.credential = String(patch.credential)
+      if (patch.refreshToken) item.refreshToken = String(patch.refreshToken)
+      if (patch.tokenExpiresAt) item.tokenExpiresAt = String(patch.tokenExpiresAt)
+      if (patch.chatgptAccountId) item.chatgptAccountId = String(patch.chatgptAccountId)
+    })
+    this.applyOne(channel, this.store.load().items[id])
     return this.view().find((c) => c.id === id)
   }
 

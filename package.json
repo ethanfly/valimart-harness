@@ -2,7 +2,7 @@
   "name": "company-desk",
   "version": "0.1.0",
   "private": true,
-  "description": "企业交付工作台（THE DIVA）— 基于 @deepseek-ai/dsh 内核（内置公司补丁）的公司网关服务端与桌面客户端",
+  "description": "企业交付工作台（valimart harness）— 基于 @deepseek-ai/dsh 内核（内置公司补丁）的公司网关服务端与桌面客户端",
   "type": "module",
   "scripts": {
     "kernel": "node scripts/install-kernel.mjs",

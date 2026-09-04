@@ -1,10 +1,10 @@
 /**
  * 网关安装脚本 —— NSIS 安装 / 升级时用随包 node.exe 调用，幂等：
  *   node init.mjs <INSTDIR>
- *   1) 建 %ProgramData%\THE DIVA Gateway\{data,logs}
- *   2) <INSTDIR>\server\config.local.json 不存在才写：host 0.0.0.0 / port 8790 / publicUrl http://<主机名>:8790 / dataDir / seedUsers []
- *      （server/src/config.js 只认 server/ 目录下的 config.local.json；deepMerge 对数组整体替换，seedUsers [] 让 config.json 里的
- *      演示账号不会在首次启动时被创建——种子管理员 boss 来自 seedAdmin，不受影响）
+ *   1) 建 %ProgramData%\valimart harness Gateway\{data,logs}
+ *   2) <INSTDIR>\server\config.local.json 不存在才写：host 0.0.0.0 / port 8790 / publicUrl http://<主机名>:8790 / dataDir /
+ *      seedAdmin false / seedUsers [] / seedDriveSamples false / packaged true
+ *      （覆盖开发 config.json：不播种账号与示例文件，打开管理页走首次引导）
  *   3) 渲染 <INSTDIR>\service\TheDivaGateway.xml（每次重写，路径以 INSTDIR 为准）
  * 测试用环境变量：DIVA_PROGRAMDATA 覆盖 ProgramData，DIVA_COMPUTERNAME 覆盖主机名。
  */
@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const PRODUCT_DIR = 'THE DIVA Gateway'
+export const PRODUCT_DIR = 'valimart harness Gateway'
 export const DEFAULT_PORT = 8790
 
 function xmlEscape(s) {
@@ -30,7 +30,7 @@ export function init(instDir, { programData = process.env.DIVA_PROGRAMDATA || pr
   const configFile = path.join(instDir, 'server', 'config.local.json')
   let wroteConfig = false
   if (!fs.existsSync(configFile)) {
-    const cfg = { host: '0.0.0.0', port: DEFAULT_PORT, publicUrl: `http://${computerName.toLowerCase()}:${DEFAULT_PORT}`, dataDir, seedUsers: [] }
+    const cfg = { host: '0.0.0.0', port: DEFAULT_PORT, publicUrl: `http://${computerName.toLowerCase()}:${DEFAULT_PORT}`, dataDir, seedAdmin: false, seedUsers: [], seedDriveSamples: false, packaged: true }
     fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2) + '\n')
     wroteConfig = true
   }
