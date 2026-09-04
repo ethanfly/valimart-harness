@@ -4,7 +4,7 @@
  * 启动：单实例锁 → 启动页 → 用随包 node.exe 跑 payload/scripts/lib/bootstrap.mjs --packaged（解内核 / 同步技能根 / 装 profile）
  *      → 选端口 → node.exe 起内核 → 等 HTTP 就绪 → 主窗口 loadURL。关窗 → taskkill 内核进程树 → 退出。
  * 参数（开发时）：--payload <dir>（默认 resources/payload）、--app-dir <dir>（默认 ~/.company-desk/app）、--dsh-home <dir>（默认 $DSH_HOME 或 ~/.dsh）
- * 日志：~/.company-desk/logs/desktop.log（5 MB 滚动保留 3 份）
+ * 日志：~/.company-desk/logs/desktop.log（5 MB 滚动保留 3 份）；Electron 自身状态（userData）：<appDir>/electron
  */
 'use strict'
 const { app, BrowserWindow, dialog, shell } = require('electron')
@@ -120,30 +120,42 @@ function runBootstrap() {
   return new Promise((resolve, reject) => {
     const script = path.join(payloadDir, 'scripts', 'lib', 'bootstrap.mjs')
     const child = spawn(nodeExe, [script, '--packaged', '--payload', payloadDir, '--app-dir', appDir, '--dsh-home', dshHome], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    bootstrapChild = child
     let ready = null
     let buf = ''
+    const handleLine = (raw) => {
+      const line = raw.trim()
+      if (!line) return
+      log.write('bootstrap', line)
+      let ev
+      try {
+        ev = JSON.parse(line)
+      } catch {
+        return
+      }
+      if (!ev || typeof ev !== 'object') return
+      if (ev.step === 'ready') ready = ev
+      else if (ev.step === 'error') reject(new Error(ev.detail))
+      else setStatus(describe(ev))
+    }
+    child.stdout.setEncoding('utf8')
     child.stdout.on('data', (d) => {
-      buf += d.toString('utf8')
+      buf += d
       let i
       while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim()
+        const line = buf.slice(0, i)
         buf = buf.slice(i + 1)
-        if (!line) continue
-        log.write('bootstrap', line)
-        let ev
-        try {
-          ev = JSON.parse(line)
-        } catch {
-          continue
-        }
-        if (ev.step === 'ready') ready = ev
-        else if (ev.step === 'error') reject(new Error(ev.detail))
-        else setStatus(describe(ev))
+        handleLine(line)
       }
     })
-    child.stderr.on('data', (d) => log.write('bootstrap:err', d.toString('utf8')))
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (d) => log.write('bootstrap:err', d))
     child.on('error', reject)
-    child.on('exit', (code) => {
+    // close（而不是 exit）：此时 stdio 已全部读完，最后一行 ready 不会丢；再把没带换行的尾巴解析掉
+    child.on('close', (code) => {
+      bootstrapChild = null
+      handleLine(buf)
+      buf = ''
       if (code === 0 && ready) resolve(ready)
       else reject(new Error(`启动准备失败（退出码 ${code}）`))
     })
@@ -158,8 +170,11 @@ function startKernel(ready, port) {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
-  child.stdout.on('data', (d) => log.write('dsh', d.toString('utf8')))
-  child.stderr.on('data', (d) => log.write('dsh:err', d.toString('utf8')))
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', (d) => log.write('dsh', d))
+  child.stderr.on('data', (d) => log.write('dsh:err', d))
+  child.on('error', (err) => fatal(new Error(`内核进程无法启动：${err.message}`)))
   child.on('exit', (code, signal) => {
     log.write('dsh', `exit code=${code} signal=${signal}`)
     if (!quitting) fatal(new Error(`内核进程意外退出（${code ?? signal}）`))
@@ -170,8 +185,14 @@ function startKernel(ready, port) {
 // ---------- 主流程 ----------
 let splash = null
 let mainWin = null
+let bootstrapChild = null
 let kernel = null
 let quitting = false
+
+/** 只放行 http/https 到系统浏览器，其他协议一律丢弃。 */
+function openExternal(u) {
+  if (/^https?:/i.test(u)) shell.openExternal(u)
+}
 
 async function main() {
   app.setAppUserModelId(APP_ID)
@@ -181,11 +202,14 @@ async function main() {
   splash = createSplash()
   setStatus('正在准备工作台…')
   const ready = await runBootstrap()
+  if (quitting) return
   const port = await findFreePort(3470, 10)
+  if (quitting) return
   setStatus(`启动内核（端口 ${port}）…`)
   kernel = startKernel(ready, port)
   const url = `http://127.0.0.1:${port}/`
   await waitHttp(url, 60000)
+  if (quitting) return
 
   mainWin = new BrowserWindow({
     width: 1280,
@@ -202,13 +226,13 @@ async function main() {
   mainWin.setMenu(null)
   mainWin.webContents.setWindowOpenHandler(({ url: u }) => {
     if (u.startsWith(url)) return { action: 'allow' }
-    shell.openExternal(u)
+    openExternal(u)
     return { action: 'deny' }
   })
   mainWin.webContents.on('will-navigate', (e, u) => {
     if (!u.startsWith(url)) {
       e.preventDefault()
-      shell.openExternal(u)
+      openExternal(u)
     }
   })
   mainWin.webContents.on('before-input-event', (e, input) => {
@@ -238,13 +262,22 @@ async function main() {
 function shutdown(code) {
   if (quitting) return
   quitting = true
+  killTree(bootstrapChild)
   killTree(kernel)
-  setTimeout(() => app.exit(code), 200)
+  // 触发时再杀一次：关启动页那一刻 main() 可能正卡在 await 上，内核在这 200 ms 里才被 spawn
+  setTimeout(() => {
+    killTree(kernel)
+    app.exit(code)
+  }, 200)
 }
 
 async function fatal(err) {
+  if (quitting) {
+    // 用户已在关闭（如启动中关掉启动页，bootstrap 被杀后 reject 到这里）：不是故障，不弹框
+    log.write('app', `退出中，忽略：${err && err.message ? err.message : err}`)
+    return
+  }
   log.write('app', `FATAL ${err && err.stack ? err.stack : err}`)
-  if (quitting) return
   quitting = true
   killTree(kernel)
   if (splash && !splash.isDestroyed()) splash.hide()
@@ -262,6 +295,12 @@ async function fatal(err) {
   app.exit(1)
 }
 
+// Electron 自身状态（Chromium 缓存 / 单实例锁文件）也放进 appDir，运行时状态只落 ~/.company-desk 与 ~/.dsh；须在取锁之前设好
+const electronDir = path.join(appDir, 'electron')
+fs.mkdirSync(electronDir, { recursive: true })
+app.setPath('userData', electronDir)
+app.setPath('sessionData', electronDir)
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -274,6 +313,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => shutdown(0))
   app.on('before-quit', () => {
     quitting = true
+    killTree(bootstrapChild)
     killTree(kernel)
   })
   app.whenReady().then(main).catch(fatal)
