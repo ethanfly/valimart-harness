@@ -251,11 +251,22 @@ async function main() {
     if (splash && !splash.isDestroyed()) splash.close()
     splash = null
   })
+  // close 在窗口销毁、加载中止之前就触发：页面还在 loadURL 时关窗，loadURL 会 reject（ERR_FAILED），
+  // 若只挂 closed，reject 会先于 closed 到达 main().catch(fatal)，此时 quitting 仍为 false 而误弹"无法启动"
+  mainWin.on('close', () => shutdown(0))
   mainWin.on('closed', () => {
     mainWin = null
     shutdown(0)
   })
-  await mainWin.loadURL(url)
+  try {
+    await mainWin.loadURL(url)
+  } catch (err) {
+    if (quitting || !mainWin || mainWin.isDestroyed()) {
+      log.write('app', `加载中关窗，忽略：${err && err.message ? err.message : err}`)
+      return
+    }
+    throw err
+  }
   log.write('app', `就绪 ${url}`)
 }
 
