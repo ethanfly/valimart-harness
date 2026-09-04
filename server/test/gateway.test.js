@@ -489,9 +489,10 @@ test('内核：员工不能 publish；管理员 publish / rollback', async () =>
   assert.equal(rb.json.version, '0.1.9-test')
 })
 
-test('内核：prepare 尚未接入返回 501', async () => {
-  const r = await api('POST', '/api/admin/kernel/prepare', { token: ctx.boss.sessionToken, body: { version: '0.1.2-rc.1' } })
-  assert.equal(r.status, 501)
-  assert.equal(r.json.error.code, 'not_implemented')
-  assert.equal(r.json.error.message, 'prepare 尚未接入')
+test('内核：prepare 缺 version 为 400；员工 403（不跑 npm）', async () => {
+  const denied = await api('POST', '/api/admin/kernel/prepare', { token: ctx.emp.sessionToken, body: { version: '9.0.0' } })
+  assert.equal(denied.status, 403)
+  const r = await api('POST', '/api/admin/kernel/prepare', { token: ctx.boss.sessionToken, body: {} })
+  assert.equal(r.status, 400)
+  assert.equal(r.json.error.code, 'bad_request')
 })

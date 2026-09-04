@@ -9,6 +9,9 @@ import { ROLES, ROLE_LABELS, publicUser, verifyPassword, hashPassword } from './
 import { TASK_STATUS } from './tasks.js'
 import { MEMORY_LAYERS } from './drive.js'
 import { openKernelCatalog } from './kernel-catalog.js'
+import { KernelPatchError } from '../../scripts/kernel/patches.mjs'
+import { prepareKernelTarball } from '../../scripts/lib/kernel-prepare.mjs'
+import { hasNpm } from '../../scripts/lib/npm-cli.mjs'
 
 /** 客户端内核锁定版本（scripts/kernel/pin.json）：KERNEL_LABEL 给 /api/status，pinVersion 给 bundled 回退。 */
 const KERNEL_PIN = (() => {
@@ -477,7 +480,35 @@ export function registerApi(router, ctx) {
   router.post('/api/admin/kernel/prepare', async (req, res) => {
     const { user } = auth(req)
     requireAdmin(user)
-    throw new HttpError(501, 'prepare 尚未接入', 'not_implemented')
+    const body = await readJson(req)
+    const version = String(body.version ?? '').trim()
+    if (!version) throw new HttpError(400, '缺少 version', 'bad_request')
+    if (version.includes('/') || version.includes('\\') || version.includes('..') || version === 'current.json') {
+      throw new HttpError(400, '非法版本号', 'bad_version')
+    }
+    if (!hasNpm()) throw new HttpError(501, '本机没有可用的 npm，无法试打内核', 'npm_missing')
+    const stage = path.join(cfg.dataDir, 'kernels', `.stage-${version}`)
+    fs.rmSync(stage, { recursive: true, force: true })
+    const prefix = path.join(stage, 'prefix')
+    const outDir = path.join(stage, 'out')
+    const skillsDir = path.join(stage, 'skills')
+    try {
+      const { tarPath, manifest } = prepareKernelTarball({
+        version,
+        prefix,
+        outDir,
+        skillsDir,
+        log: (m) => console.log(`[kernel:prepare] ${m}`),
+      })
+      const saved = kernels.saveArtifact({ version, tarPath, manifest })
+      sendJson(res, 200, saved)
+    } catch (err) {
+      if (err instanceof HttpError) throw err
+      if (err instanceof KernelPatchError) throw new HttpError(400, `补丁失败 ${err.code}: ${err.detail}`, err.code)
+      throw new HttpError(500, err.message, err.code ?? 'prepare_failed')
+    } finally {
+      fs.rmSync(stage, { recursive: true, force: true })
+    }
   })
 
   // ---------- 服务器状态（管理页）----------

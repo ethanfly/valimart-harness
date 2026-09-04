@@ -19,6 +19,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from './kernel/patches.mjs'
 import { PIN, defaultDshHome, defaultPrefix, locateKernel, refuseLivePrefix, stampPath } from './kernel/locate.mjs'
+import { npmInvocation } from './lib/npm-cli.mjs'
 
 const args = process.argv.slice(2)
 const has = (k) => args.includes(k)
@@ -63,14 +64,6 @@ if (has('--check')) {
 }
 
 // ---------- 1. npm 装固定版本 ----------
-function npmInvocation() {
-  // 优先用与当前 node 同一套的 npm-cli.js（不走 shell，Windows 下也稳）；找不到再退回 PATH 上的 npm
-  const nodeDir = path.dirname(process.execPath)
-  const cli = process.platform === 'win32' ? path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js') : path.resolve(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
-  if (fs.existsSync(cli)) return { cmd: process.execPath, pre: [cli], shell: false }
-  return process.platform === 'win32' ? { cmd: 'npm.cmd', pre: [], shell: true } : { cmd: 'npm', pre: [], shell: false }
-}
-
 let kernel = locateKernel(prefix)
 const force = has('--force')
 if (force || !kernel || kernel.version !== PIN.version) {

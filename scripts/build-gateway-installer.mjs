@@ -81,9 +81,22 @@ for (const f of fs.readdirSync(path.join(root, 'server', 'src'))) fs.copyFileSyn
 fs.copyFileSync(path.join(root, 'server', 'config.json'), path.join(stage, 'server', 'config.json'))
 // server/src 是 ESM：安装目录里没有根 package.json，要在 server/ 放一个声明 type=module
 fs.writeFileSync(path.join(stage, 'server', 'package.json'), JSON.stringify({ name: 'the-diva-gateway', version, private: true, type: 'module' }, null, 2) + '\n')
-// server/src/api.js 读 ../../scripts/kernel/pin.json 给管理页显示内核版本：按同样的相对位置放到 <INSTDIR>\scripts\kernel\
+// server/src 以 ../../scripts/... 读 pin / prepare 脚本：相对位置与仓库一致
 fs.mkdirSync(path.join(stage, 'scripts', 'kernel'), { recursive: true })
-fs.copyFileSync(path.join(root, 'scripts', 'kernel', 'pin.json'), path.join(stage, 'scripts', 'kernel', 'pin.json'))
+fs.mkdirSync(path.join(stage, 'scripts', 'lib'), { recursive: true })
+for (const f of ['patches.mjs', 'locate.mjs', 'pin.json']) {
+  fs.copyFileSync(path.join(root, 'scripts', 'kernel', f), path.join(stage, 'scripts', 'kernel', f))
+}
+for (const f of ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'bootstrap.mjs']) {
+  fs.copyFileSync(path.join(root, 'scripts', 'lib', f), path.join(stage, 'scripts', 'lib', f))
+}
+const npmSrc = path.join(path.dirname(process.execPath), 'node_modules', 'npm')
+if (fs.existsSync(npmSrc)) {
+  log('复制构建机 npm → runtime/node_modules/npm')
+  fs.cpSync(npmSrc, path.join(stage, 'runtime', 'node_modules', 'npm'), { recursive: true })
+} else {
+  log('构建机 process.execPath 旁没有 node_modules/npm，安装版 /prepare 将返回 501 npm_missing')
+}
 fs.copyFileSync(path.join(root, 'installer', 'gateway', 'init.mjs'), path.join(stage, 'service', 'init.mjs'))
 fs.copyFileSync(path.join(root, 'installer', 'gateway', 'TheDivaGateway.xml.tpl'), path.join(stage, 'service', 'TheDivaGateway.xml.tpl'))
 fs.copyFileSync(await ensureWinsw(), path.join(stage, 'service', 'TheDivaGateway.exe'))

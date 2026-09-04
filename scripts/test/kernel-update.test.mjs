@@ -3,10 +3,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import {
   parseReleaseTag, newerThan, filterDiscoverable, hashFile,
   pendingPaths, readPending, writePending, clearPending,
 } from '../lib/kernel-update.mjs'
+import { packPatchedPrefix } from '../lib/kernel-prepare.mjs'
+import { KernelPatchError } from '../kernel/patches.mjs'
 
 test('parseReleaseTag：只认 dsh-v 前缀', () => {
   assert.deepEqual(parseReleaseTag('dsh-v0.1.2-rc.1'), { version: '0.1.2-rc.1' })
@@ -52,4 +56,27 @@ test('pending：读写、hash、清理', (t) => {
   clearPending(dir)
   assert.equal(readPending(dir), null)
   assert.equal(fs.existsSync(dir), false)
+})
+
+test('packPatchedPrefix：假 prefix 缺补丁文件 → KernelPatchError，不写 outDir/<ver>', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-kprep-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const prefix = path.join(dir, 'prefix')
+  const outDir = path.join(dir, 'out')
+  const skillsDir = path.join(dir, 'skills')
+  const root = path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(path.join(root, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '9.0.0' }))
+  fs.writeFileSync(path.join(root, 'lib', 'bin.js'), '')
+  assert.throws(
+    () => packPatchedPrefix({ prefix, version: '9.0.0', outDir, skillsDir, log: () => {} }),
+    (err) => err instanceof KernelPatchError && err.code === 'target-missing',
+  )
+  assert.equal(fs.existsSync(path.join(outDir, '9.0.0')), false)
+})
+
+test('update.mjs：无子命令退出 64', () => {
+  const cli = fileURLToPath(new URL('../kernel/update.mjs', import.meta.url))
+  const r = spawnSync(process.execPath, [cli], { encoding: 'utf8' })
+  assert.equal(r.status, 64)
 })
