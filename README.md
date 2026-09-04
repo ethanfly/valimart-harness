@@ -3,6 +3,8 @@
 基于 `@deepseek-ai/dsh`（DeepSeek Harness）内核的**公司内部交付工作台**。内核由本仓库自己安装并打补丁
 （`scripts/install-kernel.mjs`），**不依赖任何其他仓库**——克隆这个目录、`npm install`、`npm run dev` 即可。
 
+> 接手先看 [`docs/HANDOFF.md`](docs/HANDOFF.md)（现在在哪、关键决定、下次该干嘛）；过程记录在 [`docs/sessions/`](docs/sessions/)。
+
 - **桌面客户端（THE DIVA）**：左侧「会话 / 任务」双栏，个人与团队工作区，会话页可选模型、切换标准模式、
   `Full access` 权限，输入框「文件」芯片把本机文件放进工作目录并作为 `@` 引用；Agent 在本机执行，
   流式输出。
