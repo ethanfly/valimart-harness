@@ -156,7 +156,8 @@ Section "Uninstall"
   ${EndIf}
   nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE}"'
   Pop $0
-  ; 管理员改过的 config.local.json（端口 / publicUrl / 密钥）备份到数据目录，重装后可复制回 server\
+  ; 管理员改过的 config.local.json（端口 / publicUrl / 密钥）备份到数据目录，重装后可复制回 server 目录
+  ; （注释末尾不能是反斜杠：NSIS 会把它当作续行符，吞掉下一行）
   StrCpy $BackupNote ""
   ${If} ${FileExists} "$INSTDIR\server\config.local.json"
     CreateDirectory "$ProgramDataDir\${PRODUCT}"
