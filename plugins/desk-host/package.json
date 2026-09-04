@@ -1,0 +1,11 @@
+{
+  "name": "@company-desk/desk-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "企业交付工作台 · 本机 Host 插件：登录态、网关模型路由、公司盘镜像、任务卡与记忆工具、/desk/api 代理",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "company-desk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "企业交付工作台（THE DIVA）— 基于 @deepseek-ai/dsh 内核（内置公司补丁）的公司网关服务端与桌面客户端",
+  "type": "module",
+  "scripts": {
+    "kernel": "node scripts/install-kernel.mjs",
+    "kernel:check": "node scripts/install-kernel.mjs --check",
+    "setup": "node scripts/setup-profile.mjs",
+    "build": "node scripts/build-client.mjs",
+    "build:watch": "node scripts/build-client.mjs --watch",
+    "server": "node server/src/index.js",
+    "client": "node scripts/launch.mjs",
+    "desktop": "node scripts/launch.mjs --desktop",
+    "dev": "node scripts/launch.mjs --with-server --desktop",
+    "test": "node --test server/test/*.test.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

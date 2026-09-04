@@ -1,0 +1,24 @@
+{
+  "name": "@company-desk/desk-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "企业交付工作台 · 浏览器端 UI 插件：THE DIVA 品牌、会话/任务双栏外壳、任务卡与四格验收、账号/同事/人员/快速推理/订阅设置、登录遮罩",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  }
+}

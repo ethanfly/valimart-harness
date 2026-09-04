@@ -1,0 +1,64 @@
+# THE DIVA · 企业交付工作台 —— dsh "desk" profile 的用户补丁层
+# 在 @deepseek-ai/dsh-base + @deepseek-ai/dsh-web-app 两个 bundle 之上：
+#   1) 关掉官方外壳（布局/侧栏/品牌）与员工不该碰的设置页（模型密钥/插件）；
+#   2) 插入公司插件：desk-host（网关登录、模型路由、公司盘、任务工具）与 desk-ui（THE DIVA 外壳）；
+#   3) 默认权限预设改为“完全访问”（公司电脑上的交付进程不逐条审批）。
+# 安装脚本 scripts/setup-profile.mjs 会把本文件复制到 $DSH_HOME/profiles/desk/cordis.patch.yml。
+
+- id: ui-layout
+  disabled: true
+- id: ui-sidebar
+  disabled: true
+- id: ui-brand-official
+  disabled: true
+- id: ui-settings-models
+  disabled: true
+- id: ui-settings-plugins
+  disabled: true
+- id: ui-settings-plugin-inventory
+  disabled: true
+
+# 官方 DeepSeek 直连适配器关掉：公司电脑上所有模型请求只走公司网关（按人记账、密钥不落本机），
+# 模型菜单里只剩公司网关分发的模型，按上游厂商分组（DeepSeek / Grok / …，路由 id = desk-gateway-<厂商>）。
+- id: llm-deepseek
+  disabled: true
+
+# 组合层的默认模型也指向公司网关（desk-host 登录后会按公司配置的 defaultModel 再写一次用户设置）
+- id: agent-default-model
+  config:
+    provider: desk-gateway-deepseek
+    model: deepseek-v4-pro
+
+# 会话自动标题走当前会话的模型路由（即公司网关）。官方默认只给 64 个输出 token，
+# 带思维链的模型（deepseek-v4-pro 等）思考就把额度用完，标题永远停在「首句截断」的兜底；放宽到 2048。
+- id: session-title-llm
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 2048
+    timeoutMs: 60000
+
+- id: permission
+  config:
+    defaultPreset: danger-full-access
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+
+- insert:
+    - id: desk-host
+      name: '@company-desk/desk-host'
+      config:
+        gatewayUrl: 'http://127.0.0.1:8790'
+        providerId: desk-gateway
+        providerName: 'THE DIVA 公司网关'
+    - id: desk-ui
+      name: '@company-desk/desk-ui'

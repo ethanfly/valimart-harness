@@ -1,0 +1,309 @@
+/**
+ * 服务器管理页 GET /admin：视频里「这里面配了模型和企业知识库」那一屏。
+ * 单文件 HTML（无构建），用管理员/总监账号登录后调 /api/*：
+ *   服务器状态 · 公司盘 · 模型通道（加入订阅 / 加入模型）· 模型目录 · 知识库查询 · 知识 / 工具合集
+ * 凭据只在浏览器与网关之间走一次，随后只保存登录会话令牌（sessionStorage）。
+ */
+
+export function registerAdminPage(router, { cfg }) {
+  const html = renderAdminHtml({ companyName: cfg.company?.name ?? 'Company' })
+  const serve = (_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(html) })
+    res.end(html)
+  }
+  router.get('/admin', serve)
+  router.get('/admin/index.html', serve)
+  router.get('/', (_req, res) => {
+    res.writeHead(302, { location: '/admin' })
+    res.end()
+  })
+}
+
+const AGENT_TOOLS = [
+  ['company_knowledge', '检索：公司里有没有人做过（手册 / 共享经验 / 个人记忆 / 任务卡），只回「谁、何时、在哪」'],
+  ['company_memory_read', '读岗位手册 / 共享经验 / 个人记忆'],
+  ['company_memory_list', '列公司盘记忆目录'],
+  ['company_memory_write', '把经验写进公司盘（personal 跟人走；shared 总监/管理员可写，员工只能追加 05-logs）'],
+  ['company_task_read', '读任务卡：派单人 / 提交人 / 状态 / 交付物 / 关联进程 / 工作日志'],
+  ['company_task_log', '往任务卡追加工作日志'],
+  ['company_task_update', '写提交内容 / 任务内容'],
+  ['company_task_attach', '把文件挂成交付物（口头完成不算完成）'],
+]
+
+export function renderAdminHtml({ companyName }) {
+  const toolsJson = JSON.stringify(AGENT_TOOLS)
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(companyName)} · 服务器 — THE DIVA</title>
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --text:#1c1c1c; --muted:#6b6b6b; --line:#e6e6e2; --accent:#1c1c1c; --ok:#0a7d37; --warn:#b26a00; --bad:#b3261e; --chip:#f0efe9; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:18px 32px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; }
+  .logo { font: 600 20px/1 "Didot", "Bodoni MT", "Times New Roman", serif; letter-spacing:.32em; }
+  .logo small { display:block; font: 500 8px/1 sans-serif; letter-spacing:.18em; color:var(--muted); margin-bottom:6px; }
+  header .sp { flex:1; }
+  header .who { color:var(--muted); font-size:13px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 32px 64px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
+  h2 { margin:0 0 4px; font-size:16px; }
+  .desc { color:var(--muted); font-size:13px; margin:0 0 14px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; }
+  tr:last-child td { border-bottom:none; }
+  .kv { display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:10px 24px; font-size:13px; }
+  .kv div span { color:var(--muted); display:block; font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button, .btn { height:32px; padding:0 14px; border-radius:8px; border:1px solid var(--line); background:#fff; color:var(--text); font:inherit; font-size:13px; cursor:pointer; }
+  button:hover { background:#f3f3f0; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.primary:hover { background:#333; }
+  button.danger { color:var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  input, select, textarea { height:32px; padding:0 10px; border-radius:8px; border:1px solid var(--line); font:inherit; font-size:13px; background:#fff; min-width:0; }
+  textarea { height:auto; min-height:64px; padding:8px 10px; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:#999; }
+  .chip { display:inline-block; padding:0 8px; border-radius:6px; background:var(--chip); font-size:12px; line-height:20px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size:12px; }
+  .hit { padding:10px 0; border-bottom:1px solid var(--line); }
+  .hit:last-child { border-bottom:none; }
+  .hit .t { font-weight:600; }
+  .hit .m { color:var(--muted); font-size:12px; }
+  .hit .s { margin-top:4px; font-size:13px; }
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:10; }
+  .dialog { background:#fff; border-radius:14px; padding:22px 24px; width: min(520px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+  .dialog h3 { margin:0 0 4px; font-size:16px; }
+  .field { display:flex; flex-direction:column; gap:4px; margin-top:12px; font-size:13px; }
+  .field label { color:var(--muted); font-size:12px; }
+  .login { max-width:380px; margin: 60px auto; }
+  .login .logo { text-align:center; margin-bottom:6px; }
+  .toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:#1c1c1c; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns:1fr; } main { padding:16px; } header { padding:14px 16px; } }
+  ul.files { margin:4px 0 0; padding-left:18px; font-size:13px; }
+  ul.files li { margin:2px 0; }
+  .empty { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><small>BORN IN SPOTLIGHT · RAISED IN STARDUST</small>THE DIVA</div>
+  <div class="muted">服务器 · ${escapeHtml(companyName)}</div>
+  <div class="sp"></div>
+  <div class="who" id="who"></div>
+  <button id="logout" style="display:none">退出</button>
+</header>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+<script>
+(() => {
+  const TOOLS = ${toolsJson};
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtBytes = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+  const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
+  const fmtDur = (s) => (s < 60 ? s + ' 秒' : s < 3600 ? Math.floor(s / 60) + ' 分钟' : s < 86400 ? (s / 3600).toFixed(1) + ' 小时' : (s / 86400).toFixed(1) + ' 天');
+  let token = sessionStorage.getItem('diva-admin-token') || '';
+  let me = null;
+  const toast = (msg, bad) => { const t = $('#toast'); t.textContent = msg; t.style.background = bad ? '#b3261e' : '#1c1c1c'; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600); };
+  async function api(method, path, body) {
+    const r = await fetch(path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { if (r.status === 401) { token = ''; sessionStorage.removeItem('diva-admin-token'); renderLogin(); } throw new Error((j.error && j.error.message) || ('HTTP ' + r.status)); }
+    return j;
+  }
+
+  function renderLogin(err) {
+    $('#who').textContent = '';
+    $('#logout').style.display = 'none';
+    $('#main').innerHTML = \`
+      <section class="login">
+        <div class="logo"><small>BORN IN SPOTLIGHT · RAISED IN STARDUST</small>THE DIVA</div>
+        <p class="desc" style="text-align:center">服务器管理页 · 管理员 / 总监登录</p>
+        <form id="loginForm">
+          <div class="field"><label>公司账号</label><input name="username" autocomplete="username" autofocus /></div>
+          <div class="field"><label>密码</label><input name="password" type="password" autocomplete="current-password" /></div>
+          <div class="field"><button class="primary" type="submit">登录</button></div>
+          <p class="desc" id="loginErr" style="color:#b3261e;margin-top:10px">\${esc(err || '')}</p>
+        </form>
+      </section>\`;
+    $('#loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        // 管理页只看数据、不调模型：不签网关令牌，也就不会影响这个人桌面端上的令牌
+        const r = await api('POST', '/api/auth/login', { username: fd.get('username'), password: fd.get('password'), device: 'admin-page', gatewayToken: false });
+        if (r.user.role === 'employee') { throw new Error('管理页仅管理员 / 总监可用'); }
+        token = r.sessionToken; sessionStorage.setItem('diva-admin-token', token); me = r.user;
+        await renderMain();
+      } catch (err) { $('#loginErr').textContent = err.message; }
+    });
+  }
+
+  async function renderMain() {
+    let status, channels, collections;
+    try {
+      [status, channels, collections] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections')]);
+      if (!me) me = (await api('GET', '/api/auth/me')).user;
+    } catch (err) { if (!token) return; return renderLogin(err.message); }
+    const isAdmin = me.role === 'admin';
+    $('#who').textContent = me.displayName + '（' + me.username + ' · ' + me.roleLabel + '）';
+    $('#logout').style.display = '';
+    const s = status.server, p = status.people, t = status.tasks;
+    const statusRow = Object.entries(t.labels).map(([k, label]) => label + ' ' + (t.byStatus[k] || 0)).join(' · ');
+    $('#main').innerHTML = \`
+      <section>
+        <h2>服务器</h2>
+        <p class="desc">公司网关：账号登录 → 按人签发令牌 → /v1 模型代理（真实密钥不出服务端）→ 按人记账 / 周额度 → 任务卡与四格验收 → 公司盘。</p>
+        <div class="kv">
+          <div><span>公司</span>\${esc(status.company.name)} · \${esc(status.company.plan)} · \${status.company.seatsUsed}/\${status.company.seats} 席</div>
+          <div><span>网关</span><span class="mono" style="display:inline;color:inherit">\${esc(s.publicUrl)}</span></div>
+          <div><span>内核</span>\${esc(s.kernel)} · 服务端 v\${esc(s.version)}</div>
+          <div><span>启动于</span>\${fmtTime(s.startedAt)}（已运行 \${fmtDur(s.uptimeSeconds)}）</div>
+          <div><span>人员</span>在线 \${p.online} / 有效令牌 \${p.tokensActive} / 启用 \${p.active} / 共 \${p.total}</div>
+          <div><span>任务卡</span>共 \${t.total} · \${statusRow}</div>
+          <div><span>近 7 天</span>¥\${status.ledger7d.totalCny.toFixed(2)} · \${status.ledger7d.requests} 次请求</div>
+          <div><span>默认模型</span>\${esc(status.company.defaultModel || '—')} · 快速推理 \${esc(status.company.quickInferenceModel || '—')}</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>公司盘</h2>
+        <p class="desc">\${esc(s.driveRoot)} · 客户端登录后自动同步到本机镜像；Agent 在本机读写，服务器只保存文件。</p>
+        <table>
+          <thead><tr><th>区</th><th>用途</th><th>文件</th><th>大小</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">_shared/</td><td>岗位手册 / 公司技能手册 + 共享经验（01-projects · 02-methods · 03-evidence · 04-reviews · 05-logs · 90-system）</td><td>\${status.drive.shared.files}</td><td>\${fmtBytes(status.drive.shared.bytes)}</td></tr>
+            <tr><td class="mono">_office/&lt;账号&gt;/</td><td>个人记忆（一人一座，跟人走，换电脑还在）</td><td>\${status.drive.office.files}</td><td>\${fmtBytes(status.drive.office.bytes)}</td></tr>
+            <tr><td class="mono">projects/inbox/&lt;任务ID&gt;/</td><td>任务交付格子（交付物 + 任务卡副本 + 工作日志）</td><td>\${status.drive.inbox.files}</td><td>\${fmtBytes(status.drive.inbox.bytes)}</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="channels">
+        <h2>模型通道</h2>
+        <p class="desc">可接入订阅（Grok / ChatGPT / Claude）或 API key（OpenAI / Anthropic / DeepSeek）；员工统一走公司网关，凭据不出服务端。\${isAdmin ? '' : '（总监只读）'}</p>
+        <div class="row" style="margin-bottom:10px">
+          <button id="addSub" \${isAdmin ? '' : 'disabled'}>加入订阅</button>
+          <button id="addKey" \${isAdmin ? '' : 'disabled'}>加入模型</button>
+        </div>
+        <table>
+          <thead><tr><th>通道</th><th>种类</th><th>状态</th><th>模型</th><th>接入</th><th></th></tr></thead>
+          <tbody>
+            \${channels.channels.map((c) => \`<tr>
+              <td>\${esc(c.label)}</td><td>\${esc(c.kindLabel)}</td>
+              <td class="\${c.connected ? 'ok' : 'muted'}">\${esc(c.statusLabel)}</td>
+              <td class="mono">\${c.models.length ? esc(c.models.join(', ')) : '<span class="muted">' + esc(c.hint) + '</span>'}</td>
+              <td class="muted">\${c.source === 'config' ? '服务端配置' : c.source === 'runtime' ? esc((c.connectedBy || '') + ' · ' + fmtTime(c.connectedAt)) : '—'}</td>
+              <td style="text-align:right">\${isAdmin ? (c.connected ? (c.source === 'runtime' ? '<button class="danger" data-disc="' + esc(c.id) + '">断开</button>' : '') : '<button data-conn="' + esc(c.id) + '">接入</button>') : ''}</td>
+            </tr>\`).join('')}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>模型目录</h2>
+        <p class="desc">当前对全员分发的模型（客户端模型菜单按厂商分组显示）。</p>
+        \${status.models.length ? \`<table><thead><tr><th>模型</th><th>厂商</th><th>上下文</th><th>推理档位</th><th>价格 ¥/M（输入 / 输出）</th></tr></thead><tbody>
+          \${status.models.map((m) => \`<tr><td>\${esc(m.name)} <span class="mono muted">\${esc(m.id)}</span></td><td>\${esc(m.providerLabel)}</td><td>\${(m.contextWindow / 1000).toFixed(0)}K</td><td>\${m.reasoningEfforts ? esc(Array.isArray(m.reasoningEfforts) ? m.reasoningEfforts.join(' / ') : Object.keys(m.reasoningEfforts).join(' / ')) : '—'}</td><td>\${m.priceCnyPerM.input} / \${m.priceCnyPerM.output}</td></tr>\`).join('')}
+        </tbody></table>\` : '<div class="empty">还没有可用模型：接入一个通道，或在 config.json / 环境变量里配置上游密钥。</div>'}
+      </section>
+
+      <section>
+        <h2>知识库查询</h2>
+        <p class="desc">企业知识库的第四层通道：在公司盘（手册 / 共享经验 / 你的个人记忆 / 任务格子）和任务卡里搜「公司里有没有人做过」。只回谁、何时、在哪；不拷贝会话，细节去问那张任务卡旁边的进程。</p>
+        <form id="kq" class="row"><input name="q" placeholder="例如：详情页 / 复盘 / 发货" style="flex:1;min-width:220px" /><button class="primary" type="submit">查询</button></form>
+        <div id="kres" style="margin-top:10px"></div>
+      </section>
+
+      <section class="grid2">
+        <div>
+          <h2>知识 / 手册合集</h2>
+          <p class="desc">岗位手册 / 公司技能手册（全员只读，管理员可写）</p>
+          \${collections.handbook.length ? '<ul class="files">' + collections.handbook.map((f) => '<li>' + esc(f.name) + ' <span class="muted">' + fmtBytes(f.size) + '</span></li>').join('') + '</ul>' : '<div class="empty">还没有手册</div>'}
+          <p class="desc" style="margin-top:14px">共享经验 _shared/_memory</p>
+          <ul class="files">
+            \${Object.entries(collections.shared).map(([dir, layer]) => '<li><span class="mono">' + esc(dir) + '</span> ' + esc(layer.label) + ' <span class="muted">' + layer.files.length + ' 个文件</span></li>').join('')}
+          </ul>
+        </div>
+        <div>
+          <h2>Agent 工具合集</h2>
+          <p class="desc">客户端本机 Agent 可用的公司工具（由 desk-host 插件注册）</p>
+          <table><tbody>\${TOOLS.map(([n, d]) => '<tr><td class="mono" style="white-space:nowrap">' + esc(n) + '</td><td>' + esc(d) + '</td></tr>').join('')}</tbody></table>
+        </div>
+      </section>\`;
+
+    $('#addSub').addEventListener('click', () => openConnect(channels.channels, 'subscription'));
+    $('#addKey').addEventListener('click', () => openConnect(channels.channels, 'key'));
+    document.querySelectorAll('[data-conn]').forEach((b) => b.addEventListener('click', () => openConnect(channels.channels, null, b.dataset.conn)));
+    document.querySelectorAll('[data-disc]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('断开后该通道的模型立刻从全员目录下架，确定？')) return;
+      try { await api('POST', '/api/channels/' + encodeURIComponent(b.dataset.disc) + '/disconnect'); toast('已断开'); renderMain(); } catch (err) { toast(err.message, true); }
+    }));
+    $('#kq').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = new FormData(e.target).get('q');
+      const box = $('#kres');
+      box.innerHTML = '<div class="empty">检索中…</div>';
+      try {
+        const r = await api('GET', '/api/knowledge/search?q=' + encodeURIComponent(q) + '&limit=30');
+        if (!r.hits.length) { box.innerHTML = '<div class="empty">没有人做过「' + esc(q) + '」（扫描 ' + r.scanned.files + ' 个文件、' + r.scanned.tasks + ' 张任务卡）</div>'; return; }
+        box.innerHTML = r.hits.map((h) => \`<div class="hit">
+          <div><span class="chip">\${esc(h.kindLabel)}</span> <span class="t">\${esc(h.title)}</span>\${h.statusLabel ? ' <span class="chip">' + esc(h.statusLabel) + '</span>' : ''}</div>
+          <div class="m">\${esc(h.who || '—')} · \${fmtTime(h.when)} · <span class="mono">\${esc(h.path)}</span>\${h.taskId && h.kind !== 'task' ? ' · 任务卡 ' + esc(h.taskId) : ''}</div>
+          <div class="s">\${esc(h.snippet)}</div>
+        </div>\`).join('') + '<div class="muted" style="font-size:12px;margin-top:6px">共 ' + r.hits.length + ' 条 · 扫描 ' + r.scanned.files + ' 个文件、' + r.scanned.tasks + ' 张任务卡</div>';
+      } catch (err) { box.innerHTML = '<div class="bad">' + esc(err.message) + '</div>'; }
+    });
+  }
+
+  function openConnect(list, kind, presetId) {
+    const candidates = list.filter((c) => (presetId ? c.id === presetId : c.kind === kind) && (presetId || !c.connected));
+    if (!candidates.length) return toast(kind === 'subscription' ? '订阅通道都已接入' : '模型通道都已接入');
+    const wrap = document.createElement('div');
+    wrap.className = 'overlay';
+    const isSub = (presetId ? candidates[0].kind : kind) === 'subscription';
+    wrap.innerHTML = \`<div class="dialog">
+      <h3>\${isSub ? '加入订阅' : '加入模型'}</h3>
+      <p class="desc">\${isSub ? '把一个订阅账号（Grok / ChatGPT / Claude）共享给全公司：粘贴该订阅的访问令牌，服务端代为请求，员工不接触凭据。' : '按 API key 接入一个模型厂商，员工统一走公司网关，按人记账。'}</p>
+      <form id="cf">
+        <div class="field"><label>通道</label><select name="id">\${candidates.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.label) + '（' + esc(c.kindLabel) + '）</option>').join('')}</select></div>
+        <div class="field"><label>\${isSub ? '订阅凭据（访问令牌）' : 'API key'}</label><input name="credential" type="password" autocomplete="off" required /></div>
+        <div class="field"><label>模型 id（逗号分隔）</label><input name="models" placeholder="\${esc(candidates[0].hint)}" value="\${esc(candidates[0].hint)}" /></div>
+        <div class="field"><label>Base URL（可选，留空用默认）</label><input name="baseUrl" placeholder="\${esc(candidates[0].baseUrl)}" /></div>
+        <div class="row" style="margin-top:16px;justify-content:flex-end"><button type="button" id="cancel">取消</button><button class="primary" type="submit">接入</button></div>
+      </form>
+    </div>\`;
+    document.body.appendChild(wrap);
+    const sel = wrap.querySelector('select[name=id]');
+    sel.addEventListener('change', () => { const c = candidates.find((x) => x.id === sel.value); wrap.querySelector('input[name=models]').value = c.hint; wrap.querySelector('input[name=models]').placeholder = c.hint; wrap.querySelector('input[name=baseUrl]').placeholder = c.baseUrl; });
+    wrap.querySelector('#cancel').addEventListener('click', () => wrap.remove());
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+    wrap.querySelector('#cf').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const r = await api('POST', '/api/channels/' + encodeURIComponent(fd.get('id')) + '/connect', { credential: fd.get('credential'), models: fd.get('models'), baseUrl: fd.get('baseUrl') || undefined });
+        toast('已接入 ' + r.channel.label + '：' + r.channel.models.join(', '));
+        wrap.remove(); renderMain();
+      } catch (err) { toast(err.message, true); }
+    });
+  }
+
+  $('#logout').addEventListener('click', async () => { try { await api('POST', '/api/auth/logout'); } catch {} token = ''; me = null; sessionStorage.removeItem('diva-admin-token'); renderLogin(); });
+  if (token) renderMain(); else renderLogin();
+})();
+</script>
+</body>
+</html>`
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+}

@@ -1,0 +1,95 @@
+{
+  "host": "127.0.0.1",
+  "port": 8790,
+  "publicUrl": "http://127.0.0.1:8790",
+  "dataDir": "./data",
+  "company": {
+    "name": "THE DIVA",
+    "plan": "团队版",
+    "seats": 20
+  },
+  "quota": {
+    "anchor": "2026-08-31T17:45:21+08:00",
+    "weeklyCny": 200,
+    "byRole": {
+      "admin": 1000,
+      "director": 500,
+      "employee": 200
+    }
+  },
+  "seedAdmin": {
+    "username": "boss",
+    "password": "boss123456",
+    "displayName": "老板",
+    "department": "管理层"
+  },
+  "seedUsers": [
+    { "username": "boss-b", "password": "boss123456", "displayName": "联合创始人", "role": "admin", "department": "管理层" },
+    { "username": "director", "password": "director123", "displayName": "总监", "role": "director", "department": "内容部" },
+    { "username": "emp-a", "password": "emp123456", "displayName": "员工A", "role": "employee", "department": "内容部" },
+    { "username": "mingan", "password": "emp123456", "displayName": "明安", "role": "employee", "department": "内容部" },
+    { "username": "zhangzhang111999", "password": "emp123456", "displayName": "张张", "role": "employee", "department": "电商部" },
+    { "username": "quan", "password": "emp123456", "displayName": "小全", "role": "employee", "department": "电商部" },
+    { "username": "xiaoman", "password": "emp123456", "displayName": "小满", "role": "employee", "department": "设计部" }
+  ],
+  "upstreams": {
+    "deepseek": {
+      "kind": "openai-compatible",
+      "label": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com",
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "apiKeyFile": "~/.dsh/.credentials.yaml",
+      "compat": {
+        "thinkingFormat": "deepseek",
+        "supportsDeveloperRole": false,
+        "supportsStore": false,
+        "requiresReasoningContentOnAssistantMessages": true
+      },
+      "models": [
+        {
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "maxTokens": 384000,
+          "reasoningEfforts": { "off": null, "high": "high", "max": "max" },
+          "priceCnyPerM": { "input": 3.0, "output": 6.0, "cachedInput": 0.025 }
+        },
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "contextWindow": 1000000,
+          "maxTokens": 384000,
+          "reasoningEfforts": { "off": null, "high": "high", "max": "max" },
+          "priceCnyPerM": { "input": 1.0, "output": 2.0, "cachedInput": 0.02 }
+        }
+      ]
+    },
+    "mock": {
+      "kind": "mock",
+      "label": "Mock（离线演示）",
+      "models": [
+        {
+          "id": "mock-echo",
+          "name": "Mock Echo",
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "priceCnyPerM": { "input": 0.5, "output": 1.0, "cachedInput": 0.05 }
+        }
+      ]
+    }
+  },
+  "channels": [
+    { "id": "grok", "label": "Grok", "kind": "subscription", "baseUrl": "https://api.x.ai/v1", "hint": "grok-4.6, grok-4.6-fast", "reasoningEfforts": ["low", "high"] },
+    { "id": "chatgpt", "label": "ChatGPT", "kind": "subscription", "baseUrl": "https://api.openai.com/v1", "hint": "gpt-5.5", "reasoningEfforts": ["low", "medium", "high"] },
+    { "id": "claude", "label": "Claude", "kind": "subscription", "baseUrl": "https://api.anthropic.com/v1", "hint": "claude-opus-4-6" },
+    { "id": "openai", "label": "OpenAI", "kind": "key", "baseUrl": "https://api.openai.com/v1", "hint": "gpt-5.5, gpt-5.5-mini", "reasoningEfforts": ["low", "medium", "high"] },
+    { "id": "anthropic", "label": "Anthropic", "kind": "key", "baseUrl": "https://api.anthropic.com/v1", "hint": "claude-opus-4-6, claude-sonnet-4-6" },
+    { "id": "deepseek", "label": "DeepSeek", "kind": "key", "baseUrl": "https://api.deepseek.com", "hint": "deepseek-v4-pro, deepseek-v4-flash" }
+  ],
+  "defaultModel": "deepseek-v4-pro",
+  "quickInference": {
+    "defaultModel": "deepseek-v4-flash"
+  },
+  "loginTtlDays": 30,
+  "presenceOnlineSeconds": 90
+}

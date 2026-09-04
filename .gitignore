@@ -1,0 +1,14 @@
+# 依赖
+node_modules/
+
+# 网关运行数据（账号 / 登录会话 / 令牌 / 任务 / 账本 / 通道凭据 / 公司盘）——含凭据，绝不入库；首次启动自动按 config.json 播种
+server/data/
+server/config.local.json
+
+# 客户端浏览器端 bundle（launch.mjs / npm run build 自动生成）
+plugins/desk-ui/lib/client.js
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db
