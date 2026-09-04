@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, readGatewayUrl } from '../lib/bootstrap.mjs'
+import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, readGatewayUrl } from '../lib/bootstrap.mjs'
 import { ALL_MARKS } from '../kernel/patches.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'diva-bootstrap-'))
@@ -184,6 +184,35 @@ test('needsExtract：无 state.json → 首次；buildId 不同 → 版本更新
   r = decide()
   assert.equal(r.fresh, false)
   assert.match(r.reason, /内核已就位（b2）/)
+})
+
+test('preparePackaged：appDir 里有 package.json / .git（项目目录，如 --app-dir .）→ 抛错提示 --app-dir，node_modules / scripts 一个都不删', (t) => {
+  const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  // payload 完整可用（有 payload.json），确保抛错的是目录守卫而不是别的
+  const payloadDir = path.join(dir, 'payload')
+  fs.mkdirSync(payloadDir)
+  fs.writeFileSync(path.join(payloadDir, 'payload.json'), JSON.stringify({ buildId: 'b1', kernel: { version: '0' } }))
+  const proj = path.join(dir, 'proj')
+  fs.mkdirSync(path.join(proj, 'node_modules', 'left-pad'), { recursive: true })
+  fs.mkdirSync(path.join(proj, 'scripts'), { recursive: true })
+  fs.writeFileSync(path.join(proj, 'package.json'), '{}')
+  fs.writeFileSync(path.join(proj, 'node_modules', 'left-pad', 'index.js'), '')
+  fs.writeFileSync(path.join(proj, 'scripts', 'x.mjs'), '')
+  const events = []
+  assert.throws(() => preparePackaged({ payloadDir, appDir: proj, dshHome: path.join(dir, 'dsh'), log: (o) => events.push(o) }), /--app-dir .*package\.json/)
+  assert.deepEqual(events, [], '守卫在任何步骤之前')
+  assert.ok(fs.existsSync(path.join(proj, 'node_modules', 'left-pad', 'index.js')), 'node_modules 完好')
+  assert.ok(fs.existsSync(path.join(proj, 'scripts', 'x.mjs')), 'scripts 完好')
+  assert.ok(!fs.existsSync(path.join(proj, 'state.json')) && !fs.existsSync(path.join(proj, 'kernel')), '没有开始解压')
+  // .git 同理；专用目录（不存在 / 只有本模块的条目）放行
+  const repoLike = path.join(dir, 'repo')
+  fs.mkdirSync(path.join(repoLike, '.git'), { recursive: true })
+  assert.throws(() => assertSafeAppDir(repoLike), /--app-dir .*\.git/)
+  assert.doesNotThrow(() => assertSafeAppDir(path.join(dir, 'app')))
+  fs.mkdirSync(path.join(dir, 'app', 'kernel'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'app', 'state.json'), '{}')
+  assert.doesNotThrow(() => assertSafeAppDir(path.join(dir, 'app')))
 })
 
 test('CLI：缺参数 → 退出码 64；payload 目录不存在 → 退出码 1 且 stdout 最后一行是 error 事件', (t) => {

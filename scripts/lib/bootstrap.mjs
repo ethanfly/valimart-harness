@@ -249,8 +249,21 @@ export function pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log = noop }) {
  */
 const APP_DIR_ENTRIES = ['kernel', 'plugins', 'profile', 'scripts', 'node_modules', 'state.json']
 
+/**
+ * appDir 必须是专用目录：里面有 package.json 或 .git 就是项目 / 仓库目录（典型误用：在仓库根 `--app-dir .`），
+ * clearAppDir 会删掉它的 node_modules / scripts，ensureProfile 会替换 node_modules/@deepseek-ai —— 一律拒绝。
+ */
+export function assertSafeAppDir(appDir) {
+  for (const marker of ['package.json', '.git']) {
+    if (fs.existsSync(path.join(appDir, marker))) {
+      throw new Error(`--app-dir ${appDir} 里有 ${marker}，看起来是项目目录而不是专用的应用目录，拒绝在这里解压 / 清理（默认 ~/.company-desk/app）`)
+    }
+  }
+}
+
 /** 清掉 appDir 里本模块创建的条目。junction 只删链接不碰目标；Windows 上刚解压的树偶发 EBUSY/EPERM，带重试。 */
 function clearAppDir(appDir) {
+  assertSafeAppDir(appDir)
   for (const name of APP_DIR_ENTRIES) fs.rmSync(path.join(appDir, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
 }
 
@@ -280,8 +293,10 @@ export function needsExtract({ stateFile, kernelPrefix, buildId }) {
  *   2) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
  *   3) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
  * 只做准备，不长驻；内核由调用方（Electron 主进程）用 nodeExe 启动。log 收到的是 { step, status, detail } 对象。
+ * appDir 里有 package.json / .git（项目目录）直接抛错，什么都不动（见 assertSafeAppDir）。
  */
 export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
+  assertSafeAppDir(appDir)
   const payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
   const kernelPrefix = path.join(appDir, 'kernel')
   const stateFile = path.join(appDir, 'state.json')

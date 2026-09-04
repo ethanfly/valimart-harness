@@ -169,16 +169,19 @@ npm run dist                   # 两个都出
   卸载（「设置 → 应用」，或 `"%LOCALAPPDATA%\Programs\the-diva-desktop\Uninstall THE DIVA.exe" /S`）不删 `~/.company-desk` 与 `~/.dsh`。
 - 开发机上安装版与 `npm run dev` 并存：安装版用 profile `desk-app` + `~/.company-desk/app/kernel`，开发版用 `desk` + `~/.company-desk/kernel`；
   登录态、公司盘镜像、会话（`~/.dsh/desk`、`~/.dsh/sessions`）共用，两边看到的是同一个登录账号。
+  开发调试 Electron 壳请用 `npm --prefix desktop start -- --app-dir <dir> --dsh-home <dir>` 指到专用目录（绝对路径），不要与已安装的客户端共用 `~/.company-desk/app`：两边 `buildId` 不同，每次切换都会重新解压内核。
+  `--app-dir` 指到含 `package.json` / `.git` 的目录（如仓库根）会被 `bootstrap.mjs` 直接拒绝。
 
 ### 服务端（THE DIVA Gateway）
 
 - 安装向导：欢迎 → 目录 → 安装 → 完成（显示管理页地址与种子管理员 `boss / boss123456`，可勾选「打开管理页」）。
-  安装 = 停旧服务 → 复制文件 → `runtime\node.exe service\init.mjs <INSTDIR>` 生成配置与服务定义 → WinSW 注册并启动服务 → 防火墙放行 TCP 8790。
+  安装 = 停旧服务 → 复制文件 → `runtime\node.exe service\init.mjs <INSTDIR>` 生成配置与服务定义 → `icacls` 收紧数据目录 → WinSW 注册并启动服务 → 防火墙放行 TCP 8790。
 - 安装目录：`runtime\node.exe`、`server\{src, config.json, package.json, config.local.json}`、
-  `service\{TheDivaGateway.exe（WinSW 2.12.0）, TheDivaGateway.xml.tpl, TheDivaGateway.xml, init.mjs}`、`README.txt`（配置 / 密钥 / 日志说明，装完请读）、`Uninstall.exe`。
-- 配置 `server\config.local.json`：首次安装生成（`host 0.0.0.0`、`port 8790`、`publicUrl http://<主机名小写>:8790`、`dataDir`），**升级不覆盖**，改完重启服务。
+  `service\{TheDivaGateway.exe（WinSW 2.12.0）, TheDivaGateway.xml.tpl, TheDivaGateway.xml, init.mjs}`、`scripts\kernel\pin.json`（管理页显示的内核版本）、`README.txt`（配置 / 密钥 / 日志说明，装完请读）、`Uninstall.exe`。
+- 配置 `server\config.local.json`：首次安装生成（`host 0.0.0.0`、`port 8790`、`publicUrl http://<主机名小写>:8790`、`dataDir`、`seedUsers []`——首次启动只创建种子管理员 `boss`，不创建 `config.json` 里的演示账号），**升级不覆盖**，改完重启服务。
   改端口后要同步改防火墙规则「THE DIVA Gateway」——安装器只放行 8790，升级时会把规则重置回 8790。
 - 数据目录固定在 `%ProgramData%\THE DIVA Gateway\data`：服务定义里的 `DESK_GATEWAY_DATA` 优先于 `config.local.json` 的 `dataDir`；
+  安装器用 `icacls` 把 `%ProgramData%\THE DIVA Gateway` 收紧为仅 SYSTEM 与 Administrators 完全控制（服务跑在 LocalSystem；失败只在安装日志里警告）；
   `service\TheDivaGateway.xml` 每次安装 / 升级都由 `init.mjs` 按模板重新生成，**不要手改**（包括往里加 `<env>`）。
   日志在 `%ProgramData%\THE DIVA Gateway\logs\TheDivaGateway.{out,err,wrapper}.log`。
 - 上游模型密钥（服务跑在 LocalSystem，`~/.dsh/.credentials.yaml` 这条路不可用），三种方式都能跨升级保留：
@@ -187,7 +190,8 @@ npm run dist                   # 两个都出
   ③ 机器级环境变量，变量名是 `config.json` 里该上游的 `apiKeyEnv`（DeepSeek 为 `DEEPSEEK_API_KEY`）：管理员 `setx /M DEEPSEEK_API_KEY sk-…` 后重启服务（个别机器要重启系统才生效）。
 - 管理：`services.msc`（服务 `TheDivaGateway`）或 `service\TheDivaGateway.exe start|stop|restart|status`；`sc.exe query TheDivaGateway`。
 - 升级 = 重跑新版本安装包（停服务 → 覆盖文件 → `config.local.json` 与数据不动 → 重注册并启动）。
-  卸载（「设置 → 应用」或 `Uninstall.exe /S`）：停并注销服务、删防火墙规则、删安装目录（只删自己装的东西）与注册表项，**保留** `%ProgramData%\THE DIVA Gateway`。
+  卸载（「设置 → 应用」或 `Uninstall.exe /S`）：停并注销服务、删防火墙规则、删安装目录（只删自己装的东西）与注册表项，**保留** `%ProgramData%\THE DIVA Gateway`，
+  并把 `server\config.local.json` 备份为那里的 `config.local.json.bak`（重装后复制回 `server\` 再重启服务即可恢复端口 / publicUrl / 密钥）。
   「应用和功能」项在 `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\TheDivaGateway`（含 `QuietUninstallString`）。
 
 ### 无 Node 机器验收 checklist
@@ -230,6 +234,8 @@ npm run desktop             # 客户端 + 独立桌面窗口（Edge/Chrome 应�
 | `emp-a` / `mingan` | `emp123456` | 员工 · 内容部 |
 | `zhangzhang111999` / `quan` | `emp123456` | 员工 · 电商部 |
 | `xiaoman` | `emp123456` | 员工 · 设计部 |
+
+`boss` 以外的演示账号只在开发模式首次启动时创建；安装版网关（§2.5）生成的 `config.local.json` 把 `seedUsers` 置空，首次启动只有 `boss`。
 
 首次打开客户端会出现登录遮罩，用公司账号登录；登录后本机拿到一枚网关令牌（`~/.dsh/desk/desk-state.json`），
 所有模型请求都经 `desk-gateway-<厂商> → http://127.0.0.1:8790/v1` 代理并按人记账；
