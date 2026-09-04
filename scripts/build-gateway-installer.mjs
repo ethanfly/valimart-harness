@@ -30,14 +30,15 @@ async function ensureWinsw() {
   const file = path.join(cache, `WinSW-${pin.version}.exe`)
   if (fs.existsSync(file) && sha256(file) === pin.sha256) return file
   log(`下载 WinSW ${pin.version} ← ${pin.url}`)
-  let res
+  let body
   try {
-    res = await fetch(pin.url, { signal: AbortSignal.timeout(120_000) })
+    const res = await fetch(pin.url, { signal: AbortSignal.timeout(120_000) })
+    if (!res.ok) die(`下载失败：HTTP ${res.status}。可手动下载后放到 ${file}`)
+    body = Buffer.from(await res.arrayBuffer())
   } catch (err) {
     die(`下载失败：${err.cause?.message ?? err.message}。可手动下载后放到 ${file}`)
   }
-  if (!res.ok) die(`下载失败：HTTP ${res.status}。可手动下载后放到 ${file}`)
-  fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()))
+  fs.writeFileSync(file, body)
   const got = sha256(file)
   if (got !== pin.sha256) {
     fs.unlinkSync(file)
@@ -89,9 +90,13 @@ fs.writeFileSync(
     `THE DIVA 公司网关 ${version}`,
     '',
     '服务：TheDivaGateway（services.msc 里可启停；命令行：service\\TheDivaGateway.exe start|stop|restart|status）',
-    '配置：server\\config.local.json（host / port / publicUrl / dataDir / company / quota …，改完重启服务）',
-    '数据：%ProgramData%\\THE DIVA Gateway\\data（账号、令牌、任务、账本、通道凭据、公司盘）；日志：…\\logs',
-    '上游模型密钥：管理员在客户端「设置 → 同事 → 模型通道」接入，或在 config.local.json 的 upstreams.<id>.apiKey，或在 service\\TheDivaGateway.xml 加 <env>。',
+    '配置：server\\config.local.json（host / port / publicUrl / dataDir / company / quota …，改完重启服务；升级不覆盖）',
+    '数据：%ProgramData%\\THE DIVA Gateway\\data（账号、令牌、任务、账本、通道凭据、公司盘）；日志：%ProgramData%\\THE DIVA Gateway\\logs（TheDivaGateway.out.log / .err.log / .wrapper.log）',
+    '上游模型密钥（三种方式都能跨升级保留）：',
+    '  1) 管理员在客户端「设置 → 同事 → 模型通道」接入，凭据存 data\\channels.json；',
+    '  2) 写进 server\\config.local.json：{ "upstreams": { "deepseek": { "apiKey": "sk-…" } } }（键路径 upstreams.<上游id>.apiKey，id 见 config.json）；',
+    '  3) 机器级环境变量，变量名即 config.json 里该上游的 apiKeyEnv（DeepSeek 为 DEEPSEEK_API_KEY）：管理员命令行 setx /M DEEPSEEK_API_KEY sk-…，或 系统属性 → 环境变量 → 系统变量；服务重启（service\\TheDivaGateway.exe restart）后生效。',
+    '  注意：service\\TheDivaGateway.xml 每次安装 / 升级都由 init.mjs 按模板重新生成，手改（包括加 <env>）会丢，请勿手改。',
     '端口改了要同步改防火墙规则「THE DIVA Gateway」。',
     '管理页：http://<本机名>:8790/admin（种子管理员 boss / boss123456，请尽快修改）',
     '',

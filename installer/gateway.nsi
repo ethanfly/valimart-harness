@@ -46,7 +46,8 @@ Var ProgramDataDir
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TITLE "安装完成"
-!define MUI_FINISHPAGE_TEXT "服务 ${SERVICE} 已启动。$\r$\n$\r$\n管理页：$PublicUrl/admin$\r$\n种子管理员：boss / boss123456（请尽快修改密码）$\r$\n$\r$\n数据目录（卸载保留）：$ProgramDataDir\${PRODUCT}\data$\r$\n配置：$INSTDIR\server\config.local.json（改端口 / 公司名 / 额度后重启服务）"
+!define MUI_FINISHPAGE_TEXT_LARGE
+!define MUI_FINISHPAGE_TEXT "服务 ${SERVICE} 已注册并启动，随系统自动运行。$\r$\n管理页：$PublicUrl/admin（种子管理员 boss / boss123456，请尽快修改密码）$\r$\n$\r$\n配置、密钥、日志与数据目录的说明见 $INSTDIR\README.txt；数据在 $ProgramDataDir\${PRODUCT}（卸载保留）。"
 !define MUI_FINISHPAGE_RUN ""
 !define MUI_FINISHPAGE_RUN_TEXT "打开管理页"
 !define MUI_FINISHPAGE_RUN_FUNCTION OpenAdmin
@@ -61,7 +62,7 @@ FunctionEnd
 
 Function .onInit
   ${IfNot} ${RunningX64}
-    MessageBox MB_ICONSTOP "需要 64 位 Windows。"
+    MessageBox MB_OK|MB_ICONSTOP "需要 64 位 Windows。" /SD IDOK
     Abort
   ${EndIf}
   ReadEnvStr $0 COMPUTERNAME
@@ -93,7 +94,7 @@ Section "网关" SecMain
   nsExec::ExecToLog '"$INSTDIR\runtime\node.exe" "$INSTDIR\service\init.mjs" "$INSTDIR"'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "初始化失败（退出码 $0），未注册服务。请查看上方日志。"
+    MessageBox MB_OK|MB_ICONSTOP "初始化失败（退出码 $0），未注册服务。请查看上方日志。" /SD IDOK
     Abort
   ${EndIf}
 
@@ -103,13 +104,13 @@ Section "网关" SecMain
   nsExec::ExecToLog '"$INSTDIR\service\${SERVICE}.exe" install'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "注册服务失败（退出码 $0）。"
+    MessageBox MB_OK|MB_ICONSTOP "注册服务失败（退出码 $0）。" /SD IDOK
     Abort
   ${EndIf}
   nsExec::ExecToLog '"$INSTDIR\service\${SERVICE}.exe" start'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONEXCLAMATION "服务已注册但启动失败（退出码 $0）。请查看 $ProgramDataDir\${PRODUCT}\logs。"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "服务已注册但启动失败（退出码 $0）。请查看 $ProgramDataDir\${PRODUCT}\logs。" /SD IDOK
   ${EndIf}
 
   DetailPrint "防火墙放行 TCP ${PORT}…"
@@ -124,6 +125,7 @@ Section "网关" SecMain
   WriteRegStr HKLM "${REGKEY}" "Publisher" "THE DIVA"
   WriteRegStr HKLM "${REGKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "${REGKEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr HKLM "${REGKEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegStr HKLM "${REGKEY}" "DisplayIcon" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "${REGKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${REGKEY}" "NoRepair" 1
@@ -135,9 +137,19 @@ Section "Uninstall"
   Pop $0
   nsExec::ExecToLog '"$INSTDIR\service\${SERVICE}.exe" uninstall'
   Pop $0
+  ${If} $0 != 0
+    DetailPrint "服务注销失败（$0），请手工执行 sc delete ${SERVICE}"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "服务注销失败（$0），请手工执行 sc delete ${SERVICE}。将继续删除文件。" /SD IDOK
+  ${EndIf}
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${FWRULE}"'
   Pop $0
-  RMDir /r "$INSTDIR"
+  ; 只删自己装的东西（不用 RMDir /r $INSTDIR：用户若选了已有目录会被整个清空）；ProgramData 数据目录不碰
+  RMDir /r "$INSTDIR\runtime"
+  RMDir /r "$INSTDIR\server"
+  RMDir /r "$INSTDIR\service"
+  Delete "$INSTDIR\README.txt"
+  Delete "$INSTDIR\Uninstall.exe"
+  RMDir "$INSTDIR"
   DeleteRegKey HKLM "${REGKEY}"
-  MessageBox MB_ICONINFORMATION "已卸载 ${PRODUCT}。$\r$\n数据（账号 / 令牌 / 任务 / 通道凭据 / 公司盘）仍保留在：$\r$\n$ProgramDataDir\${PRODUCT}$\r$\n不再需要请手动删除。"
+  MessageBox MB_OK|MB_ICONINFORMATION "已卸载 ${PRODUCT}。$\r$\n数据（账号 / 令牌 / 任务 / 通道凭据 / 公司盘）仍保留在：$\r$\n$ProgramDataDir\${PRODUCT}$\r$\n不再需要请手动删除。" /SD IDOK
 SectionEnd
