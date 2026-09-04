@@ -87,7 +87,7 @@ fs.mkdirSync(path.join(stage, 'scripts', 'lib'), { recursive: true })
 for (const f of ['patches.mjs', 'locate.mjs', 'pin.json']) {
   fs.copyFileSync(path.join(root, 'scripts', 'kernel', f), path.join(stage, 'scripts', 'kernel', f))
 }
-for (const f of ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'bootstrap.mjs']) {
+for (const f of ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'find-tar.mjs']) {
   fs.copyFileSync(path.join(root, 'scripts', 'lib', f), path.join(stage, 'scripts', 'lib', f))
 }
 const npmSrc = path.join(path.dirname(process.execPath), 'node_modules', 'npm')

@@ -18,6 +18,10 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { PIN, locateKernel, stampPath } from '../kernel/locate.mjs'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
+import { findTar } from './find-tar.mjs'
+import { pendingPaths, readPending, clearPending, hashFile, defaultPendingDir } from './kernel-update.mjs'
+
+export { findTar }
 
 export const here = path.dirname(fileURLToPath(import.meta.url))
 /** 仓库根（开发模式）或 payload 根（安装版）：本文件永远在 <root>/scripts/lib/ 下。 */
@@ -87,17 +91,6 @@ export function linkJunction(linkPath, target) {
   return 'linked'
 }
 
-/** Windows 10 1803+ 自带 bsdtar；找不到就抛错。 */
-export function findTar() {
-  if (process.platform === 'win32') {
-    const sys = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
-    if (fs.existsSync(sys)) return sys
-  }
-  const r = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['tar'], { stdio: 'pipe', encoding: 'utf8' })
-  if (r.status === 0 && r.stdout.trim()) return r.stdout.split(/\r?\n/)[0].trim()
-  throw new Error('找不到 tar.exe（需要 Windows 10 1803 及以上，或自行安装 bsdtar）')
-}
-
 export function killTree(child) {
   if (!child || child.exitCode !== null || child.signalCode) return
   try {
@@ -165,8 +158,48 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
 
 // ---------- 开发模式 ----------
 
+/**
+ * 下次启动切换：校验 kernel-next 的 tar sha256 与补丁后再原子替换 targetPrefix。
+ * 失败清 pending、删 staging，保留旧内核。
+ */
+export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = noop }) {
+  const pending = readPending(pendingDir)
+  const paths = pendingPaths(pendingDir)
+  if (!pending || !fs.existsSync(paths.tar)) return { applied: false, detail: 'no-pending' }
+  if (hashFile(paths.tar) !== pending.sha256) {
+    clearPending(pendingDir)
+    log('内核更新未生效，校验失败，仍用旧内核')
+    return { applied: false, detail: 'hash-mismatch' }
+  }
+  const staging = targetPrefix + '-staging'
+  const prev = targetPrefix + '-prev'
+  try {
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.mkdirSync(staging, { recursive: true })
+    const r = spawnSync(findTar(), ['-xf', paths.tar, '-C', staging], { encoding: 'utf8', windowsHide: true })
+    if (r.status !== 0) throw new Error(r.stderr || r.error?.message || 'tar')
+    const kernel = locateKernel(staging)
+    if (!kernel?.bin || !fs.existsSync(kernel.bin)) throw new Error('no-bin')
+    pinSkillsRoot({ kernelPrefix: staging, kernel, skillsDir, log })
+    if (missingPatches(kernel.root).length) throw new Error('patches')
+    fs.rmSync(prev, { recursive: true, force: true })
+    if (fs.existsSync(targetPrefix)) fs.renameSync(targetPrefix, prev)
+    fs.renameSync(staging, targetPrefix)
+    clearPending(pendingDir)
+    log(`内核已更新到 ${pending.version}`)
+    return { applied: true, version: pending.version, detail: 'ok' }
+  } catch (err) {
+    fs.rmSync(staging, { recursive: true, force: true })
+    clearPending(pendingDir)
+    const old = locateKernel(targetPrefix)
+    log(`内核更新未生效，仍用 ${old?.version ?? '旧版本'}`)
+    return { applied: false, detail: String(err.message) }
+  }
+}
+
 /** 开发模式内核：缺了就跑 install-kernel.mjs（要网络）；verify=true 时即使装好了也跑一遍（幂等校验 + 补缺的补丁）。 */
 export function ensureKernelDev({ prefix, dshHome, verify = false, log = noop }) {
+  applyPendingKernel({ pendingDir: defaultPendingDir(), targetPrefix: prefix, skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
   let kernel = locateKernel(prefix)
   if (!kernel || verify) {
     if (!kernel) log(`${prefix} 里还没有 dsh 内核，先安装（需要网络）…`)
@@ -296,6 +329,7 @@ export function needsExtract({ stateFile, kernelPrefix, buildId }) {
  * appDir 里有 package.json / .git（项目目录）直接抛错，什么都不动（见 assertSafeAppDir）。
  */
 export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
+  applyPendingKernel({ pendingDir: path.join(appDir, 'kernel-next'), targetPrefix: path.join(appDir, 'kernel'), skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
   assertSafeAppDir(appDir)
   const payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
   const kernelPrefix = path.join(appDir, 'kernel')
