@@ -10,6 +10,7 @@
     "setup": "node scripts/setup-profile.mjs",
     "build": "node scripts/build-client.mjs",
     "build:watch": "node scripts/build-client.mjs --watch",
+    "icon": "node scripts/make-icon.mjs",
     "server": "node server/src/index.js",
     "client": "node scripts/launch.mjs",
     "desktop": "node scripts/launch.mjs --desktop",

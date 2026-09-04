@@ -14,6 +14,6 @@ plugins/desk-ui/lib/client.js
 Thumbs.db
 
 # 安装包构建产物
-build/
+/build/
 dist/
 desktop/dist/
