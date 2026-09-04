@@ -1,7 +1,7 @@
 /**
  * 服务器管理页 GET /admin：视频里「这里面配了模型和企业知识库」那一屏。
  * 单文件 HTML（无构建），用管理员/总监账号登录后调 /api/*：
- *   服务器状态 · 公司盘 · 模型通道（加入订阅 / 加入模型）· 模型目录 · 知识库查询 · 知识 / 工具合集
+ *   服务器状态 · 内核 · 公司盘 · 模型通道（加入订阅 / 加入模型）· 模型目录 · 知识库查询 · 知识 / 工具合集
  * 凭据只在浏览器与网关之间走一次，随后只保存登录会话令牌（sessionStorage）。
  */
 
@@ -147,9 +147,9 @@ export function renderAdminHtml({ companyName }) {
   }
 
   async function renderMain() {
-    let status, channels, collections;
+    let status, channels, collections, kernel;
     try {
-      [status, channels, collections] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections')]);
+      [status, channels, collections, kernel] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/kernel')]);
       if (!me) me = (await api('GET', '/api/auth/me')).user;
     } catch (err) { if (!token) return; return renderLogin(err.message); }
     const isAdmin = me.role === 'admin';
@@ -171,6 +171,33 @@ export function renderAdminHtml({ companyName }) {
           <div><span>近 7 天</span>¥\${status.ledger7d.totalCny.toFixed(2)} · \${status.ledger7d.requests} 次请求</div>
           <div><span>默认模型</span>\${esc(status.company.defaultModel || '—')} · 快速推理 \${esc(status.company.quickInferenceModel || '—')}</div>
         </div>
+      </section>
+
+      <section id="kernel">
+        <h2>内核</h2>
+        <p class="desc">GitHub Release 发现 → 试打 16 处公司补丁 → 通过才入库 / 发布。员工机登录后后台下载，下次启动再切换。\${isAdmin ? '' : '（总监只读）'}</p>
+        <div class="kv">
+          <div><span>当前</span>\${kernel.current && kernel.current.version ? esc(kernel.current.version) + (kernel.current.sourceTag ? ' · ' + esc(kernel.current.sourceTag) : '') : '随包保底 ' + esc(kernel.pinVersion || '—')}</div>
+        </div>
+        \${kernel.discoverError ? '<p class="bad" style="margin:10px 0 0">' + esc(kernel.discoverError) + '</p>' : ''}
+        \${isAdmin ? '<div class="row" style="margin:14px 0 10px"><button id="kRollback">回滚到上一版</button></div>' : ''}
+        <p class="desc" style="margin-top:8px">已存版本</p>
+        \${(kernel.stored && kernel.stored.length) ? \`<table><thead><tr><th>版本</th><th>SHA256</th><th>大小</th><th></th></tr></thead><tbody>
+          \${kernel.stored.map((v) => \`<tr>
+            <td class="mono">\${esc(v.version)}</td>
+            <td class="mono muted">\${esc((v.sha256 || '').slice(0, 12))}</td>
+            <td>\${fmtBytes(v.bytes || 0)}</td>
+            <td style="text-align:right">\${isAdmin ? '<button data-kpub="' + esc(v.version) + '">发布</button>' : ''}</td>
+          </tr>\`).join('')}
+        </tbody></table>\` : '<div class="empty">还没有入库的内核包</div>'}
+        <p class="desc" style="margin-top:14px">发现（比当前新的 GitHub Release）</p>
+        \${(kernel.discover && kernel.discover.length) ? \`<table><thead><tr><th>版本</th><th>tag</th><th></th></tr></thead><tbody>
+          \${kernel.discover.map((d) => \`<tr>
+            <td class="mono">\${esc(d.version)}</td>
+            <td class="mono">\${esc(d.tag)}</td>
+            <td style="text-align:right">\${isAdmin ? '<button data-kprep="' + esc(d.version) + '">试打补丁</button>' : ''}</td>
+          </tr>\`).join('')}
+        </tbody></table>\` : '<div class="empty">没有比当前更新的版本</div>'}
       </section>
 
       <section>
@@ -239,6 +266,22 @@ export function renderAdminHtml({ companyName }) {
         </div>
       </section>\`;
 
+    const kBusy = (on) => { document.querySelectorAll('#kernel button').forEach((b) => { b.disabled = on; }); };
+    document.querySelectorAll('[data-kpub]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('发布 ' + b.dataset.kpub + ' 为当前内核？员工下次启动后切换。')) return;
+      try { await api('POST', '/api/admin/kernel/publish', { version: b.dataset.kpub }); toast('已发布 ' + b.dataset.kpub); renderMain(); } catch (err) { toast(err.message, true); }
+    }));
+    document.querySelectorAll('[data-kprep]').forEach((b) => b.addEventListener('click', async () => {
+      kBusy(true);
+      toast('可能需要几分钟');
+      try { await api('POST', '/api/admin/kernel/prepare', { version: b.dataset.kprep }); toast('试打完成：' + b.dataset.kprep); renderMain(); }
+      catch (err) { toast(err.message, true); kBusy(false); }
+    }));
+    const kRollback = $('#kRollback');
+    if (kRollback) kRollback.addEventListener('click', async () => {
+      if (!confirm('回滚到上一版？')) return;
+      try { const r = await api('POST', '/api/admin/kernel/rollback'); toast('已回滚到 ' + (r.version || '上一版')); renderMain(); } catch (err) { toast(err.message, true); }
+    });
     $('#addSub').addEventListener('click', () => openConnect(channels.channels, 'subscription'));
     $('#addKey').addEventListener('click', () => openConnect(channels.channels, 'key'));
     document.querySelectorAll('[data-conn]').forEach((b) => b.addEventListener('click', () => openConnect(channels.channels, null, b.dataset.conn)));

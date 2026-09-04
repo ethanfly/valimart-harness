@@ -24,7 +24,8 @@ import { createRouter, parseUrl, sendError, sendJson, HttpError } from './http.j
 const startedAt = Date.now()
 
 export function createGateway(overrides = {}) {
-  const cfg = loadConfig(overrides)
+  const { fetchReleases, kernels, ...cfgOverrides } = overrides
+  const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
   const ledger = new Ledger(db, cfg)
   const tasksRef = { current: undefined }
@@ -54,7 +55,7 @@ export function createGateway(overrides = {}) {
   bootstrap({ db, cfg, drive })
 
   const router = createRouter()
-  registerApi(router, { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt })
+  registerApi(router, { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt, fetchReleases, kernels })
   registerAdminPage(router, { cfg })
   router.get('/v1/models', (req, res) => proxy.handleModels(req, res))
   router.post('/v1/chat/completions', (req, res) => proxy.handleChat(req, res))

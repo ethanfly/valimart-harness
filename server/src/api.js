@@ -431,7 +431,7 @@ export function registerApi(router, ctx) {
   })
   router.get('/api/admin/kernel', async (req, res) => {
     const { user } = auth(req)
-    requireAdmin(user)
+    if (user.role === 'employee') throw new HttpError(403, '内核管理仅总监/管理员可见', 'forbidden')
     sendJson(res, 200, await kernels.adminView())
   })
   router.post('/api/admin/kernel/publish', async (req, res) => {

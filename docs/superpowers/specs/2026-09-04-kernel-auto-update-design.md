@@ -1,6 +1,6 @@
 # 设计：内核自动更新（GitHub Release → 公司门禁 → 员工机下次启动切换）
 
-> 状态：已与用户确认方案，待实现。
+> 状态：已实现。
 > 上游：<https://github.com/deepseek-ai/deepseek-harness>
 > 对应 HANDOFF「安装包剩余项」里的自动更新，以及「公司审核后推、CLI + 管理页都能发现、员工机后台下载、下次启动再换」。
 
@@ -123,7 +123,7 @@ data/kernels/
 |---|---|---|---|
 | GET | `/api/kernel/current` | 已登录任意角色 | `{ version, sha256, sourceTag, bundled }`；无 current 则 `bundled: true` |
 | GET | `/api/kernel/tarball` | 已登录任意角色 | `application/octet-stream` 输出 current 的 tar；无 current → 404 |
-| GET | `/api/admin/kernel` | admin | current + 已存版本列表 + `discover`（GitHub，失败则 `discoverError`，不 500） |
+| GET | `/api/admin/kernel` | admin / director（员工 403） | current + 已存版本列表 + `discover`（GitHub，失败则 `discoverError`，不 500） |
 | POST | `/api/admin/kernel/prepare` | admin | body `{ version }`：网关本机执行与 CLI `prepare` 相同的步骤，结果写入 `data/kernels/<ver>/`，**不**改 `current` |
 | POST | `/api/admin/kernel/publish` | admin | 两种 body：`{ version }` 发布已 prepare 的目录；或 multipart/原始二进制上传（CLI `publish` 用），然后把该版标成 current，原 current 写入 `previous` |
 | POST | `/api/admin/kernel/rollback` | admin | `current` 与 `previous` 对调；没有 previous → 400 |
@@ -132,12 +132,13 @@ data/kernels/
 
 ### 3.3 客户端
 
-**切换发生在下次启动**，由已有编排执行，不挡本次窗口：
+**切换发生在下次启动**，由已有编排执行，不挡本次窗口。安装版 `preparePackaged` 顺序是 **守卫 → 解随包 → `applyPendingKernel`**（pending 在解压之后覆盖 bundled）：
 
-1. `preparePackaged`（安装版）和 `ensureKernelDev`（开发版）在解包 / 定位内核**之前**调用 `applyPendingKernel`。
-2. `applyPendingKernel`：读 `kernel-next/pending.json`；sha256 对得上且 tar 在 → 解到 `kernel-staging` → `pinSkillsRoot` + `missingPatches` 为空 → 把旧 `kernel` 改名为 `kernel-prev`（只留一份）、staging 改名为 `kernel` → 删 `kernel-next`。任一步失败：删 staging / pending，保留旧 `kernel`，给启动页一条 `log`：`内核更新未生效，仍用 <旧版本>`。
-3. 登录成功后（`desk-host` 已有会话令牌和 `gatewayUrl`）调用 `fetchKernelUpdate`：`GET /api/kernel/current`；`bundled` 或 `version` 等于本地戳记 → 结束；否则 `GET /api/kernel/tarball` 写到 `kernel-next/kernel.tar`，算 sha256，对不上就删并写 `desktop.log` / host 日志；对上则写 `pending.json`。下载失败不影响当前会话。
-4. 开发模式前缀是 `~/.company-desk/kernel`，pending 仍放 `~/.company-desk/app/kernel-next`（与安装版同一位置），`applyPendingKernel` 的目标前缀由调用方传入。
+1. 守卫 `assertSafeAppDir`：项目目录直接抛错，apply / 解压之前什么都不动。
+2. 解随包：`needsExtract` 为真（首次 / `buildId` 变了 / 内核目录不完整）时清 `APP_DIR_ENTRIES` 并解 `kernel.tar`。**`kernel-next` 不在清理列表里，解随包不会删 pending。**
+3. `applyPendingKernel`：读 `kernel-next/pending.json`；sha256 对得上且 tar 在 → 解到 `kernel-staging` → `pinSkillsRoot` + `missingPatches` 为空 → 把旧 `kernel` 改名为 `kernel-prev`（只留一份）、staging 改名为 `kernel` → 删 `kernel-next`。任一步失败：删 staging / pending，保留旧 `kernel`，给启动页一条 `log`：`内核更新未生效，仍用 <旧版本>`。pending 覆盖刚解出的 bundled。
+4. 登录成功后（`desk-host` 已有会话令牌和 `gatewayUrl`）调用 `fetchKernelUpdate`：`GET /api/kernel/current`；`bundled` 或 `version` 等于本地戳记 → 结束；否则 `GET /api/kernel/tarball` 写到 `kernel-next/kernel.tar`，算 sha256，对不上就删并写 `desktop.log` / host 日志；对上则写 `pending.json`。下载失败不影响当前会话。
+5. 开发模式前缀是 `~/.company-desk/kernel`，pending 仍放 `~/.company-desk/app/kernel-next`（与安装版同一位置），`applyPendingKernel` 的目标前缀由调用方传入。
 
 Electron `desktop/main.js` **不**自己发 HTTP。它只在启动页展示 bootstrap 打来的「更新未生效」日志。后台下载挂在已经登录的 host 插件上，这样有会话令牌、也避免未登录就打员工 API。
 

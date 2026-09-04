@@ -203,6 +203,20 @@ npm run dist                   # 两个都出
 
 构建机（本机）已于 2026-09-04 以等价方式走过以上流程（两个包均 `/S` 静默安装、脚本启动客户端、在 IDE 浏览器里操作内核页面完成登录 / 发消息；管理页只核对了 HTTP 200，未在管理页登录；见 `docs/sessions/2026-09-04.md`）；一台真正没有 Node 的机器、双击安装 / 桌面快捷方式启动 / 管理页登录都还没试过。
 
+### 内核更新（公司门禁）
+
+员工机不直连 GitHub / npm。管理员在网关侧发现、试打补丁、发布；已登录员工**下次启动**才切换。壳（Electron 安装包）没有自动更新。
+
+```powershell
+npm run kernel:discover                                    # 列比当前 / pin 新的 GitHub Release（tag dsh-v*）
+npm run kernel:prepare -- --version 0.1.2-rc.1             # 装指定 npm 版 + 16 处补丁，通过才打 tar
+npm run kernel:publish -- --gateway http://127.0.0.1:8790 --user boss --password <管理员密码> --from build/kernel-update/<ver>
+```
+
+管理页 `/admin` 的「内核」一节：当前版本（无发布则显示随包保底 pin）、已存列表、发现列表、`discoverError`；管理员可「试打补丁 / 发布 / 回滚」，总监只读。
+
+**不要**把 `scripts/kernel/pin.json` 升到 `0.1.2` / `0.1.2-rc.1`，除非对该版本跑过 `kernel:prepare` 并且 16 处补丁全过。本轮默认不升。
+
 ## 3. 启动
 
 以下是开发机上的跑法；员工机 / 服务器用 §2.5 的安装包，装完双击桌面「THE DIVA」即可，不需要这些命令。

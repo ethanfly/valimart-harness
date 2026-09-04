@@ -26,6 +26,7 @@ before(async () => {
     defaultModel: 'mock-echo',
     quickInference: { defaultModel: 'mock-echo' },
     quota: { anchor: '2026-08-31T17:45:21+08:00', weeklyCny: 100, byRole: { admin: 1000, director: 500, employee: 100 } },
+    fetchReleases: async () => [],
   })
   base = await gw.listen()
 })
@@ -400,7 +401,7 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.equal(page.status, 200)
   assert.match(page.headers.get('content-type'), /text\/html/)
   const html = await page.text()
-  for (const s of ['THE DIVA', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  for (const s of ['THE DIVA', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '试打补丁', '回滚到上一版']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
   const root = await fetch(base + '/', { redirect: 'manual' })
   assert.equal(root.status, 302)
   assert.equal(root.headers.get('location'), '/admin')
@@ -426,6 +427,21 @@ test('周额度：用满后 429', async () => {
   await api('PATCH', `/api/personnel/users/${ctx.emp.user.id}`, { token: ctx.boss.sessionToken, body: { weeklyQuotaCny: null } })
   const ok = await api('POST', '/v1/chat/completions', { token: ctx.emp.gatewayToken, body: { model: 'mock-echo', messages: [{ role: 'user', content: 'x' }] } })
   assert.equal(ok.status, 200)
+})
+
+test('内核：总监可 GET 管理视图；员工 GET 403；总监不能 publish', async () => {
+  const empGet = await api('GET', '/api/admin/kernel', { token: ctx.emp.sessionToken })
+  assert.equal(empGet.status, 403)
+
+  const dirGet = await api('GET', '/api/admin/kernel', { token: ctx.dir.sessionToken })
+  assert.equal(dirGet.status, 200)
+  assert.ok('current' in dirGet.json)
+  assert.ok(Array.isArray(dirGet.json.stored))
+  assert.ok(Array.isArray(dirGet.json.discover))
+  assert.ok('pinVersion' in dirGet.json)
+
+  const dirPub = await api('POST', '/api/admin/kernel/publish', { token: ctx.dir.sessionToken, body: { version: '9.9.9' } })
+  assert.equal(dirPub.status, 403)
 })
 
 test('内核：未登录读 current 是 401；登录后无 current 则 bundled', async () => {

@@ -14,6 +14,7 @@
   与服务端 `dist/THE-DIVA-Gateway-Setup-<ver>.exe`（NSIS + `node.exe` + WinSW 注册 Windows 服务 `TheDivaGateway`）。
   本机（构建机）已实测：客户端装 → 冷启动 19 s / 热启动 2.4 s → 卸载；网关装成服务 → 安装版客户端登录 `boss` 到 `http://<本机名>:8790`（内核由安装版客户端拉起，页面在 IDE 浏览器里操作）、Mock Echo 有回复 →
   网关覆盖升级（`config.local.json` 保留）→ 两边卸载（数据保留）。**一台真正没有 Node 的机器还没试过**（见下面第 1 项）。用法与细节见 README §2.5。
+- **内核门禁更新：完成**（设计 `docs/superpowers/specs/2026-09-04-kernel-auto-update-design.md`）。GitHub Release 发现 → `kernel:prepare` / 管理页试打 16 处补丁 → 发布 `current`；员工登录后后台拉 tar，下次启动再切换。壳没有自动更新。`pin.json` 仍是 0.1.1-rc.2，未升 0.1.2。
 - 跑起来（开发机）：`npm install` → `npm run dev`（首次会从 npm 下载内核，约 20 秒）；账号见 README §3
 
 ### 关键决定（别轻易推翻）
@@ -41,7 +42,8 @@
 
 - 在一台没有 Node 的 Windows 机器上按 README §2.5 的 checklist 走一遍（服务端 + 客户端 + 升级 + 卸载）；顺带确认 `services.msc` 里服务显示名「THE DIVA 公司网关」正常、
   安装详情页里 `[init]` 中文行不乱码、完成页文字不被截断（这三项本机没核对）
-- 没做：代码签名（SmartScreen 会拦）、自动更新、多尺寸 ICO（现在只有一张 256px）、macOS / Linux 包
+- 没做：代码签名（SmartScreen 会拦）、多尺寸 ICO（现在只有一张 256px）、macOS / Linux 包
+- 自动更新：内核有门禁（GitHub 发现 → prepare 16 处补丁 → 管理页/CLI 发布；员工下次启动切换）；壳没有
 - 网关安装器端口写死 8790（`installer/gateway.nsi` 的 `${PORT}`）：管理员改了端口再升级，防火墙规则会被重置回 8790、完成页 URL 也错；`init.mjs` 已算出真实端口但 NSIS 没用上
 - 内核 tar 还能再瘦（tar 里还有约 2 千个随包发布的 `src/*.ts`；去掉未用依赖要动内核，慎）
 - 切入点：`scripts/lib/bootstrap.mjs`（启动编排，开发与安装版共用；`preparePackaged` + NDJSON CLI）、`desktop/main.js`（Electron 主进程）、
