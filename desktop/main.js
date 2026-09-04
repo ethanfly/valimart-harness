@@ -166,7 +166,7 @@ function runBootstrap() {
 function startKernel(ready, port) {
   const child = spawn(nodeExe, [ready.kernelBin, '--profile', ready.profileName, '--no-open', '--port', String(port)], {
     cwd: appDir,
-    env: { ...process.env, DSH_HOME: dshHome },
+    env: { ...process.env, DSH_HOME: dshHome, DESK_APP_DIR: appDir },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })

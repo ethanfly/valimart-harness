@@ -19,6 +19,7 @@ import { DeskState } from './state.js'
 import { GatewayClient, GatewayError } from './gateway-client.js'
 import { DriveMirror } from './drive-mirror.js'
 import { ProducedIndex } from './produced.js'
+import { fetchKernelUpdate, readLocalKernelVersion, resolvePendingDir } from './kernel-update.js'
 
 export const name = 'desk-host'
 export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry']
@@ -207,6 +208,15 @@ export function apply(ctx, config) {
     await ensureWorkspaces()
   }
 
+  function scheduleKernelUpdate() {
+    fetchKernelUpdate({
+      gateway,
+      pendingDir: resolvePendingDir(),
+      localVersion: readLocalKernelVersion(),
+      log: (msg) => log(`内核更新: ${msg}`),
+    }).catch((err) => log(`内核更新失败: ${err.message}`))
+  }
+
   // ---------- 登录 / 登出 / 心跳 ----------
   async function login({ gatewayUrl, username, password }) {
     const url = (gatewayUrl || state.data.gatewayUrl || config.gatewayUrl).replace(/\/+$/, '')
@@ -223,6 +233,7 @@ export function apply(ctx, config) {
       log(`公司盘同步失败: ${err.message}`)
     }
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
+    scheduleKernelUpdate()
     return state.publicView()
   }
 
@@ -302,6 +313,7 @@ export function apply(ctx, config) {
         }
         state.save()
         syncAll().catch((err) => log(`公司盘同步失败: ${err.message}`))
+        scheduleKernelUpdate()
       } catch (err) {
         if (err instanceof GatewayError && (err.status === 401 || err.status === 403)) state.clearLogin('登录已失效，请重新登录')
         else log(`启动校验失败（网关可能未启动）: ${err.message}`)

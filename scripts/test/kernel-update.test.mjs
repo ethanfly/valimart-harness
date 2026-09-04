@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +10,7 @@ import {
   parseReleaseTag, newerThan, filterDiscoverable, hashFile,
   pendingPaths, readPending, writePending, clearPending,
 } from '../lib/kernel-update.mjs'
+import { fetchKernelUpdate } from '../../plugins/desk-host/lib/kernel-update.js'
 import { packPatchedPrefix } from '../lib/kernel-prepare.mjs'
 import { ALL_MARKS, KernelPatchError } from '../kernel/patches.mjs'
 import { locateKernel } from '../kernel/locate.mjs'
@@ -225,4 +227,141 @@ test('preparePackaged：fresh 解压后 pending 覆盖 bundled，locateKernel �
   assert.equal(readPending(pendingDir), null)
   assert.ok(fs.existsSync(path.join(appDir, 'plugins', 'desk-ui')))
   assert.equal(JSON.parse(fs.readFileSync(path.join(appDir, 'state.json'), 'utf8')).buildId, 'test-build')
+})
+
+function shaOf(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex')
+}
+
+function mockGateway({ current, tarball, failCurrent, failTarball }) {
+  const calls = []
+  return {
+    calls,
+    async get(p, o) {
+      calls.push({ fn: 'get', p, o })
+      if (p === '/api/kernel/current') {
+        if (failCurrent) throw failCurrent
+        return current
+      }
+      throw new Error(`unexpected get ${p}`)
+    },
+    async request(method, p, o) {
+      calls.push({ fn: 'request', method, p, o })
+      if (p === '/api/kernel/tarball') {
+        if (failTarball) throw failTarball
+        return tarball
+      }
+      throw new Error(`unexpected request ${p}`)
+    },
+  }
+}
+
+function hostTmp(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-host-kup-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
+test('fetchKernelUpdate：bundled → skip，不拉 tarball', async (t) => {
+  const pendingDir = hostTmp(t)
+  const gw = mockGateway({ current: { bundled: true, version: '0.1.1', sha256: null, tarball: false } })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '0.1.0', log: () => {} })
+  assert.equal(r.action, 'skip')
+  assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
+})
+
+test('fetchKernelUpdate：version 等于本地 → skip', async (t) => {
+  const pendingDir = hostTmp(t)
+  const gw = mockGateway({ current: { bundled: false, version: '1.2.3', sha256: 'ab'.repeat(32), tarball: true } })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.2.3', log: () => {} })
+  assert.equal(r.action, 'skip')
+  assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
+})
+
+test('fetchKernelUpdate：无 sha256 → skip', async (t) => {
+  const pendingDir = hostTmp(t)
+  const gw = mockGateway({ current: { bundled: false, version: '9.0.0', sha256: null, tarball: true } })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  assert.equal(r.action, 'skip')
+  assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
+})
+
+test('fetchKernelUpdate：已有 pending 且 sha 相同 → skip', async (t) => {
+  const pendingDir = hostTmp(t)
+  const sha = 'cd'.repeat(32)
+  writePending(pendingDir, { version: '9.0.0', sha256: sha })
+  const gw = mockGateway({ current: { bundled: false, version: '9.0.0', sha256: sha, tarball: true } })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  assert.equal(r.action, 'skip')
+  assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
+  assert.equal(readPending(pendingDir).sha256, sha)
+})
+
+test('fetchKernelUpdate：pending sha 与 current 不符且本地已是 current → cleared', async (t) => {
+  const pendingDir = hostTmp(t)
+  writePending(pendingDir, { version: '9.0.0', sha256: 'aa'.repeat(32) })
+  const gw = mockGateway({ current: { bundled: false, version: '1.0.0', sha256: 'bb'.repeat(32), tarball: true } })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  assert.equal(r.action, 'cleared')
+  assert.equal(readPending(pendingDir), null)
+  assert.equal(fs.existsSync(pendingDir), false)
+  assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
+})
+
+test('fetchKernelUpdate：下载成功 → .partial 改名、writePending，timeout 10 分钟', async (t) => {
+  const pendingDir = hostTmp(t)
+  const tarball = Buffer.from('FAKE-KERNEL-TAR')
+  const sha = shaOf(tarball)
+  const gw = mockGateway({
+    current: { bundled: false, version: '9.0.0', sha256: sha, tarball: true },
+    tarball,
+  })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  assert.equal(r.action, 'downloaded')
+  const tarCall = gw.calls.find((c) => c.p === '/api/kernel/tarball')
+  assert.ok(tarCall)
+  assert.equal(tarCall.o?.timeoutMs, 600_000)
+  assert.equal(fs.existsSync(pendingPaths(pendingDir).partial), false)
+  assert.equal(fs.readFileSync(pendingPaths(pendingDir).tar).equals(tarball), true)
+  const p = readPending(pendingDir)
+  assert.equal(p.version, '9.0.0')
+  assert.equal(p.sha256, sha)
+})
+
+test('fetchKernelUpdate：pending 过期后改拉新 tar', async (t) => {
+  const pendingDir = hostTmp(t)
+  writePending(pendingDir, { version: '8.0.0', sha256: '11'.repeat(32) })
+  fs.writeFileSync(pendingPaths(pendingDir).tar, 'OLD')
+  const tarball = Buffer.from('NEW-KERNEL-TAR')
+  const sha = shaOf(tarball)
+  const gw = mockGateway({
+    current: { bundled: false, version: '9.0.0', sha256: sha, tarball: true },
+    tarball,
+  })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  assert.equal(r.action, 'downloaded')
+  assert.equal(readPending(pendingDir).version, '9.0.0')
+  assert.equal(fs.readFileSync(pendingPaths(pendingDir).tar, 'utf8'), 'NEW-KERNEL-TAR')
+})
+
+test('fetchKernelUpdate：tarball hash 不对 → clearPending，action error', async (t) => {
+  const pendingDir = hostTmp(t)
+  const logs = []
+  const gw = mockGateway({
+    current: { bundled: false, version: '9.0.0', sha256: '00'.repeat(32), tarball: true },
+    tarball: Buffer.from('WRONG-BYTES'),
+  })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: (m) => logs.push(m) })
+  assert.equal(r.action, 'error')
+  assert.equal(readPending(pendingDir), null)
+  assert.equal(fs.existsSync(pendingDir), false)
+  assert.ok(logs.length)
+})
+
+test('fetchKernelUpdate：网关失败 → error，不抛', async (t) => {
+  const pendingDir = hostTmp(t)
+  const gw = mockGateway({ failCurrent: new Error('unreachable') })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  assert.equal(r.action, 'error')
+  assert.match(r.detail, /unreachable/)
 })
