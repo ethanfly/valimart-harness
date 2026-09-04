@@ -1,0 +1,32 @@
+appId: team.ethan.thediva
+productName: THE DIVA
+copyright: THE DIVA
+directories:
+  output: ../dist
+  buildResources: build
+files:
+  - main.js
+  - splash.html
+  - build/icon.png
+  - package.json
+extraResources:
+  - from: ../build/payload
+    to: payload
+asar: true
+compression: normal
+npmRebuild: false
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+  artifactName: THE-DIVA-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: THE DIVA
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  language: "2052"
