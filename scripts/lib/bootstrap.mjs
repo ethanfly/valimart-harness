@@ -279,6 +279,7 @@ export function pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log = noop }) {
  * preparePackaged 在 appDir 里创建的全部条目：kernel（tar）、plugins/profile/scripts（复制自 payload）、
  * node_modules（ensureProfile 放的 @deepseek-ai junction）、state.json。重新解压时只删这些，不删整个 appDir ——
  * --app-dir 被误配到有用目录（如 ~/.company-desk 而不是 ~/.company-desk/app）时，开发内核、日志等不受影响。
+ * kernel-next 故意不在此列：升级解压 bundled 后仍保留 pending，下一步 apply 才能覆盖 bundled。
  */
 const APP_DIR_ENTRIES = ['kernel', 'plugins', 'profile', 'scripts', 'node_modules', 'state.json']
 
@@ -321,19 +322,20 @@ export function needsExtract({ stateFile, kernelPrefix, buildId }) {
 
 /**
  * 安装版首次启动 / 升级后的准备：
- *   1) needsExtract 说要解压（首次 / buildId 变了 / 内核目录不完整）→ 清掉 appDir 里本模块创建的条目（APP_DIR_ENTRIES）重建：
- *      tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts，写 state.json；
- *   2) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
- *   3) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
+ *   1) assertSafeAppDir：项目目录直接抛错，apply / 解压之前什么都不动；
+ *   2) needsExtract 说要解压（首次 / buildId 变了 / 内核目录不完整）→ 清掉 appDir 里本模块创建的条目（APP_DIR_ENTRIES）重建：
+ *      tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts，写 state.json（不碰 kernel-next）；
+ *   3) applyPendingKernel：pending 覆盖刚解出的 bundled，下次启动 pending 优先；
+ *   4) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
+ *   5) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
  * 只做准备，不长驻；内核由调用方（Electron 主进程）用 nodeExe 启动。log 收到的是 { step, status, detail } 对象。
- * appDir 里有 package.json / .git（项目目录）直接抛错，什么都不动（见 assertSafeAppDir）。
  */
 export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
-  applyPendingKernel({ pendingDir: path.join(appDir, 'kernel-next'), targetPrefix: path.join(appDir, 'kernel'), skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
   assertSafeAppDir(appDir)
   const payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
   const kernelPrefix = path.join(appDir, 'kernel')
   const stateFile = path.join(appDir, 'state.json')
+  const skillsDir = path.join(dshHome, 'desk', 'drive', '_shared', 'skills')
   const { fresh, reason } = needsExtract({ stateFile, kernelPrefix, buildId: payload.buildId })
   if (fresh) {
     log({ step: 'extract', status: 'start', detail: reason })
@@ -349,9 +351,11 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
     log({ step: 'extract', status: 'ok', detail: `内核 ${payload.kernel.version}` })
   } else log({ step: 'extract', status: 'skip', detail: reason })
 
+  applyPendingKernel({ pendingDir: path.join(appDir, 'kernel-next'), targetPrefix: kernelPrefix, skillsDir, log })
+
   const kernel = locateKernel(kernelPrefix)
   if (!kernel) throw new Error(`解压后找不到内核：${kernelPrefix}`)
-  pinSkillsRoot({ kernelPrefix, kernel, skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
+  pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log })
 
   const profileName = 'desk-app'
   const profileDir = path.join(dshHome, 'profiles', profileName)

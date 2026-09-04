@@ -12,7 +12,7 @@ import {
 import { packPatchedPrefix } from '../lib/kernel-prepare.mjs'
 import { ALL_MARKS, KernelPatchError } from '../kernel/patches.mjs'
 import { locateKernel } from '../kernel/locate.mjs'
-import { applyPendingKernel, findTar } from '../lib/bootstrap.mjs'
+import { applyPendingKernel, findTar, preparePackaged } from '../lib/bootstrap.mjs'
 
 function writeBareKernel(prefix, version) {
   const root = path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh')
@@ -197,4 +197,32 @@ test('applyPendingKernel：ALL_MARKS 假内核 → applied，locateKernel 为 9.
   assert.equal(r.detail, 'ok')
   assert.equal(locateKernel(targetPrefix).version, '9.0.0')
   assert.equal(readPending(pendingDir), null)
+})
+
+test('preparePackaged：fresh 解压后 pending 覆盖 bundled，locateKernel 为 pending 版本', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-apk-fresh-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const payloadDir = path.join(dir, 'payload')
+  const appDir = path.join(dir, 'app')
+  const dshHome = path.join(dir, 'dsh')
+  const bundled = path.join(dir, 'bundled')
+  writeMarkedKernel(bundled, '1.0.0')
+  fs.mkdirSync(payloadDir, { recursive: true })
+  packPrefixTar(bundled, path.join(payloadDir, 'kernel.tar'))
+  fs.writeFileSync(path.join(payloadDir, 'payload.json'), JSON.stringify({ buildId: 'test-build', kernel: { version: '1.0.0' } }))
+  for (const d of ['plugins/desk-host', 'plugins/desk-ui', 'profile', 'scripts']) fs.mkdirSync(path.join(payloadDir, d), { recursive: true })
+  fs.writeFileSync(path.join(payloadDir, 'profile', 'cordis.patch.yml'), "gatewayUrl: 'http://x:1'\n")
+  const src = path.join(dir, 'pending-src')
+  writeMarkedKernel(src, '9.0.0')
+  const pendingDir = path.join(appDir, 'kernel-next')
+  fs.mkdirSync(pendingDir, { recursive: true })
+  packPrefixTar(src, pendingPaths(pendingDir).tar)
+  writePending(pendingDir, { version: '9.0.0', sha256: hashFile(pendingPaths(pendingDir).tar) })
+  fs.mkdirSync(path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai'), { recursive: true })
+  const res = preparePackaged({ payloadDir, appDir, dshHome, log: () => {} })
+  assert.equal(locateKernel(path.join(appDir, 'kernel')).version, '9.0.0')
+  assert.equal(res.kernelVersion, '9.0.0')
+  assert.equal(readPending(pendingDir), null)
+  assert.ok(fs.existsSync(path.join(appDir, 'plugins', 'desk-ui')))
+  assert.equal(JSON.parse(fs.readFileSync(path.join(appDir, 'state.json'), 'utf8')).buildId, 'test-build')
 })

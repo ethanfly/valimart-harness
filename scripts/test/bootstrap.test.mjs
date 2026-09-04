@@ -199,9 +199,15 @@ test('preparePackaged：appDir 里有 package.json / .git（项目目录，如 -
   fs.writeFileSync(path.join(proj, 'package.json'), '{}')
   fs.writeFileSync(path.join(proj, 'node_modules', 'left-pad', 'index.js'), '')
   fs.writeFileSync(path.join(proj, 'scripts', 'x.mjs'), '')
+  // 误配目录里若已有 pending，守卫仍须先于 apply（apply 遇 hash 不对会打 log 并清 pending）
+  const next = path.join(proj, 'kernel-next')
+  fs.mkdirSync(next, { recursive: true })
+  fs.writeFileSync(path.join(next, 'kernel.tar'), 'x')
+  fs.writeFileSync(path.join(next, 'pending.json'), JSON.stringify({ version: '9.0.0', sha256: '0'.repeat(64) }))
   const events = []
   assert.throws(() => preparePackaged({ payloadDir, appDir: proj, dshHome: path.join(dir, 'dsh'), log: (o) => events.push(o) }), /--app-dir .*package\.json/)
   assert.deepEqual(events, [], '守卫在任何步骤之前')
+  assert.ok(fs.existsSync(path.join(next, 'pending.json')), '守卫失败时不清理 pending')
   assert.ok(fs.existsSync(path.join(proj, 'node_modules', 'left-pad', 'index.js')), 'node_modules 完好')
   assert.ok(fs.existsSync(path.join(proj, 'scripts', 'x.mjs')), 'scripts 完好')
   assert.ok(!fs.existsSync(path.join(proj, 'state.json')) && !fs.existsSync(path.join(proj, 'kernel')), '没有开始解压')
