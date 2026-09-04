@@ -12,3 +12,8 @@ plugins/desk-ui/lib/client.js
 *.log
 .DS_Store
 Thumbs.db
+
+# 安装包构建产物
+build/
+dist/
+desktop/dist/
