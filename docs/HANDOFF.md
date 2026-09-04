@@ -12,7 +12,7 @@
   计划 `docs/superpowers/plans/2026-09-04-installers.md`，按计划 9 个任务逐个实现 / 审查 / 提交）。
   `npm run dist` 出两个 Windows 安装包：客户端 `dist/THE-DIVA-Setup-<ver>.exe`（Electron 壳 + 随包 `node.exe` + 打好补丁的 `kernel.tar`，按用户一键安装）
   与服务端 `dist/THE-DIVA-Gateway-Setup-<ver>.exe`（NSIS + `node.exe` + WinSW 注册 Windows 服务 `TheDivaGateway`）。
-  本机（构建机）已实测：客户端装 → 冷启动 19 s / 热启动 2.4 s → 卸载；网关装成服务 → 安装版客户端登录 `boss` 到 `http://<本机名>:8790`、Mock Echo 有回复 →
+  本机（构建机）已实测：客户端装 → 冷启动 19 s / 热启动 2.4 s → 卸载；网关装成服务 → 安装版客户端登录 `boss` 到 `http://<本机名>:8790`（内核由安装版客户端拉起，页面在 IDE 浏览器里操作）、Mock Echo 有回复 →
   网关覆盖升级（`config.local.json` 保留）→ 两边卸载（数据保留）。**一台真正没有 Node 的机器还没试过**（见下面第 1 项）。用法与细节见 README §2.5。
 - 跑起来（开发机）：`npm install` → `npm run dev`（首次会从 npm 下载内核，约 20 秒）；账号见 README §3
 
@@ -89,12 +89,12 @@
 - 升内核版本前先读 `scripts/kernel/patches.mjs` 头部说明；`npm run kernel:check` 能告诉你缺哪条
 - 测试用 `npm test`，用的是临时数据目录，不碰 `server/data/`；`preparePackaged` 用例依赖 `build/payload/kernel.tar`，没有会 skip（别把 skip 当通过）
 - 演示机上的网关 8790 与客户端 3470 若还在跑，改服务端代码后要重启网关进程
-- **安装包构建**：改了 `scripts/lib/bootstrap.mjs`、`scripts/kernel/*`、`plugins/**`、`profile/cordis.patch.yml` 要重新 `npm run dist:client`（它们随包）；改了 `server/src/**`、
+- **安装包构建**：改了 `scripts/lib/bootstrap.mjs`、`scripts/kernel/*`、`plugins/**`、`profile/cordis.patch.yml` 要重新 `npm run dist:client`（它们随包）；改了 `server/src/**`、`server/config.json`、
   `installer/**` 要重新 `npm run dist:gateway`。`build/`、`dist/` 不入库；`desktop/package-lock.json` 入库（锁 electron-builder 依赖树）
 - 装 Electron 用 `npm --prefix desktop install`（不要加 `--allow-scripts=electron`，npm 11.19 会报 EALLOWSCRIPTS，Electron 44 也没有 postinstall）。
   Electron / electron-builder 二进制走 GitHub 在这个网络里会失败，`build-client-installer.mjs` 默认用 npmmirror（`ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`），
   开发模式 `npm --prefix desktop start` 首次跑之前要自己设 `ELECTRON_MIRROR`
-- `npm run dist:gateway` 依赖 electron-builder 缓存里的 makensis（`%LOCALAPPDATA%\electron-builder\Cache\nsis-*\nsis-*-*\Bin\makensis.exe`）：先跑过一次 `dist:client`，或设 `MAKENSIS`
+- `npm run dist:gateway` 依赖 electron-builder 缓存里的 makensis（`%LOCALAPPDATA%\electron-builder\Cache\nsis-*\nsis-*-*\Bin\makensis.exe`）：先跑过一次 `dist:client`，或设 `MAKENSIS`（查找顺序：`MAKENSIS` → 缓存 → PATH 里的 `makensis`）
 - 网关安装包要管理员（UAC）才能装 / 升级 / 卸载；验证它需要用户在旁边点 UAC。装完机器上会有一个开机自启的服务 `TheDivaGateway` 与防火墙规则「THE DIVA Gateway」，测完记得卸载
 - 本机 shell 是 Windows PowerShell 5.1：不支持 `&&`（用 `;`）；含中文的提交信息用 `git commit -F <UTF-8 无 BOM 文件>`，别直接 `-m`
 - 安装版客户端与 `npm run dev` 共用 `~/.dsh/desk`（登录态、公司盘镜像），在开发机上测安装版时看到已登录 / 有账号预填是正常的

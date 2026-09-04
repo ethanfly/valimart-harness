@@ -122,7 +122,7 @@ $env:DEEPSEEK_API_KEY = "sk-..."        # 或写进 ~/.dsh/.credentials.yaml： 
 
 | 产物 | 给谁 | 安装方式 |
 | --- | --- | --- |
-| `dist/THE-DIVA-Setup-<ver>.exe`（约 150 MB） | 员工电脑 | 一键**按用户**安装，不需要管理员；装到 `%LOCALAPPDATA%\Programs\the-diva-desktop`（落盘约 600 MB；桌面 / 开始菜单快捷方式与「应用和功能」里的名字都是 **THE DIVA**）；首次启动把内核解压到 `~/.company-desk/app`（本机实测约 19 s），之后约 2–3 s 开 |
+| `dist/THE-DIVA-Setup-<ver>.exe`（约 150 MB） | 员工电脑 | 一键**按用户**安装，不需要管理员；装到 `%LOCALAPPDATA%\Programs\the-diva-desktop`（落盘约 600 MB；桌面 / 开始菜单快捷方式叫 **THE DIVA**，「应用和功能」里显示为 **THE DIVA 0.1.0**（含版本号））；首次启动把内核解压到 `~/.company-desk/app`（本机实测约 19 s），之后约 2–3 s 开 |
 | `dist/THE-DIVA-Gateway-Setup-<ver>.exe`（约 25 MB） | 公司服务器 | 需要管理员（UAC）；装到 `%ProgramFiles%\THE DIVA Gateway`，注册 Windows 服务 `TheDivaGateway`（随系统自启，崩了自动重启），防火墙放行 TCP 8790；数据在 `%ProgramData%\THE DIVA Gateway\{data,logs}`（卸载保留） |
 
 两个包都**未签名**：首次运行 SmartScreen 会拦，「更多信息 → 仍要运行」。安装器 / 卸载器都支持静默参数 `/S`。
@@ -146,8 +146,8 @@ npm run dist                   # 两个都出
   `$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"`（或显式 `node desktop/node_modules/electron/install.js`）。
   WinSW 按 `installer/pins.json` 下载到 `build/cache/WinSW-2.12.0.exe` 并校验 SHA256，下载不了就手动下好放到那里。
 - **makensis**：`dist:gateway` 复用 electron-builder 下到缓存里的 NSIS（`%LOCALAPPDATA%\electron-builder\Cache\nsis-<ver>\nsis-<ver>-<随机后缀>\Bin\makensis.exe`），
-  所以**要先成功跑过一次 `npm run dist:client`**；或自装 NSIS 3 并设 `MAKENSIS` 指向 `makensis.exe`。
-- 内核来源：本机 `~/.company-desk/kernel` 版本等于 `scripts/kernel/pin.json` 且 16 处补丁齐 → 直接复制；否则重新 `install-kernel.mjs` 到 `build/kernel-stage`（要网络）。
+  所以**要先成功跑过一次 `npm run dist:client`**；或自装 NSIS 3 并设 `MAKENSIS` 指向 `makensis.exe`（查找顺序：`MAKENSIS` 环境变量 → electron-builder 缓存 → PATH 里的 `makensis`）。
+- 内核来源：本机默认前缀（`~/.company-desk/kernel`；也认 `DESK_KERNEL_PREFIX` 和旧位置 `~/.tdh-coding-prefix`，同 `scripts/kernel/locate.mjs`）版本等于 `scripts/kernel/pin.json` 且 16 处补丁齐 → 直接复制；否则重新 `install-kernel.mjs` 到 `build/kernel-stage`（要网络）。
   修剪 `.d.ts` / source map / 非 win32-x64 的 node-pty 预编译后打成 `kernel.tar`（约 134 MB），用 Windows 自带的 `tar.exe`（bsdtar，Win10 1803+）。
 - 图标 `desktop/build/icon.png|ico` 已入库；改图标才需要 `npm run icon`（用本机 Edge/Chrome 渲染 SVG）。
 - `build/`、`dist/` 不入库；改了 `scripts/lib/bootstrap.mjs`、`scripts/kernel/*`、`plugins/**`、`profile/cordis.patch.yml` 要重新 `npm run dist:client`（它们都随包）。
@@ -164,7 +164,7 @@ npm run dist                   # 两个都出
   `~/.company-desk/logs/desktop.log`（5 MB 滚动保留 3 份，含 bootstrap 与内核输出）、`~/.dsh/profiles/desk-app`；
   登录态 / 公司盘镜像 / 会话仍在 `~/.dsh/desk`、`~/.dsh/sessions`。安装目录运行期只读。
 - 排障：F12 开 DevTools、F5 重载；启动失败弹「THE DIVA 无法启动」对话框，可直接打开日志目录。
-- 升级：直接装新版本（一键安装器会先卸旧的）；首次启动发现 `buildId` 变了会重新解压内核（`~/.company-desk/app` 里本程序建的条目整体换新，`~/.dsh` 不动；
+- 升级：直接装新版本（一键安装器会先卸旧的）；首次启动发现 `buildId` 变了会重新解压内核（`~/.company-desk/app` 里本程序建的条目整体换新，`~/.dsh/profiles/desk-app` 随之刷新，`~/.dsh/desk`、`~/.dsh/sessions` 不动；
   这条升级路径有单测，安装器层面的覆盖安装本机还没单独试过）。
   卸载（「设置 → 应用」，或 `"%LOCALAPPDATA%\Programs\the-diva-desktop\Uninstall THE DIVA.exe" /S`）不删 `~/.company-desk` 与 `~/.dsh`。
 - 开发机上安装版与 `npm run dev` 并存：安装版用 profile `desk-app` + `~/.company-desk/app/kernel`，开发版用 `desk` + `~/.company-desk/kernel`；
@@ -197,7 +197,7 @@ npm run dist                   # 两个都出
    → 任务管理器里内核进程是 `…\Programs\the-diva-desktop\resources\payload\runtime\node.exe` → 关窗后无残留 `node.exe` → 再开一次秒开。
 3. 服务器重跑同一安装包（升级）→ `config.local.json` 不变、服务 `RUNNING`；卸载 → `%ProgramData%\THE DIVA Gateway` 仍在。
 
-构建机（本机）已于 2026-09-04 走完以上流程（见 `docs/sessions/2026-09-04.md`）；一台真正没有 Node 的机器还没试过。
+构建机（本机）已于 2026-09-04 以等价方式走过以上流程（两个包均 `/S` 静默安装、脚本启动客户端、在 IDE 浏览器里操作内核页面完成登录 / 发消息；管理页只核对了 HTTP 200，未在管理页登录；见 `docs/sessions/2026-09-04.md`）；一台真正没有 Node 的机器、双击安装 / 桌面快捷方式启动 / 管理页登录都还没试过。
 
 ## 3. 启动
 

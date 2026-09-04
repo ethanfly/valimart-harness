@@ -41,7 +41,7 @@ Node / npm / Git**，客户端首次启动**不联网**：
 做：上面两个安装包、构建脚本、启动编排、卸载/升级、README 说明、验证 checklist。
 
 不做（v1）：自动更新、代码签名（首次运行会有 SmartScreen 提示，README 写明"更多信息 → 仍要运行"）、
-macOS / Linux 包、服务端 HTTPS（归 HANDOFF 第 3 项）、内核 UI 改动。
+macOS / Linux 包、服务端 HTTPS（归 HANDOFF 第 2 项「服务端从演示级到可部署」）、内核 UI 改动。
 
 ## 3. 方案决策
 
@@ -50,7 +50,7 @@ macOS / Linux 包、服务端 HTTPS（归 HANDOFF 第 3 项）、内核 UI 改�
 | 客户端壳 | **Electron**（只做窗口 + 进程编排，不跑业务逻辑） | 独立窗口 / 图标 / 任务栏 / 进程名；纯 npm 依赖，构建机不需要 Rust（Tauri 需要） |
 | 内核运行时 | **随包携带 `node.exe`**（从构建机 `process.execPath` 复制，v26.7.0，版本记进 `payload.json`） | 与现在 `npm run desktop` 完全同一运行时，零 ABI 风险；内核里的 koffi / node-pty / sharp / node-addon-require-builtin 都是 N-API 预编译，理论上 Electron 自带 Node 也能跑，但未验证。多 ~28 MB（压缩后）换确定性。同一份 node.exe 也给服务端包用 |
 | 内核怎么进包 | **打好补丁的内核前缀打成一个 `kernel.tar` 随包**，首次启动解压到用户目录 | 公司内网未必能到 npm registry（HANDOFF 建议）；单个大文件让 NSIS 安装快很多（否则要落 3 万个小文件）；解压到短路径规避 MAX_PATH（见 §5.3） |
-| 内核放哪 | `~/.company-desk/app/kernel`（**不是**开发用的 `~/.company-desk/kernel`） | 开发机上两套互不干扰；升级时整目录换新 |
+| 内核放哪 | `~/.company-desk/app/kernel`（**不是**开发用的 `~/.company-desk/kernel`） | 开发机上两套互不干扰；升级时按 buildId 换新（⚠ 实际只换 app/ 里本程序建的六个条目，不删整个目录，见 §0） |
 | dsh profile 名 | `desk-app`（开发用 `desk`） | 同一台机器上开发与安装版并存时不互相改链接。`desk-host` 的状态目录仍是 `$DSH_HOME/desk`，登录态 / 公司盘镜像 / 会话与开发版共用 |
 | 服务端安装 | **NSIS 脚本 + `node.exe` + WinSW 注册服务** | `services.msc` 可见可停、崩了自动重启、日志滚动；WinSW（MIT，单 exe，依赖 .NET Framework 4.6.1+，Win10/11/Server 2016+ 自带） |
 | NSIS 从哪来 | 复用 electron-builder 下载进缓存的 `makensis.exe`（或 `MAKENSIS` 环境变量） | 不再装一套 NSIS |
@@ -174,7 +174,7 @@ Electron 二进制首次运行才下载，先设 `ELECTRON_MIRROR`。
 4. `TheDivaGateway.exe uninstall`（忽略失败）→ `install`（失败中止）→ `start`（失败只警告）。
 5. 防火墙：先删同名规则再 `netsh advfirewall firewall add rule name="THE DIVA Gateway" dir=in action=allow protocol=TCP localport=8790`
    （端口改了要手动改规则，README 说明；⚠ 端口在 .nsi 里写死，升级会把规则重置回 8790——已知未修，见 HANDOFF）。
-6. 写 `Uninstall.exe` 与注册表卸载项（`DisplayName / DisplayVersion / Publisher / InstallLocation / UninstallString / QuietUninstallString(/S) / NoModify / NoRepair`；
+6. 写 `Uninstall.exe` 与注册表卸载项（`DisplayName / DisplayVersion / Publisher / DisplayIcon / InstallLocation / UninstallString / QuietUninstallString(/S) / NoModify / NoRepair`；
    实际落在 `HKLM\SOFTWARE\WOW6432Node\…\Uninstall\TheDivaGateway`，32 位 NSIS 未 `SetRegView`）。
 7. 完成页（大文本区）：`http://<COMPUTERNAME>:8790/admin`、种子管理员 `boss / boss123456`（提示尽快改密码）、README 与数据目录位置；可勾选「打开管理页」。
 
