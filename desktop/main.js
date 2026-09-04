@@ -273,8 +273,12 @@ async function main() {
 function shutdown(code) {
   if (quitting) return
   quitting = true
-  killTree(bootstrapChild)
-  killTree(kernel)
+  // killTree 是同步 taskkill（约 0.4 s）。shutdown 挂在主窗口 close 上，若在此同步杀进程，
+  // 窗口要等 taskkill 返回才会消失，点 × 会有可感知的滞留；先让窗口销毁完再杀
+  setTimeout(() => {
+    killTree(bootstrapChild)
+    killTree(kernel)
+  }, 50)
   // 触发时再杀一次：关启动页那一刻 main() 可能正卡在 await 上，内核在这 200 ms 里才被 spawn
   setTimeout(() => {
     killTree(kernel)
