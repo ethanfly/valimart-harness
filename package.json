@@ -15,6 +15,9 @@
     "client": "node scripts/launch.mjs",
     "desktop": "node scripts/launch.mjs --desktop",
     "dev": "node scripts/launch.mjs --with-server --desktop",
+    "dist:client": "node scripts/build-payload.mjs && node scripts/build-client-installer.mjs",
+    "dist:gateway": "node scripts/build-gateway-installer.mjs",
+    "dist": "npm run dist:client && npm run dist:gateway",
     "test": "node --test server/test/*.test.js scripts/test/*.test.mjs"
   },
   "devDependencies": {
