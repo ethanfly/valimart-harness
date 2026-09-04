@@ -1,7 +1,7 @@
 /**
  * 用根 package.json 的版本号跑 desktop/ 里的 electron-builder（NSIS，按用户安装）。
  *   node scripts/build-client-installer.mjs
- * 前提：build/payload/ 已由 build-payload.mjs 生成；desktop/node_modules 已安装（npm --prefix desktop install --allow-scripts=electron）。
+ * 前提：build/payload/ 已由 build-payload.mjs 生成；desktop/node_modules 已安装（npm --prefix desktop install）。
  * 镜像：ELECTRON_MIRROR、ELECTRON_BUILDER_BINARIES_MIRROR（见 README）；未设置时默认走 npmmirror（GitHub 直连在国内常失败）。
  */
 import fs from 'node:fs'
@@ -19,7 +19,7 @@ const die = (m) => {
 
 if (!fs.existsSync(path.join(root, 'build', 'payload', 'payload.json'))) die('缺 build/payload/，先跑 node scripts/build-payload.mjs')
 const cli = path.join(desktop, 'node_modules', 'electron-builder', 'out', 'cli', 'cli.js')
-if (!fs.existsSync(cli)) die('缺 desktop/node_modules，先跑 npm --prefix desktop install --allow-scripts=electron')
+if (!fs.existsSync(cli)) die('缺 desktop/node_modules，先跑 npm --prefix desktop install')
 
 process.env.ELECTRON_MIRROR ??= 'https://npmmirror.com/mirrors/electron/'
 process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??= 'https://npmmirror.com/mirrors/electron-builder-binaries/'
