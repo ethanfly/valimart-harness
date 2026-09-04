@@ -202,3 +202,117 @@ export function ensureBundle({ log = noop } = {}) {
 export function spawnClient({ nodeExe = process.execPath, kernelBin, profileName, port, dshHome, cwd = process.cwd(), env = process.env, stdio = 'inherit' }) {
   return spawn(nodeExe, [kernelBin, '--profile', profileName, '--no-open', '--port', String(port)], { cwd, stdio, env: { ...env, DSH_HOME: dshHome }, windowsHide: true })
 }
+
+// ---------- 安装版 ----------
+
+/**
+ * 让内核预设里的技能根指向当前用户的公司盘镜像。戳记一致且补丁齐 → 不动；否则跑一遍 applyKernelPatches
+ * （16 处 mark 都在时只会同步技能根路径）并重写戳记。返回是否改动。
+ * kernel.tar 里带的是构建机的绝对路径（戳记 + 预设），missingPatches 只看 mark 看不出路径不对，所以必须比戳记。
+ */
+export function pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log = noop }) {
+  const stamp = stampPath(kernelPrefix)
+  let current = null
+  try {
+    current = JSON.parse(fs.readFileSync(stamp, 'utf8'))
+  } catch {
+    /* 无戳记 */
+  }
+  if (current && current.skillsDir === skillsDir && missingPatches(kernel.root).length === 0) {
+    log({ step: 'kernel', status: 'skip', detail: `技能根已是 ${skillsDir}` })
+    return false
+  }
+  log({ step: 'kernel', status: 'start', detail: `同步技能根 → ${skillsDir}` })
+  let counters
+  try {
+    counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log: noop })
+  } catch (err) {
+    if (err instanceof KernelPatchError) throw new Error(`PATCH_FAIL ${err.code}: ${err.detail}`)
+    throw err
+  }
+  const left = missingPatches(kernel.root)
+  if (left.length) throw new Error(`打完补丁仍缺：${left.join(', ')}`)
+  fs.writeFileSync(
+    stamp,
+    JSON.stringify({ package: PIN.package, version: kernel.version, kernelRoot: kernel.root, skillsDir, patchedAt: new Date().toISOString(), marks: ALL_MARKS.map((m) => m.marks[0]) }, null, 2) + '\n',
+  )
+  log({ step: 'kernel', status: 'ok', detail: `新打 ${counters.applied} 处，已有 ${counters.skipped} 处` })
+  return true
+}
+
+/**
+ * 安装版首次启动 / 升级后的准备：
+ *   1) appDir/state.json 的 buildId ≠ payload.json 的（或内核不在）→ 删 appDir 重建：tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts；
+ *   2) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
+ *   3) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
+ * 只做准备，不长驻；内核由调用方（Electron 主进程）用 nodeExe 启动。log 收到的是 { step, status, detail } 对象。
+ */
+export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
+  const payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
+  const kernelPrefix = path.join(appDir, 'kernel')
+  const stateFile = path.join(appDir, 'state.json')
+  let state = null
+  try {
+    state = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+  } catch {
+    /* 首次 */
+  }
+  const fresh = !state || state.buildId !== payload.buildId || !locateKernel(kernelPrefix)
+  if (fresh) {
+    const why = !state ? '首次启动，解压内核（约半分钟）' : state.buildId !== payload.buildId ? `版本更新（${state.buildId} → ${payload.buildId}），重新解压内核` : '内核目录不完整，重新解压内核'
+    log({ step: 'extract', status: 'start', detail: why })
+    fs.rmSync(appDir, { recursive: true, force: true })
+    fs.mkdirSync(kernelPrefix, { recursive: true })
+    const r = spawnSync(findTar(), ['-xf', path.join(payloadDir, 'kernel.tar'), '-C', kernelPrefix], { stdio: 'pipe', encoding: 'utf8', windowsHide: true })
+    if (r.status !== 0) {
+      fs.rmSync(appDir, { recursive: true, force: true })
+      throw new Error(`解压内核失败（${r.status ?? r.signal ?? r.error?.message}）：${(r.stderr || '').trim()}`)
+    }
+    for (const d of ['plugins', 'profile', 'scripts']) fs.cpSync(path.join(payloadDir, d), path.join(appDir, d), { recursive: true })
+    fs.writeFileSync(stateFile, JSON.stringify({ buildId: payload.buildId, extractedAt: new Date().toISOString() }, null, 2) + '\n')
+    log({ step: 'extract', status: 'ok', detail: `内核 ${payload.kernel.version}` })
+  } else log({ step: 'extract', status: 'skip', detail: `内核已就位（${payload.buildId}）` })
+
+  const kernel = locateKernel(kernelPrefix)
+  if (!kernel) throw new Error(`解压后找不到内核：${kernelPrefix}`)
+  pinSkillsRoot({ kernelPrefix, kernel, skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
+
+  const profileName = 'desk-app'
+  const profileDir = path.join(dshHome, 'profiles', profileName)
+  const patchFile = path.join(appDir, 'profile', 'cordis.patch.yml')
+  if (fresh || profileNeedsSetup({ profileDir, patchFile }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai'))) {
+    log({ step: 'profile', status: 'start', detail: '安装工作台配置（desk-app）' })
+    ensureProfile({ profileName, dshHome, root: appDir, pluginsDir: path.join(appDir, 'plugins'), patchFile, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
+    log({ step: 'profile', status: 'ok' })
+  } else log({ step: 'profile', status: 'skip' })
+
+  return { kernelBin: kernel.bin, kernelRoot: kernel.root, kernelVersion: kernel.version, profileName, appDir, buildId: payload.buildId, nodeExe: process.execPath }
+}
+
+// ---------- CLI ----------
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  const args = process.argv.slice(2)
+  const argOf = (k, dflt) => {
+    const i = args.indexOf(k)
+    return i >= 0 && args[i + 1] ? args[i + 1] : dflt
+  }
+  const emit = (o) => process.stdout.write(JSON.stringify(typeof o === 'string' ? { step: 'log', status: 'info', detail: o } : o) + '\n')
+  if (!args.includes('--packaged') || !argOf('--payload')) {
+    console.error('用法：node bootstrap.mjs --packaged --payload <dir> [--app-dir <dir>] [--dsh-home <dir>]')
+    process.exit(64)
+  }
+  try {
+    const result = preparePackaged({
+      payloadDir: path.resolve(argOf('--payload')),
+      appDir: path.resolve(argOf('--app-dir', path.join(os.homedir(), '.company-desk', 'app'))),
+      dshHome: path.resolve(argOf('--dsh-home', process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh'))),
+      log: emit,
+    })
+    emit({ step: 'ready', status: 'ok', ...result })
+  } catch (err) {
+    emit({ step: 'error', status: 'fail', detail: err.message })
+    process.exit(1)
+  }
+}
