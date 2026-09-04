@@ -1,0 +1,11 @@
+{
+  "$comment": "网关安装包携带的第三方二进制。改版本要同时改 sha256。",
+  "winsw": {
+    "version": "2.12.0",
+    "url": "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW.NET461.exe",
+    "sha256": "b5066b7bbdfba1293e5d15cda3caaea88fbeab35bd5b38c41c913d492aadfc4f",
+    "size": 655872,
+    "license": "MIT",
+    "note": ".NET Framework 4.6.1 版（Windows 10/11、Server 2016+ 自带）。自包含的 WinSW-x64.exe 有 18 MB，没必要。"
+  }
+}
