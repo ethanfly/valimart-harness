@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { ensureProfile, findFreePort, pinSkillsRoot, preparePackaged, profileNeedsSetup, readGatewayUrl } from '../lib/bootstrap.mjs'
+import { ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, readGatewayUrl } from '../lib/bootstrap.mjs'
 import { ALL_MARKS } from '../kernel/patches.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'diva-bootstrap-'))
@@ -81,8 +81,9 @@ test('ensureProfile：写 manifest、链接插件与 dsh 回退目录（selfHeal
   assert.ok(logs.some((l) => /desk-ui kept/.test(l)))
 })
 
-test('pinSkillsRoot：戳记里的技能根与目标一致且补丁齐 → 不动；不一致 → 重写戳记', (t) => {
-  // 用一个假内核前缀：只需要 stamp 文件 + missingPatches 能跑（缺补丁文件会抛，所以这里只测 skip 分支）
+test('pinSkillsRoot：戳记一致但补丁文件缺失 → 走重打分支，KernelPatchError 包成 PATCH_FAIL <code>', (t) => {
+  // 假内核前缀只有戳记（skillsDir 已与目标一致）、没有任何补丁目标文件：
+  // missingPatches 报缺 → 不能 skip → applyKernelPatches 抛 KernelPatchError(target-missing) → 包成 "PATCH_FAIL target-missing"
   const dir = tmp()
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
@@ -90,8 +91,8 @@ test('pinSkillsRoot：戳记里的技能根与目标一致且补丁齐 → 不�
   const skillsDir = path.join(dir, 'skills')
   fs.writeFileSync(path.join(dir, '.company-desk-kernel.json'), JSON.stringify({ skillsDir }))
   const logs = []
-  // missingPatches 对不存在的补丁文件会报缺 → 走"重打"分支 → applyKernelPatches 抛 target-missing
   assert.throws(() => pinSkillsRoot({ kernelPrefix: dir, kernel: { root: kernelRoot, bin: 'x', version: '0' }, skillsDir, log: (o) => logs.push(o) }), /PATCH_FAIL target-missing/)
+  assert.deepEqual(logs.map((e) => [e.step, e.status]), [['kernel', 'start']], '进了重打分支才抛')
 })
 
 test('pinSkillsRoot：补丁齐但戳记里是构建机的技能根 → 预设改成本机路径并重写戳记；再跑一次跳过', (t) => {
@@ -155,6 +156,36 @@ test('pinSkillsRoot：补丁齐但戳记里是构建机的技能根 → 预设�
   assert.equal(fs.readFileSync(path.join(kernelRoot, 'config', 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8'), yaml)
 })
 
+test('needsExtract：无 state.json → 首次；buildId 不同 → 版本更新；有 package.json 没 bin → 目录不完整；齐了 → 不解压', (t) => {
+  const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const appDir = path.join(dir, 'app')
+  const kernelPrefix = path.join(appDir, 'kernel')
+  const stateFile = path.join(appDir, 'state.json')
+  const kernelRoot = path.join(kernelPrefix, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  const decide = () => needsExtract({ stateFile, kernelPrefix, buildId: 'b2' })
+  let r = decide()
+  assert.equal(r.fresh, true)
+  assert.match(r.reason, /首次/)
+  fs.mkdirSync(appDir, { recursive: true })
+  fs.writeFileSync(stateFile, JSON.stringify({ buildId: 'b1' }))
+  r = decide()
+  assert.equal(r.fresh, true)
+  assert.match(r.reason, /版本更新（b1 → b2）/)
+  // buildId 对上了，但内核只剩 package.json（解压中断 / 被误删）：locateKernel 认得，bin 却不在 → 必须重新解压
+  fs.writeFileSync(stateFile, JSON.stringify({ buildId: 'b2' }))
+  fs.writeFileSync(path.join(kernelRoot, 'package.json'), JSON.stringify({ version: '0' }))
+  r = decide()
+  assert.equal(r.fresh, true)
+  assert.match(r.reason, /内核目录不完整/)
+  fs.mkdirSync(path.join(kernelRoot, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(kernelRoot, 'lib', 'bin.js'), '')
+  r = decide()
+  assert.equal(r.fresh, false)
+  assert.match(r.reason, /内核已就位（b2）/)
+})
+
 test('CLI：缺参数 → 退出码 64；payload 目录不存在 → 退出码 1 且 stdout 最后一行是 error 事件', (t) => {
   const cli = path.join(repo, 'scripts', 'lib', 'bootstrap.mjs')
   const run = (argv) => {
@@ -176,13 +207,18 @@ test('CLI：缺参数 → 退出码 64；payload 目录不存在 → 退出码 1
   assert.ok(!fs.existsSync(path.join(dir, 'app')), '读不到 payload.json 就不该动 app 目录')
 })
 
-test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写 state.json；第二次跳过', { skip: !fs.existsSync(path.join(repo, 'build', 'payload', 'kernel.tar')) && '需要先 node scripts/build-payload.mjs' }, (t) => {
+test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写 state.json；第二次跳过；改 buildId 走升级路径且不碰 appDir 里的无关文件', { skip: !fs.existsSync(path.join(repo, 'build', 'payload', 'kernel.tar')) && '需要先 node scripts/build-payload.mjs' }, (t) => {
   const dir = tmp()
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const appDir = path.join(dir, 'app')
   const dshHome = path.join(dir, 'dsh')
+  // appDir 里事先放一个无关文件：--app-dir 被误配到有用目录时，重新解压只能删自己创建的条目
+  const sentinel = path.join(appDir, 'keep-me.txt')
+  fs.mkdirSync(appDir, { recursive: true })
+  fs.writeFileSync(sentinel, 'keep')
   const events = []
   const res = preparePackaged({ payloadDir: path.join(repo, 'build', 'payload'), appDir, dshHome, log: (o) => events.push(o) })
+  assert.ok(fs.existsSync(sentinel), '首次解压不能删 appDir 里的无关文件')
   assert.equal(res.profileName, 'desk-app')
   assert.ok(fs.existsSync(res.kernelBin), 'kernelBin 存在')
   assert.ok(res.kernelBin.startsWith(path.join(appDir, 'kernel')))
@@ -201,4 +237,16 @@ test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写
   const again = []
   preparePackaged({ payloadDir: path.join(repo, 'build', 'payload'), appDir, dshHome, log: (o) => again.push(o) })
   assert.ok(again.every((e) => e.status === 'skip'), JSON.stringify(again))
+  // 第三次：state.json 的 buildId 过期 → 升级路径重新解压；无关文件与 junction 目标（dsh 回退目录）都要活着
+  fs.writeFileSync(path.join(appDir, 'state.json'), JSON.stringify({ buildId: 'old-build' }))
+  const flat = path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+  const flatCount = fs.readdirSync(flat).length
+  assert.ok(flatCount > 0, 'dsh 回退目录非空')
+  const upgrade = []
+  const res3 = preparePackaged({ payloadDir: path.join(repo, 'build', 'payload'), appDir, dshHome, log: (o) => upgrade.push(o) })
+  assert.match(upgrade.find((e) => e.step === 'extract' && e.status === 'start')?.detail ?? '', /版本更新/)
+  assert.ok(fs.existsSync(sentinel), '升级重解压不能删 appDir 里的无关文件')
+  assert.equal(fs.readdirSync(flat).length, flatCount, 'node_modules/@deepseek-ai 是 junction，删链接不能删目标')
+  assert.equal(res3.buildId, JSON.parse(fs.readFileSync(path.join(repo, 'build', 'payload', 'payload.json'), 'utf8')).buildId)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(appDir, 'state.json'), 'utf8')).buildId, res3.buildId)
 })

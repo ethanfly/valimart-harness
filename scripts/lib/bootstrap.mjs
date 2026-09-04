@@ -243,8 +243,40 @@ export function pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log = noop }) {
 }
 
 /**
+ * preparePackaged 在 appDir 里创建的全部条目：kernel（tar）、plugins/profile/scripts（复制自 payload）、
+ * node_modules（ensureProfile 放的 @deepseek-ai junction）、state.json。重新解压时只删这些，不删整个 appDir ——
+ * --app-dir 被误配到有用目录（如 ~/.company-desk 而不是 ~/.company-desk/app）时，开发内核、日志等不受影响。
+ */
+const APP_DIR_ENTRIES = ['kernel', 'plugins', 'profile', 'scripts', 'node_modules', 'state.json']
+
+/** 清掉 appDir 里本模块创建的条目。junction 只删链接不碰目标；Windows 上刚解压的树偶发 EBUSY/EPERM，带重试。 */
+function clearAppDir(appDir) {
+  for (const name of APP_DIR_ENTRIES) fs.rmSync(path.join(appDir, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
+}
+
+/**
+ * 要不要（重新）解压内核：没有 state.json → 首次；buildId 与 payload 不同 → 版本更新；
+ * 内核 package.json 或 bin 不在（上次解压中断 / 被误删；locateKernel 只看 package.json）→ 目录不完整。
+ * 返回 { fresh, reason }，reason 直接作 extract 事件的 detail。
+ */
+export function needsExtract({ stateFile, kernelPrefix, buildId }) {
+  let state = null
+  try {
+    state = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+  } catch {
+    /* 首次 */
+  }
+  if (!state) return { fresh: true, reason: '首次启动，解压内核（约半分钟）' }
+  if (state.buildId !== buildId) return { fresh: true, reason: `版本更新（${state.buildId} → ${buildId}），重新解压内核` }
+  const kernel = locateKernel(kernelPrefix)
+  if (!kernel || !fs.existsSync(kernel.bin)) return { fresh: true, reason: '内核目录不完整，重新解压内核' }
+  return { fresh: false, reason: `内核已就位（${buildId}）` }
+}
+
+/**
  * 安装版首次启动 / 升级后的准备：
- *   1) appDir/state.json 的 buildId ≠ payload.json 的（或内核不在）→ 删 appDir 重建：tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts；
+ *   1) needsExtract 说要解压（首次 / buildId 变了 / 内核目录不完整）→ 清掉 appDir 里本模块创建的条目（APP_DIR_ENTRIES）重建：
+ *      tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts，写 state.json；
  *   2) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
  *   3) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
  * 只做准备，不长驻；内核由调用方（Electron 主进程）用 nodeExe 启动。log 收到的是 { step, status, detail } 对象。
@@ -253,27 +285,20 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
   const payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
   const kernelPrefix = path.join(appDir, 'kernel')
   const stateFile = path.join(appDir, 'state.json')
-  let state = null
-  try {
-    state = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
-  } catch {
-    /* 首次 */
-  }
-  const fresh = !state || state.buildId !== payload.buildId || !locateKernel(kernelPrefix)
+  const { fresh, reason } = needsExtract({ stateFile, kernelPrefix, buildId: payload.buildId })
   if (fresh) {
-    const why = !state ? '首次启动，解压内核（约半分钟）' : state.buildId !== payload.buildId ? `版本更新（${state.buildId} → ${payload.buildId}），重新解压内核` : '内核目录不完整，重新解压内核'
-    log({ step: 'extract', status: 'start', detail: why })
-    fs.rmSync(appDir, { recursive: true, force: true })
+    log({ step: 'extract', status: 'start', detail: reason })
+    clearAppDir(appDir)
     fs.mkdirSync(kernelPrefix, { recursive: true })
     const r = spawnSync(findTar(), ['-xf', path.join(payloadDir, 'kernel.tar'), '-C', kernelPrefix], { stdio: 'pipe', encoding: 'utf8', windowsHide: true })
     if (r.status !== 0) {
-      fs.rmSync(appDir, { recursive: true, force: true })
+      clearAppDir(appDir)
       throw new Error(`解压内核失败（${r.status ?? r.signal ?? r.error?.message}）：${(r.stderr || '').trim()}`)
     }
     for (const d of ['plugins', 'profile', 'scripts']) fs.cpSync(path.join(payloadDir, d), path.join(appDir, d), { recursive: true })
     fs.writeFileSync(stateFile, JSON.stringify({ buildId: payload.buildId, extractedAt: new Date().toISOString() }, null, 2) + '\n')
     log({ step: 'extract', status: 'ok', detail: `内核 ${payload.kernel.version}` })
-  } else log({ step: 'extract', status: 'skip', detail: `内核已就位（${payload.buildId}）` })
+  } else log({ step: 'extract', status: 'skip', detail: reason })
 
   const kernel = locateKernel(kernelPrefix)
   if (!kernel) throw new Error(`解压后找不到内核：${kernelPrefix}`)
@@ -293,8 +318,22 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
 
 // ---------- CLI ----------
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (isMain) {
+/**
+ * 只有作为入口脚本运行才进 CLI（被 import 无副作用）。两边都取 realpath 再比：经 junction / 符号链接启动时
+ * ESM 加载器会把 import.meta.url 解析成真实路径而 argv[1] 还是链接路径，直接比会静默不进 CLI。realpath 取不到就退回直接比。
+ */
+function isMainModule() {
+  if (!process.argv[1]) return false
+  const entry = path.resolve(process.argv[1])
+  const self = fileURLToPath(import.meta.url)
+  try {
+    return fs.realpathSync.native(entry) === fs.realpathSync.native(self)
+  } catch {
+    return entry === self
+  }
+}
+
+if (isMainModule()) {
   const args = process.argv.slice(2)
   const argOf = (k, dflt) => {
     const i = args.indexOf(k)
