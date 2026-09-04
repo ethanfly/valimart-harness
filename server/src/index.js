@@ -112,7 +112,7 @@ export function createGateway(overrides = {}) {
 function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'authorization, content-type',
+    'access-control-allow-headers': 'authorization, content-type, x-kernel-version, x-kernel-sha256, x-kernel-source-tag',
     'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   }
 }

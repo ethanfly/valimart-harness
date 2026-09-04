@@ -2,23 +2,32 @@
  * /api/* 业务接口（客户端本机 host 以登录会话令牌访问）。
  */
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { HttpError, readJson, readBody, sendJson, bearer, parseUrl } from './http.js'
 import { ROLES, ROLE_LABELS, publicUser, verifyPassword, hashPassword } from './db.js'
 import { TASK_STATUS } from './tasks.js'
 import { MEMORY_LAYERS } from './drive.js'
+import { openKernelCatalog } from './kernel-catalog.js'
 
-/** 客户端内核的锁定版本（scripts/kernel/pin.json），只用于管理页展示。 */
-const KERNEL_LABEL = (() => {
+/** 客户端内核锁定版本（scripts/kernel/pin.json）：KERNEL_LABEL 给 /api/status，pinVersion 给 bundled 回退。 */
+const KERNEL_PIN = (() => {
   try {
-    const pin = JSON.parse(fs.readFileSync(new URL('../../scripts/kernel/pin.json', import.meta.url), 'utf8'))
-    return `${pin.package}@${pin.version}（内置公司补丁）`
+    return JSON.parse(fs.readFileSync(new URL('../../scripts/kernel/pin.json', import.meta.url), 'utf8'))
   } catch {
-    return '@deepseek-ai/dsh（内置公司补丁）'
+    return null
   }
 })()
+const KERNEL_LABEL = KERNEL_PIN ? `${KERNEL_PIN.package}@${KERNEL_PIN.version}（内置公司补丁）` : '@deepseek-ai/dsh（内置公司补丁）'
+
+function throwCatalog(err) {
+  if (err instanceof HttpError) throw err
+  throw new HttpError(err.code === 'not_found' ? 404 : 400, err.message, err.code ?? 'error')
+}
 
 export function registerApi(router, ctx) {
   const { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt } = ctx
+  const kernels = ctx.kernels ?? openKernelCatalog(cfg.dataDir, { pinVersion: KERNEL_PIN?.version, fetchReleases: ctx.fetchReleases })
 
   const auth = (req, { allowDisabled = false } = {}) => {
     const token = bearer(req)
@@ -396,6 +405,79 @@ export function registerApi(router, ctx) {
     const { user } = auth(req)
     if (!knowledge) throw new HttpError(500, '知识检索模块未启用')
     sendJson(res, 200, { ...knowledge.collections(user), memoryLayers: MEMORY_LAYERS })
+  })
+
+  // ---------- 内核目录 ----------
+  router.get('/api/kernel/current', async (req, res) => {
+    auth(req)
+    sendJson(res, 200, kernels.employeeView())
+  })
+  router.get('/api/kernel/tarball', async (req, res) => {
+    auth(req)
+    const file = kernels.tarballPath()
+    if (!file) throw new HttpError(404, '没有已发布的内核包', 'not_found')
+    const st = fs.statSync(file)
+    res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': st.size })
+    await new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(file)
+      stream.on('error', reject)
+      res.on('error', reject)
+      res.on('finish', resolve)
+      stream.pipe(res)
+    })
+  })
+  router.get('/api/admin/kernel', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    sendJson(res, 200, await kernels.adminView())
+  })
+  router.post('/api/admin/kernel/publish', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const ct = String(req.headers['content-type'] ?? '')
+    try {
+      if (ct.includes('application/octet-stream')) {
+        const version = String(req.headers['x-kernel-version'] ?? '').trim()
+        if (!version) throw new HttpError(400, '缺少 x-kernel-version', 'bad_request')
+        const expectedSha = String(req.headers['x-kernel-sha256'] ?? '').trim()
+        const sourceTag = String(req.headers['x-kernel-source-tag'] ?? '').trim()
+        const buf = await readBody(req, 512 * 1024 * 1024)
+        if (!buf.length) throw new HttpError(400, '空的内核包', 'bad_request')
+        const tmpTar = path.join(os.tmpdir(), `diva-kernel-upload-${process.pid}-${Date.now()}.tar`)
+        fs.writeFileSync(tmpTar, buf)
+        try {
+          kernels.saveArtifact({
+            version,
+            tarPath: tmpTar,
+            manifest: { sha256: expectedSha || undefined, sourceTag: sourceTag || undefined, bytes: buf.length },
+          })
+        } finally {
+          fs.rmSync(tmpTar, { force: true })
+        }
+        sendJson(res, 200, kernels.publish(version))
+        return
+      }
+      const body = await readJson(req)
+      const version = String(body.version ?? '').trim()
+      if (!version) throw new HttpError(400, '缺少 version', 'bad_request')
+      sendJson(res, 200, kernels.publish(version))
+    } catch (err) {
+      throwCatalog(err)
+    }
+  })
+  router.post('/api/admin/kernel/rollback', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 200, kernels.rollback())
+    } catch (err) {
+      throwCatalog(err)
+    }
+  })
+  router.post('/api/admin/kernel/prepare', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    throw new HttpError(501, 'prepare 尚未接入', 'not_implemented')
   })
 
   // ---------- 服务器状态（管理页）----------

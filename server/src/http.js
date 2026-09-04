@@ -85,7 +85,7 @@ export function sendJson(res, status, payload) {
 export function sendError(res, err) {
   const status = err instanceof HttpError ? err.status : 500
   const payload = { error: { message: err.message ?? String(err), code: err.code ?? 'internal' } }
-  if (status >= 500) console.error('[gateway] 500', err)
+  if (status === 500) console.error('[gateway] 500', err)
   sendJson(res, status, payload)
 }
 

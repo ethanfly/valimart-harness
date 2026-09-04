@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { createGateway } from '../src/index.js'
 
 let gw
@@ -425,4 +426,72 @@ test('周额度：用满后 429', async () => {
   await api('PATCH', `/api/personnel/users/${ctx.emp.user.id}`, { token: ctx.boss.sessionToken, body: { weeklyQuotaCny: null } })
   const ok = await api('POST', '/v1/chat/completions', { token: ctx.emp.gatewayToken, body: { model: 'mock-echo', messages: [{ role: 'user', content: 'x' }] } })
   assert.equal(ok.status, 200)
+})
+
+test('内核：未登录读 current 是 401；登录后无 current 则 bundled', async () => {
+  const no = await api('GET', '/api/kernel/current')
+  assert.equal(no.status, 401)
+  const ok = await api('GET', '/api/kernel/current', { token: ctx.boss.sessionToken })
+  assert.equal(ok.status, 200)
+  assert.equal(ok.json.bundled, true)
+  assert.equal(ok.json.tarball, false)
+  const tar = await api('GET', '/api/kernel/tarball', { token: ctx.boss.sessionToken })
+  assert.equal(tar.status, 404)
+})
+
+test('内核：员工不能 publish；管理员 publish / rollback', async () => {
+  const forbidden = await api('POST', '/api/admin/kernel/publish', { token: ctx.emp.sessionToken, body: { version: '9.9.9' } })
+  assert.equal(forbidden.status, 403)
+
+  const dir = path.join(tmp, 'kernels', '0.1.9-test')
+  fs.mkdirSync(dir, { recursive: true })
+  const tar = path.join(dir, 'kernel.tar')
+  fs.writeFileSync(tar, 'FAKE-TAR')
+  const sha = crypto.createHash('sha256').update('FAKE-TAR').digest('hex')
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+    package: '@deepseek-ai/dsh', version: '0.1.9-test', sha256: sha, bytes: 8,
+    sourceTag: 'dsh-v0.1.9-test', sourceRepo: 'https://github.com/deepseek-ai/deepseek-harness',
+    patched: 'test', builtAt: new Date().toISOString(),
+  }))
+
+  const pub = await api('POST', '/api/admin/kernel/publish', { token: ctx.boss.sessionToken, body: { version: '0.1.9-test' } })
+  assert.equal(pub.status, 200)
+  assert.equal(pub.json.version, '0.1.9-test')
+  assert.equal(pub.json.previous, null)
+
+  const cur = await api('GET', '/api/kernel/current', { token: ctx.boss.sessionToken })
+  assert.equal(cur.json.bundled, false)
+  assert.equal(cur.json.version, '0.1.9-test')
+  assert.equal(cur.json.sha256, sha)
+
+  const bin = await fetch(base + '/api/kernel/tarball', { headers: { authorization: 'Bearer ' + ctx.boss.sessionToken } })
+  assert.equal(bin.status, 200)
+  assert.equal(Buffer.from(await bin.arrayBuffer()).toString(), 'FAKE-TAR')
+
+  const rb0 = await api('POST', '/api/admin/kernel/rollback', { token: ctx.boss.sessionToken })
+  assert.equal(rb0.status, 400)
+
+  fs.mkdirSync(path.join(tmp, 'kernels', '0.1.8-test'), { recursive: true })
+  fs.writeFileSync(path.join(tmp, 'kernels', '0.1.8-test', 'kernel.tar'), 'OLD')
+  const sha8 = crypto.createHash('sha256').update('OLD').digest('hex')
+  fs.writeFileSync(path.join(tmp, 'kernels', '0.1.8-test', 'manifest.json'), JSON.stringify({
+    package: '@deepseek-ai/dsh', version: '0.1.8-test', sha256: sha8, bytes: 3,
+    sourceTag: 'dsh-v0.1.8-test', sourceRepo: 'https://github.com/deepseek-ai/deepseek-harness',
+    patched: 'test', builtAt: new Date().toISOString(),
+  }))
+  await api('POST', '/api/admin/kernel/publish', { token: ctx.boss.sessionToken, body: { version: '0.1.8-test' } })
+  const after = await api('GET', '/api/kernel/current', { token: ctx.boss.sessionToken })
+  assert.equal(after.json.version, '0.1.8-test')
+  assert.equal(after.json.sha256, sha8)
+
+  const rb = await api('POST', '/api/admin/kernel/rollback', { token: ctx.boss.sessionToken })
+  assert.equal(rb.status, 200)
+  assert.equal(rb.json.version, '0.1.9-test')
+})
+
+test('内核：prepare 尚未接入返回 501', async () => {
+  const r = await api('POST', '/api/admin/kernel/prepare', { token: ctx.boss.sessionToken, body: { version: '0.1.2-rc.1' } })
+  assert.equal(r.status, 501)
+  assert.equal(r.json.error.code, 'not_implemented')
+  assert.equal(r.json.error.message, 'prepare 尚未接入')
 })
