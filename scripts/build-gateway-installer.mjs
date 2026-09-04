@@ -81,6 +81,9 @@ for (const f of fs.readdirSync(path.join(root, 'server', 'src'))) fs.copyFileSyn
 fs.copyFileSync(path.join(root, 'server', 'config.json'), path.join(stage, 'server', 'config.json'))
 // server/src 是 ESM：安装目录里没有根 package.json，要在 server/ 放一个声明 type=module
 fs.writeFileSync(path.join(stage, 'server', 'package.json'), JSON.stringify({ name: 'the-diva-gateway', version, private: true, type: 'module' }, null, 2) + '\n')
+// server/src/api.js 读 ../../scripts/kernel/pin.json 给管理页显示内核版本：按同样的相对位置放到 <INSTDIR>\scripts\kernel\
+fs.mkdirSync(path.join(stage, 'scripts', 'kernel'), { recursive: true })
+fs.copyFileSync(path.join(root, 'scripts', 'kernel', 'pin.json'), path.join(stage, 'scripts', 'kernel', 'pin.json'))
 fs.copyFileSync(path.join(root, 'installer', 'gateway', 'init.mjs'), path.join(stage, 'service', 'init.mjs'))
 fs.copyFileSync(path.join(root, 'installer', 'gateway', 'TheDivaGateway.xml.tpl'), path.join(stage, 'service', 'TheDivaGateway.xml.tpl'))
 fs.copyFileSync(await ensureWinsw(), path.join(stage, 'service', 'TheDivaGateway.exe'))
@@ -92,6 +95,8 @@ fs.writeFileSync(
     '服务：TheDivaGateway（services.msc 里可启停；命令行：service\\TheDivaGateway.exe start|stop|restart|status）',
     '配置：server\\config.local.json（host / port / publicUrl / dataDir / company / quota …，改完重启服务；升级不覆盖）',
     '数据：%ProgramData%\\THE DIVA Gateway\\data（账号、令牌、任务、账本、通道凭据、公司盘）；日志：%ProgramData%\\THE DIVA Gateway\\logs（TheDivaGateway.out.log / .err.log / .wrapper.log）',
+    '权限：安装时把 %ProgramData%\\THE DIVA Gateway 的 ACL 收紧为仅 SYSTEM 与 Administrators 完全控制（服务以 LocalSystem 运行；普通用户读不到账号 / 令牌 / 凭据）。',
+    '卸载：保留 %ProgramData%\\THE DIVA Gateway，并把 server\\config.local.json 备份为该目录下的 config.local.json.bak；重装后复制回 server\\ 再重启服务即可恢复端口 / publicUrl / 密钥。',
     '上游模型密钥（三种方式都能跨升级保留）：',
     '  1) 管理员在客户端「设置 → 同事 → 模型通道」接入，凭据存 data\\channels.json；',
     '  2) 写进 server\\config.local.json：{ "upstreams": { "deepseek": { "apiKey": "sk-…" } } }（键路径 upstreams.<上游id>.apiKey，id 见 config.json）；',
@@ -99,6 +104,7 @@ fs.writeFileSync(
     '  注意：service\\TheDivaGateway.xml 每次安装 / 升级都由 init.mjs 按模板重新生成，手改（包括加 <env>）会丢，请勿手改。',
     '端口改了要同步改防火墙规则「THE DIVA Gateway」。',
     '管理页：http://<本机名>:8790/admin（种子管理员 boss / boss123456，请尽快修改）',
+    '首次启动只创建种子管理员 boss；演示账号不会创建（config.local.json 里 seedUsers 为空，覆盖 config.json 的演示列表）。',
     '',
     `运行时：node ${process.version}；服务封装：WinSW ${pins.winsw.version}（MIT）`,
   ].join('\r\n') + '\r\n',

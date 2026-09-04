@@ -2,8 +2,9 @@
  * 网关安装脚本 —— NSIS 安装 / 升级时用随包 node.exe 调用，幂等：
  *   node init.mjs <INSTDIR>
  *   1) 建 %ProgramData%\THE DIVA Gateway\{data,logs}
- *   2) <INSTDIR>\server\config.local.json 不存在才写：host 0.0.0.0 / port 8790 / publicUrl http://<主机名>:8790 / dataDir
- *      （server/src/config.js 只认 server/ 目录下的 config.local.json）
+ *   2) <INSTDIR>\server\config.local.json 不存在才写：host 0.0.0.0 / port 8790 / publicUrl http://<主机名>:8790 / dataDir / seedUsers []
+ *      （server/src/config.js 只认 server/ 目录下的 config.local.json；deepMerge 对数组整体替换，seedUsers [] 让 config.json 里的
+ *      演示账号不会在首次启动时被创建——种子管理员 boss 来自 seedAdmin，不受影响）
  *   3) 渲染 <INSTDIR>\service\TheDivaGateway.xml（每次重写，路径以 INSTDIR 为准）
  * 测试用环境变量：DIVA_PROGRAMDATA 覆盖 ProgramData，DIVA_COMPUTERNAME 覆盖主机名。
  */
@@ -29,7 +30,7 @@ export function init(instDir, { programData = process.env.DIVA_PROGRAMDATA || pr
   const configFile = path.join(instDir, 'server', 'config.local.json')
   let wroteConfig = false
   if (!fs.existsSync(configFile)) {
-    const cfg = { host: '0.0.0.0', port: DEFAULT_PORT, publicUrl: `http://${computerName.toLowerCase()}:${DEFAULT_PORT}`, dataDir }
+    const cfg = { host: '0.0.0.0', port: DEFAULT_PORT, publicUrl: `http://${computerName.toLowerCase()}:${DEFAULT_PORT}`, dataDir, seedUsers: [] }
     fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2) + '\n')
     wroteConfig = true
   }
@@ -53,8 +54,19 @@ export function init(instDir, { programData = process.env.DIVA_PROGRAMDATA || pr
   return { dataDir, logDir, configFile, wroteConfig, port, publicUrl }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (isMain) {
+/** 只有作为入口脚本运行才进 CLI。两边都取 realpath 再比：INSTDIR 经 junction / 符号链接到达时 import.meta.url 是真实路径而 argv[1] 是链接路径。 */
+function isMainModule() {
+  if (!process.argv[1]) return false
+  const entry = path.resolve(process.argv[1])
+  const self = fileURLToPath(import.meta.url)
+  try {
+    return fs.realpathSync.native(entry) === fs.realpathSync.native(self)
+  } catch {
+    return entry === self
+  }
+}
+
+if (isMainModule()) {
   const instDir = process.argv[2]
   if (!instDir) {
     console.error('用法：node init.mjs <INSTDIR>')

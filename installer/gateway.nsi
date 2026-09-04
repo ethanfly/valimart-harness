@@ -1,6 +1,7 @@
 ; THE DIVA 公司网关 安装程序（NSIS 3，UTF-8）。由 scripts/build-gateway-installer.mjs 调用：
 ;   makensis /INPUTCHARSET UTF8 /DVERSION=x.y.z /DSTAGE=<暂存目录> /DOUTFILE=<输出 exe> [/DICON=<ico>] installer\gateway.nsi
-; NSIS 只做：复制文件 → node init.mjs 生成配置与服务定义 → WinSW 注册并启动服务 → 防火墙放行。逻辑都在 init.mjs 里。
+; NSIS 只做：复制文件 → node init.mjs 生成配置与服务定义 → icacls 收紧 ProgramData 数据目录 → WinSW 注册并启动服务 → 防火墙放行。逻辑都在 init.mjs 里。
+; 系统程序（netsh / icacls）一律用 "$SYSDIR\xxx.exe" 全路径：安装器提权运行，不能靠 PATH 找可执行文件。
 Unicode True
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
@@ -38,6 +39,7 @@ ShowUninstDetails show
 
 Var PublicUrl
 Var ProgramDataDir
+Var BackupNote
 
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "安装 ${PRODUCT} ${VERSION}"
@@ -87,6 +89,9 @@ Section "网关" SecMain
   File /r "${STAGE}\server\*.*"
   SetOutPath "$INSTDIR\service"
   File /r "${STAGE}\service\*.*"
+  ; server\src\api.js 读 ..\..\scripts\kernel\pin.json 给管理页显示内核版本
+  SetOutPath "$INSTDIR\scripts\kernel"
+  File "${STAGE}\scripts\kernel\pin.json"
   SetOutPath "$INSTDIR"
   File "${STAGE}\README.txt"
 
@@ -96,6 +101,14 @@ Section "网关" SecMain
   ${If} $0 != 0
     MessageBox MB_OK|MB_ICONSTOP "初始化失败（退出码 $0），未注册服务。请查看上方日志。" /SD IDOK
     Abort
+  ${EndIf}
+
+  ; 数据目录（账号 / 令牌 / 通道凭据）只给 SYSTEM 与 Administrators：服务以 LocalSystem 运行，管理员保留完全控制；失败只警告不中止
+  DetailPrint "收紧数据目录权限（仅 SYSTEM 与 Administrators）…"
+  nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$ProgramDataDir\${PRODUCT}" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"'
+  Pop $0
+  ${If} $0 != 0
+    DetailPrint "警告：数据目录权限设置失败（退出码 $0），$ProgramDataDir\${PRODUCT} 仍为默认 ACL，请手工检查；继续安装。"
   ${EndIf}
 
   DetailPrint "注册并启动服务 ${SERVICE}…"
@@ -114,9 +127,9 @@ Section "网关" SecMain
   ${EndIf}
 
   DetailPrint "防火墙放行 TCP ${PORT}…"
-  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${FWRULE}"'
+  nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE}"'
   Pop $0
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FWRULE}" dir=in action=allow protocol=TCP localport=${PORT}'
+  nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall add rule name="${FWRULE}" dir=in action=allow protocol=TCP localport=${PORT}'
   Pop $0
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -141,15 +154,23 @@ Section "Uninstall"
     DetailPrint "服务注销失败（$0），请手工执行 sc delete ${SERVICE}"
     MessageBox MB_OK|MB_ICONEXCLAMATION "服务注销失败（$0），请手工执行 sc delete ${SERVICE}。将继续删除文件。" /SD IDOK
   ${EndIf}
-  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${FWRULE}"'
+  nsExec::ExecToLog '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="${FWRULE}"'
   Pop $0
+  ; 管理员改过的 config.local.json（端口 / publicUrl / 密钥）备份到数据目录，重装后可复制回 server\
+  StrCpy $BackupNote ""
+  ${If} ${FileExists} "$INSTDIR\server\config.local.json"
+    CreateDirectory "$ProgramDataDir\${PRODUCT}"
+    CopyFiles /SILENT "$INSTDIR\server\config.local.json" "$ProgramDataDir\${PRODUCT}\config.local.json.bak"
+    StrCpy $BackupNote "$\r$\n原 server\config.local.json 已备份为该目录下的 config.local.json.bak，重装后可复制回 server\ 并重启服务。"
+  ${EndIf}
   ; 只删自己装的东西（不用 RMDir /r $INSTDIR：用户若选了已有目录会被整个清空）；ProgramData 数据目录不碰
   RMDir /r "$INSTDIR\runtime"
   RMDir /r "$INSTDIR\server"
   RMDir /r "$INSTDIR\service"
+  RMDir /r "$INSTDIR\scripts"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
   DeleteRegKey HKLM "${REGKEY}"
-  MessageBox MB_OK|MB_ICONINFORMATION "已卸载 ${PRODUCT}。$\r$\n数据（账号 / 令牌 / 任务 / 通道凭据 / 公司盘）仍保留在：$\r$\n$ProgramDataDir\${PRODUCT}$\r$\n不再需要请手动删除。" /SD IDOK
+  MessageBox MB_OK|MB_ICONINFORMATION "已卸载 ${PRODUCT}。$\r$\n数据（账号 / 令牌 / 任务 / 通道凭据 / 公司盘）仍保留在：$\r$\n$ProgramDataDir\${PRODUCT}$BackupNote$\r$\n不再需要请手动删除。" /SD IDOK
 SectionEnd
