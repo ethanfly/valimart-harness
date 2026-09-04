@@ -177,7 +177,9 @@ npm run dist                   # 两个都出
 - 安装向导：欢迎 → 目录 → 安装 → 完成（显示管理页地址与种子管理员 `boss / boss123456`，可勾选「打开管理页」）。
   安装 = 停旧服务 → 复制文件 → `runtime\node.exe service\init.mjs <INSTDIR>` 生成配置与服务定义 → `icacls` 收紧数据目录 → WinSW 注册并启动服务 → 防火墙放行 TCP 8790。
 - 安装目录：`runtime\node.exe`、`server\{src, config.json, package.json, config.local.json}`、
-  `service\{TheDivaGateway.exe（WinSW 2.12.0）, TheDivaGateway.xml.tpl, TheDivaGateway.xml, init.mjs}`、`scripts\kernel\pin.json`（管理页显示的内核版本）、`README.txt`（配置 / 密钥 / 日志说明，装完请读）、`Uninstall.exe`。
+  `service\{TheDivaGateway.exe（WinSW 2.12.0）, TheDivaGateway.xml.tpl, TheDivaGateway.xml, init.mjs}`、
+  `scripts\`（`kernel\{patches.mjs, locate.mjs, pin.json}` 与 `lib\{kernel-update,kernel-prepare,payload,npm-cli,find-tar}.mjs`：`api.js` 启动时静态导入，做内核目录与试打；pin 也给管理页显示版本）、
+  `README.txt`（配置 / 密钥 / 日志说明，装完请读）、`Uninstall.exe`。
 - 配置 `server\config.local.json`：首次安装生成（`host 0.0.0.0`、`port 8790`、`publicUrl http://<主机名小写>:8790`、`dataDir`、`seedUsers []`——首次启动只创建种子管理员 `boss`，不创建 `config.json` 里的演示账号），**升级不覆盖**，改完重启服务。
   改端口后要同步改防火墙规则「THE DIVA Gateway」——安装器只放行 8790，升级时会把规则重置回 8790。
 - 数据目录固定在 `%ProgramData%\THE DIVA Gateway\data`：服务定义里的 `DESK_GATEWAY_DATA` 优先于 `config.local.json` 的 `dataDir`；

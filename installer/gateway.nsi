@@ -89,9 +89,9 @@ Section "网关" SecMain
   File /r "${STAGE}\server\*.*"
   SetOutPath "$INSTDIR\service"
   File /r "${STAGE}\service\*.*"
-  ; server\src\api.js 读 ..\..\scripts\kernel\pin.json 给管理页显示内核版本
-  SetOutPath "$INSTDIR\scripts\kernel"
-  File "${STAGE}\scripts\kernel\pin.json"
+  ; server\src\api.js 启动时静态导入 scripts\kernel 与 scripts\lib（catalog + prepare），缺了会 ERR_MODULE_NOT_FOUND；pin.json 也给管理页显示内核版本
+  SetOutPath "$INSTDIR\scripts"
+  File /r "${STAGE}\scripts\*.*"
   SetOutPath "$INSTDIR"
   File "${STAGE}\README.txt"
 
