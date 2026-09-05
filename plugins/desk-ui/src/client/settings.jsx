@@ -1129,3 +1129,54 @@ export function SubscriptionSection() {
     </div>
   )
 }
+
+const CLOSE_OPTIONS = [
+  { id: 'ask', label: '每次询问', hint: '点关闭时选择后台运行或退出，可勾选记住。' },
+  { id: 'minimize', label: '最小化到后台', hint: '窗口隐藏，托盘图标可再打开，内核继续跑。' },
+  { id: 'quit', label: '退出程序', hint: '结束客户端和内核进程。' },
+]
+
+/* ---------------- 桌面（仅 Electron） ---------------- */
+export function DesktopSection() {
+  const shell = typeof window !== 'undefined' ? window.deskShell : null
+  const [prefs, setPrefs] = useState(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!shell?.getPrefs) return
+    shell.getPrefs().then(setPrefs).catch((err) => setError(err.message || String(err)))
+  }, [])
+  if (!shell?.getPrefs) {
+    return (
+      <div className="dk-settings">
+        <Head title="桌面" desc="这项只在安装版 / Electron 客户端里生效。" />
+      </div>
+    )
+  }
+  const choose = async (closeAction) => {
+    try {
+      const next = await shell.setPrefs({ closeAction })
+      setPrefs(next)
+      toast('已保存', 'success')
+    } catch (err) {
+      toast(err.message, 'error')
+    }
+  }
+  return (
+    <div className="dk-settings">
+      <Head title="桌面" desc="关闭右上角窗口时：后台继续连网关，或退出整个程序。" />
+      {error && <div className="dk-alert error">{error}</div>}
+      <div className="dk-card">
+        <div className="dk-card-title">关闭窗口时</div>
+        {CLOSE_OPTIONS.map((opt) => (
+          <label key={opt.id} className={`dk-choice${prefs?.closeAction === opt.id ? ' on' : ''}`}>
+            <input type="radio" name="closeAction" checked={prefs?.closeAction === opt.id} onChange={() => choose(opt.id)} />
+            <span>
+              <b>{opt.label}</b>
+              <div className="dk-xs dk-muted">{opt.hint}</div>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}

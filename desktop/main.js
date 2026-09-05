@@ -8,13 +8,14 @@
  * 日志：~/.company-desk/logs/desktop.log（5 MB 滚动保留 3 份）；Electron 自身状态（userData）：<appDir>/electron
  */
 'use strict'
-const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen, shell } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
 const { createDshWebUrlWatcher, hasLaunchToken, resolveDshWebUrl, sameWebOrigin } = require('./dsh-web-url.cjs')
+const { closePromptToResponse, readDesktopPrefs, writeDesktopPrefs, resolveCloseChoice } = require('./prefs.cjs')
 
 const APP_ID = 'team.ethan.valimart-harness'
 const args = process.argv
@@ -130,7 +131,15 @@ ipcMain.on('desk:window-maximize', (event) => {
   if (win.isMaximized()) win.unmaximize()
   else win.maximize()
 })
-ipcMain.on('desk:window-close', (event) => windowFrom(event)?.close())
+ipcMain.on('desk:window-close', (event) => {
+  const win = windowFrom(event)
+  if (win) requestClose(win)
+})
+ipcMain.handle('desk:prefs-get', () => readDesktopPrefs())
+ipcMain.handle('desk:prefs-set', (_event, patch) => {
+  if (!patch || typeof patch !== 'object') return readDesktopPrefs()
+  return writeDesktopPrefs({ closeAction: patch.closeAction })
+})
 ipcMain.handle('desk:window-state', (event) => windowState(windowFrom(event)))
 ipcMain.on('desk:window-bg', (event, color) => {
   const win = windowFrom(event)
@@ -243,13 +252,136 @@ function startKernel(ready, port) {
 // ---------- 主流程 ----------
 let splash = null
 let mainWin = null
+let tray = null
 let bootstrapChild = null
 let kernel = null
 let quitting = false
+let closeBusy = false
+let forceClose = false
+let shutdownStarted = false
 
 /** 只放行 http/https 到系统浏览器，其他协议一律丢弃。 */
 function openExternal(u) {
   if (/^https?:/i.test(u)) shell.openExternal(u)
+}
+
+function trayImage() {
+  const ico = path.join(__dirname, 'build', 'icon.ico')
+  const png = path.join(__dirname, 'build', 'icon.png')
+  if (process.platform === 'win32' && fs.existsSync(ico)) return nativeImage.createFromPath(ico)
+  const img = nativeImage.createFromPath(png)
+  return img.isEmpty() ? img : img.resize({ width: 16, height: 16 })
+}
+
+function showMainWindow() {
+  if (mainWin && !mainWin.isDestroyed()) {
+    mainWin.show()
+    if (mainWin.isMinimized()) mainWin.restore()
+    mainWin.focus()
+    return
+  }
+  if (splash && !splash.isDestroyed()) {
+    splash.show()
+    splash.focus()
+  }
+}
+
+function showClosePrompt(parent) {
+  return new Promise((resolve) => {
+    const prompt = new BrowserWindow({
+      parent,
+      modal: true,
+      width: 420,
+      height: 268,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      frame: false,
+      show: false,
+      backgroundColor: '#f6f4ef',
+      roundedCorners: true,
+      hasShadow: true,
+      icon: path.join(__dirname, 'build', 'icon.png'),
+      webPreferences: {
+        contextIsolation: true,
+        sandbox: true,
+        preload: path.join(__dirname, 'close-prompt-preload.js'),
+      },
+    })
+    prompt.setMenu(null)
+    let settled = false
+    const finish = (payload) => {
+      if (settled) return
+      settled = true
+      ipcMain.removeListener('desk:close-prompt', onReply)
+      if (!prompt.isDestroyed()) prompt.close()
+      resolve(payload)
+    }
+    const onReply = (event, payload) => {
+      if (event.sender !== prompt.webContents) return
+      const action = payload && typeof payload.action === 'string' ? payload.action : 'cancel'
+      finish({ response: closePromptToResponse(action), checkboxChecked: Boolean(payload && payload.remember) })
+    }
+    ipcMain.on('desk:close-prompt', onReply)
+    prompt.on('closed', () => finish({ response: 2, checkboxChecked: false }))
+    prompt.once('ready-to-show', () => prompt.show())
+    prompt.loadFile(path.join(__dirname, 'close-prompt.html')).catch((err) => {
+      log.write('app', `关窗提示加载失败：${err && err.message ? err.message : err}`)
+      finish({ response: 2, checkboxChecked: false })
+    })
+  })
+}
+
+function hideToTray() {
+  if (!mainWin || mainWin.isDestroyed()) return
+  if (!tray) {
+    tray = new Tray(trayImage())
+    tray.setToolTip('valimart harness')
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: '打开 valimart harness', click: () => showMainWindow() },
+        { type: 'separator' },
+        { label: '退出', click: () => quitApp() },
+      ]),
+    )
+    tray.on('click', () => showMainWindow())
+  }
+  mainWin.hide()
+  log.write('app', '后台运行（托盘）')
+}
+
+function destroyTray() {
+  if (!tray) return
+  tray.destroy()
+  tray = null
+}
+
+function quitApp() {
+  if (shutdownStarted) return
+  forceClose = true
+  quitting = true
+  destroyTray()
+  if (mainWin && !mainWin.isDestroyed()) mainWin.close()
+  else shutdown(0)
+}
+
+async function requestClose(win) {
+  if (!win || win.isDestroyed() || quitting || closeBusy) return
+  const decided = resolveCloseChoice(readDesktopPrefs().closeAction)
+  if (decided.do === 'minimize') return hideToTray()
+  if (decided.do === 'quit') return quitApp()
+  closeBusy = true
+  try {
+    const { response, checkboxChecked } = await showClosePrompt(win)
+    const next = resolveCloseChoice('ask', { response, remember: checkboxChecked })
+    if (next.save) writeDesktopPrefs({ closeAction: next.save })
+    if (next.do === 'minimize') hideToTray()
+    else if (next.do === 'quit') quitApp()
+  } finally {
+    closeBusy = false
+  }
 }
 
 async function openMainWindow(url, { attach = false } = {}) {
@@ -302,19 +434,23 @@ async function openMainWindow(url, { attach = false } = {}) {
     if (splash && !splash.isDestroyed()) splash.close()
     splash = null
   })
-  const leave = () => {
+  mainWin.on('close', (e) => {
     if (attach) {
+      forceClose = true
       quitting = true
-      mainWin = null
+      return
+    }
+    if (forceClose) return
+    e.preventDefault()
+    requestClose(mainWin)
+  })
+  mainWin.on('closed', () => {
+    mainWin = null
+    if (attach) {
       app.exit(0)
       return
     }
     shutdown(0)
-  }
-  mainWin.on('close', leave)
-  mainWin.on('closed', () => {
-    mainWin = null
-    if (!attach) shutdown(0)
   })
   if (screenshotPath) {
     mainWin.webContents.on('did-finish-load', async () => {
@@ -405,8 +541,11 @@ async function main() {
 }
 
 function shutdown(code) {
-  if (quitting) return
+  if (shutdownStarted) return
+  shutdownStarted = true
+  forceClose = true
   quitting = true
+  destroyTray()
   // killTree 是同步 taskkill（约 0.4 s）。shutdown 挂在主窗口 close 上，若在此同步杀进程，
   // 窗口要等 taskkill 返回才会消失，点 × 会有可感知的滞留；先让窗口销毁完再杀
   setTimeout(() => {
@@ -452,7 +591,9 @@ app.setPath('sessionData', electronDir)
 
 app.on('window-all-closed', () => shutdown(0))
 app.on('before-quit', () => {
+  forceClose = true
   quitting = true
+  destroyTray()
   killTree(bootstrapChild)
   killTree(kernel)
 })
@@ -460,13 +601,11 @@ if (attachUrl) {
   // 开发附着：不要跟已安装的客户端抢单实例锁
   app.whenReady().then(main).catch(fatal)
 } else if (!app.requestSingleInstanceLock()) {
-  app.quit()
+  app.exit(0)
 } else {
   app.on('second-instance', () => {
-    if (mainWin && !mainWin.isDestroyed()) {
-      if (mainWin.isMinimized()) mainWin.restore()
-      mainWin.focus()
-    }
+    log.write('app', '已有实例在运行，转到前台')
+    showMainWindow()
   })
   app.whenReady().then(main).catch(fatal)
 }

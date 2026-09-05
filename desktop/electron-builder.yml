@@ -8,7 +8,10 @@ files:
   - main.js
   - preload.js
   - dsh-web-url.cjs
+  - prefs.cjs
   - splash.html
+  - close-prompt.html
+  - close-prompt-preload.js
   - build/icon.png
   - build/valimart-wordmark.png
   - build/valimart-mark.png

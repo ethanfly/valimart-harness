@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('deskShell', {
   minimize: () => ipcRenderer.send('desk:window-minimize'),
   maximize: () => ipcRenderer.send('desk:window-maximize'),
   close: () => ipcRenderer.send('desk:window-close'),
+  getPrefs: () => ipcRenderer.invoke('desk:prefs-get'),
+  setPrefs: (patch) => ipcRenderer.invoke('desk:prefs-set', patch),
   getState: () => ipcRenderer.invoke('desk:window-state'),
   onState: (cb) => {
     const listener = (_event, state) => cb(state)
