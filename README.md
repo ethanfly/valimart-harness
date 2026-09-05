@@ -1,7 +1,9 @@
 # valimart harness · 企业交付工作台
 
-基于 `@deepseek-ai/dsh`（DeepSeek Harness）内核的**公司内部交付工作台**。内核由本仓库自己安装并打补丁
-（`scripts/install-kernel.mjs`），**不依赖任何其他仓库**——克隆这个目录、`npm install`、`npm run dev` 即可。
+本项目是在 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding) 上的**二次开发**，
+核心运行时是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（npm：`@deepseek-ai/dsh`）。
+内核由本仓库自己安装并打补丁（`scripts/install-kernel.mjs`），日常开发**不必再克隆**上游仓库——
+进入这个目录、`npm install`、`npm run dev` 即可。
 
 > 接手先看 [`docs/HANDOFF.md`](docs/HANDOFF.md)（现在在哪、关键决定、下次该干嘛）；过程记录在 [`docs/sessions/`](docs/sessions/)。
 
@@ -396,3 +398,14 @@ Playwright（`npm run test:e2e`）用本机 Edge：管理页登录、页面流�
 - 安装版（§2.5）：客户端在 `~/.company-desk/app/`（内核 + Electron userData）、`~/.company-desk/logs/`、`~/.dsh/profiles/desk-app/`，
   登录态与会话仍是上面的 `~/.dsh/desk`、`~/.dsh/sessions`；服务端在 `%ProgramData%\valimart harness Gateway\{data,logs}`，
   配置在 `%ProgramFiles%\valimart harness Gateway\server\config.local.json`。
+
+## 7. 致谢
+
+感谢以下项目与作者，没有它们就没有 valimart harness：
+
+- **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)**（`@deepseek-ai/dsh`）  
+  本工作台的内核：会话、Agent、Web 界面与插件体系都建立在它上面。
+- **[TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)**  
+  本仓库由此二次开发而来：公司网关、desk profile、内核补丁与交付工作台的整体方向都受其启发，并在其基础上继续演进。
+
+上游各自保留其许可证与版权。我们在此向 DeepSeek 团队与 TDHarness-coding 的作者致以诚挚感谢。
