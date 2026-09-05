@@ -21,6 +21,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { defaultDshHome, defaultPrefix } from './kernel/locate.mjs'
 import { ensureBundle, ensureKernelDev, ensureProfile, killTree, profileNeedsSetup, readGatewayUrl, spawnClient, waitHttp } from './lib/bootstrap.mjs'
+import { createDshWebUrlWatcher, hasLaunchToken, resolveDshWebUrl } from './lib/dsh-web-url.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -36,7 +37,8 @@ const port = Number(argOf('--port', process.env.DESK_PORT ?? '3470'))
 const withServer = has('--with-server')
 const desktop = has('--desktop')
 const noOpen = has('--no-open')
-const url = `http://127.0.0.1:${port}/`
+const bareUrl = `http://127.0.0.1:${port}/`
+let url = bareUrl
 
 const log = (msg) => console.log(`[launch] ${msg}`)
 const die = (msg) => {
@@ -124,17 +126,34 @@ async function ensureGateway() {
 }
 
 // ---------- 5. 客户端（dsh desk profile）----------
-function startClient() {
-  log(`启动客户端 ${url} …`)
-  const child = spawnClient({ kernelBin: dshBin, profileName: 'desk', port, dshHome, cwd: root })
+async function startClient() {
+  log(`启动客户端 ${bareUrl} …`)
+  const webUrl = createDshWebUrlWatcher()
+  const child = spawnClient({ kernelBin: dshBin, profileName: 'desk', port, dshHome, cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
   children.push(child)
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', (d) => {
+    process.stdout.write(d)
+    webUrl.feed(d)
+  })
+  child.stderr.on('data', (d) => {
+    process.stderr.write(d)
+    webUrl.feed(d)
+  })
   child.on('exit', (code) => {
     if (!shuttingDown) {
       console.error(`[launch] 客户端退出（${code}）`)
       shutdown(code ?? 1)
     }
   })
-  return waitHttp(url, { label: '客户端', timeoutMs: 60000 }).catch((err) => die(err.message))
+  try {
+    url = await resolveDshWebUrl({ port, getPrinted: () => webUrl.get(), timeoutMs: 60000 })
+    const printed = webUrl.get()
+    if (printed && hasLaunchToken(printed)) url = printed
+  } catch (err) {
+    die(err.message)
+  }
 }
 
 // ---------- 6. 桌面窗口 ----------

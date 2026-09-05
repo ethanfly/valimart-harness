@@ -14,6 +14,7 @@ const fs = require('node:fs')
 const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
+const { createDshWebUrlWatcher, hasLaunchToken, resolveDshWebUrl, sameWebOrigin } = require('./dsh-web-url.cjs')
 
 const APP_ID = 'team.ethan.valimart-harness'
 const args = process.argv
@@ -219,10 +220,18 @@ function startKernel(ready, port) {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
+  const webUrl = createDshWebUrlWatcher()
+  child.webUrl = webUrl
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
-  child.stdout.on('data', (d) => log.write('dsh', d))
-  child.stderr.on('data', (d) => log.write('dsh:err', d))
+  child.stdout.on('data', (d) => {
+    log.write('dsh', d)
+    webUrl.feed(d)
+  })
+  child.stderr.on('data', (d) => {
+    log.write('dsh:err', d)
+    webUrl.feed(d)
+  })
   child.on('error', (err) => fatal(new Error(`内核进程无法启动：${err.message}`)))
   child.on('exit', (code, signal) => {
     log.write('dsh', `exit code=${code} signal=${signal}`)
@@ -267,12 +276,12 @@ async function openMainWindow(url, { attach = false } = {}) {
   mainWin.setMenu(null)
   attachWindowChrome(mainWin)
   mainWin.webContents.setWindowOpenHandler(({ url: u }) => {
-    if (u.startsWith(url)) return { action: 'allow' }
+    if (sameWebOrigin(u, url)) return { action: 'allow' }
     openExternal(u)
     return { action: 'deny' }
   })
   mainWin.webContents.on('will-navigate', (e, u) => {
-    if (!u.startsWith(url)) {
+    if (!sameWebOrigin(u, url)) {
       e.preventDefault()
       openExternal(u)
     }
@@ -343,6 +352,20 @@ async function openMainWindow(url, { attach = false } = {}) {
       }
     })
   }
+  let authReload = false
+  mainWin.webContents.on('did-finish-load', () => {
+    const tokenUrl = kernel?.webUrl?.get?.()
+    if (authReload || !tokenUrl || !hasLaunchToken(tokenUrl) || hasLaunchToken(url)) return
+    mainWin.webContents
+      .executeJavaScript('document.body ? document.body.innerText : ""')
+      .then((text) => {
+        if (authReload || !/authentication required/i.test(String(text || ''))) return
+        authReload = true
+        log.write('app', `页面要求令牌，改开 ${tokenUrl}`)
+        return mainWin.loadURL(tokenUrl)
+      })
+      .catch((err) => log.write('app', `令牌重开失败：${err && err.message ? err.message : err}`))
+  })
   try {
     await mainWin.loadURL(url)
   } catch (err) {
@@ -373,8 +396,10 @@ async function main() {
   if (quitting) return
   setStatus(`启动内核（端口 ${port}）…`)
   kernel = startKernel(ready, port)
-  const url = `http://127.0.0.1:${port}/`
-  await waitHttp(url, 60000)
+  let url = await resolveDshWebUrl({ port, getPrinted: () => kernel.webUrl.get(), timeoutMs: 60000 })
+  const printed = kernel.webUrl.get()
+  if (printed && hasLaunchToken(printed)) url = printed
+  log.write('app', `打开 ${url}${printed && printed !== url ? `（stdout ${printed}）` : ''}`)
   if (quitting) return
   await openMainWindow(url)
 }

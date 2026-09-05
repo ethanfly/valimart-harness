@@ -21,14 +21,16 @@ import {
   toCodexResponsesBody,
   usesChatgptCodex,
 } from './upstream-chatgpt.js'
+import { isUpstreamQuotaExhausted } from './upstream-quota.js'
 
 export class LlmProxy {
-  constructor({ db, cfg, ledger, catalog, oauth }) {
+  constructor({ db, cfg, ledger, catalog, oauth, channels }) {
     this.db = db
     this.cfg = cfg
     this.ledger = ledger
     this.catalog = catalog
     this.oauth = oauth
+    this.channels = channels
   }
 
   authenticate(req) {
@@ -159,10 +161,38 @@ export class LlmProxy {
     return this.cfg.upstreams[upstream.id] ?? upstream
   }
 
-  async prepareUpstream(upstream, { force = false } = {}) {
+  accountPool(upstream) {
+    const live = this.liveUpstream(upstream)
+    const accs = Array.isArray(live.accounts) && live.accounts.length
+      ? live.accounts
+      : live.resolvedKey
+        ? [{ id: 'primary', credential: live.resolvedKey, chatgptAccountId: live.chatgptAccountId, status: 'active' }]
+        : []
+    const now = Date.now()
+    const ready = []
+    const exhausted = []
+    for (const a of accs) {
+      const cool = a.status === 'exhausted' && a.exhaustedUntil && Date.parse(a.exhaustedUntil) > now
+      if (cool) exhausted.push(a)
+      else ready.push(a)
+    }
+    return [...ready, ...exhausted]
+  }
+
+  withAccount(upstream, acc) {
+    if (!acc) return upstream
+    return {
+      ...upstream,
+      resolvedKey: acc.credential ?? upstream.resolvedKey,
+      chatgptAccountId: acc.chatgptAccountId ?? upstream.chatgptAccountId,
+      authStyle: acc.authStyle ?? upstream.authStyle,
+    }
+  }
+
+  async prepareUpstream(upstream, { force = false, accountId } = {}) {
     if (!this.oauth || !upstream?.channel) return this.liveUpstream(upstream)
     try {
-      await this.oauth.ensureFresh(upstream.channel, { force })
+      await this.oauth.ensureFresh(upstream.channel, { force, accountId })
     } catch (err) {
       console.warn(`[gateway] OAuth 续期失败 ${upstream.channel}: ${err.message}`)
     }
@@ -170,13 +200,40 @@ export class LlmProxy {
   }
 
   async fetchUpstream(upstream, body, model, opts) {
-    let current = await this.prepareUpstream(upstream)
-    let res = await this.sendUpstream(current, body, model, opts)
-    if (res.status === 401 && this.oauth && current.channel) {
-      current = await this.prepareUpstream(current, { force: true })
-      res = await this.sendUpstream(current, body, model, opts)
+    const pool = this.accountPool(upstream)
+    const bind = (live, acc) => {
+      const fresh = (live.accounts ?? []).find((a) => a.id === acc?.id) ?? acc
+      return this.withAccount(live, fresh)
     }
-    return res
+    if (pool.length <= 1) {
+      const acc = pool[0]
+      let current = bind(await this.prepareUpstream(upstream, { accountId: acc?.id }), acc)
+      let res = await this.sendUpstream(current, body, model, opts)
+      if (res.status === 401 && this.oauth && current.channel) {
+        current = bind(await this.prepareUpstream(current, { force: true, accountId: acc?.id }), acc)
+        res = await this.sendUpstream(current, body, model, opts)
+      }
+      return res
+    }
+    let last = null
+    for (let i = 0; i < pool.length; i++) {
+      const acc = pool[i]
+      let current = bind(await this.prepareUpstream(upstream, { accountId: acc.id }), acc)
+      let res = await this.sendUpstream(current, body, model, opts)
+      if (res.status === 401 && this.oauth && current.channel) {
+        current = bind(await this.prepareUpstream(current, { force: true, accountId: acc.id }), acc)
+        res = await this.sendUpstream(current, body, model, opts)
+      }
+      if (res.ok) return res
+      const peek = await res.clone().text().catch(() => '')
+      if (isUpstreamQuotaExhausted(res.status, peek) && i < pool.length - 1) {
+        this.channels?.markAccountExhausted?.(upstream.channel, acc.id, { error: peek.slice(0, 200) })
+        last = res
+        continue
+      }
+      return res
+    }
+    return last
   }
 
   sendUpstream(upstream, body, model, { stream, signal }) {

@@ -748,6 +748,38 @@ export function apply(ctx, config) {
               openPath(body.path)
               return json(res, 200, { ok: true })
             }
+            if (method === 'GET' && rel === '/plugins') {
+              const inv = ctx.pluginInventory ?? ctx.get?.('pluginInventory')
+              if (inv?.list) {
+                try {
+                  const snap = await inv.list()
+                  return json(res, 200, { ...snap, source: 'dsh-plugin-inventory', compatible: true, format: 'dsh-plugin-inventory' })
+                } catch (err) {
+                  log(`pluginInventory.list 失败：${err.message}`)
+                }
+              }
+              const entries = []
+              const loader = ctx.loader ?? ctx.get?.('loader')
+              if (loader?.entries) {
+                for (const entry of loader.entries()) {
+                  if (entry.options?.group) continue
+                  entries.push({
+                    entryId: entry.id,
+                    moduleName: entry.options?.name ?? entry.id,
+                    enabled: !entry.disabled,
+                    fiberPhase: entry.fiber === undefined ? null : String(entry.fiber.state ?? ''),
+                  })
+                }
+              }
+              const have = new Set(entries.map((e) => e.entryId))
+              for (const extra of [
+                { entryId: 'desk-host', moduleName: '@company-desk/desk-host', enabled: true, fiberPhase: 'active' },
+                { entryId: 'desk-ui', moduleName: '@company-desk/desk-ui', enabled: true, fiberPhase: 'active' },
+              ]) {
+                if (!have.has(extra.entryId)) entries.push(extra)
+              }
+              return json(res, 200, { entries, source: 'loader', compatible: true, format: 'dsh-plugin-inventory' })
+            }
             if (rel.startsWith('/gw/')) {
               if (!state.loggedIn) throw Object.assign(new Error('未登录公司网关'), { status: 401, code: 'unauthenticated' })
               const target = `/api/${rel.slice(4)}${url.search}`

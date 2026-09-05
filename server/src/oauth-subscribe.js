@@ -7,6 +7,8 @@ import crypto from 'node:crypto'
 import { HttpError, readJson, sendJson, parseUrl } from './http.js'
 import { providerSpec } from './oauth-providers/index.js'
 import { accountIdFromToken, needsRefresh, resolveConnectBaseUrl } from './oauth-tokens.js'
+import { accountsOf, normalizeModels } from './channels.js'
+import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
 
 const SESSION_TTL_MS = 10 * 60 * 1000
 const CALLBACK_PATH = '/api/oauth/callback'
@@ -157,9 +159,8 @@ export class OAuthSubscribe {
   }
 
   newSession(channelId, user, input, extra = {}) {
-    const channel = this.channels.find(channelId)
-    const models = String(input.models ?? channel.hint ?? '').trim()
-    if (!models) throw new HttpError(400, '至少填写一个模型 id（逗号分隔）')
+    this.channels.find(channelId)
+    const models = String(input.models ?? '').trim()
     const state = crypto.randomBytes(24).toString('base64url')
     const session = {
       state,
@@ -167,6 +168,9 @@ export class OAuthSubscribe {
       userId: user.id,
       username: user.username,
       models,
+      contextWindow: input.contextWindow,
+      maxTokens: input.maxTokens,
+      reasoningEfforts: input.reasoningEfforts,
       baseUrl: input.baseUrl,
       status: 'pending',
       createdAt: Date.now(),
@@ -354,21 +358,37 @@ export class OAuthSubscribe {
     if (!code) throw new HttpError(400, '缺少授权码', 'oauth_no_code')
     const provider = resolveProviderConfig(s.channelId, this.cfg)
     const tokens = await this.exchange(provider, code, s)
-    this.connectTokens(s, provider, tokens)
+    await this.connectTokens(s, provider, tokens)
     return s
   }
 
-  connectTokens(s, provider, tokens) {
+  async connectTokens(s, provider, tokens) {
     const access = tokens.access_token
     if (!access) throw new HttpError(502, '令牌端点未返回 access_token', 'oauth_no_token')
     const expiresIn = Number(tokens.expires_in)
     const channelDef = this.channels.find(s.channelId)
+    const baseUrl = resolveConnectBaseUrl(s.baseUrl, provider, channelDef.baseUrl)
+    let models = normalizeModels(s.models)
+    const discovered = await discoverUpstreamModels({
+      baseUrl,
+      credential: access,
+      api: provider.upstreamApi ?? channelDef.api,
+      authStyle: provider.authStyle,
+      channel: channelDef,
+      fetchImpl: this.fetchImpl,
+    }).catch((err) => ({ models: [], source: 'error', reason: err.message }))
+    if (models.length === 0) models = discovered.models
+    models = mergeDiscoveredModels(models, discovered.models, s, channelDef)
+    if (models.length === 0) throw new HttpError(400, '未能自动发现模型，请手动填写模型 id', 'models_required')
     const channel = this.channels.connect(
       s.channelId,
       {
         credential: access,
-        models: s.models,
-        baseUrl: resolveConnectBaseUrl(s.baseUrl, provider, channelDef.baseUrl),
+        models,
+        contextWindow: s.contextWindow,
+        maxTokens: s.maxTokens,
+        reasoningEfforts: s.reasoningEfforts,
+        baseUrl,
         refreshToken: tokens.refresh_token,
         oauthProvider: s.channelId,
         authStyle: provider.authStyle,
@@ -410,7 +430,7 @@ export class OAuthSubscribe {
     if (data.code_verifier) s.verifier = data.code_verifier
     s.redirectUri = provider.deviceRedirectUri || s.redirectUri
     const tokens = await this.exchange(provider, code, s)
-    this.connectTokens(s, provider, tokens)
+    await this.connectTokens(s, provider, tokens)
   }
 
   async pollDeviceRfc(s, provider) {
@@ -434,22 +454,32 @@ export class OAuthSubscribe {
       throw new HttpError(400, String(data.error_description || err || `设备码轮询失败 HTTP ${res.status}`), 'oauth_denied')
     }
     if (!data.access_token) throw new HttpError(502, '令牌端点未返回 access_token', 'oauth_no_token')
-    this.connectTokens(s, provider, data)
+    await this.connectTokens(s, provider, data)
   }
 
-  async ensureFresh(channelId, { force = false } = {}) {
+  async ensureFresh(channelId, { force = false, accountId } = {}) {
     const item = this.channels?.store?.load()?.items?.[channelId]
     if (!item) return null
-    if (!item.refreshToken) return item
-    if (!force && !needsRefresh(item)) return item
-    const inflight = this.refreshing.get(channelId)
-    if (inflight) return inflight
-    const p = this.refreshNow(channelId, item).finally(() => this.refreshing.delete(channelId))
-    this.refreshing.set(channelId, p)
-    return p
+    const accounts = accountsOf(item)
+    const targets = accountId ? accounts.filter((a) => a.id === accountId) : accounts.length ? accounts : [item]
+    let last = item
+    for (const acc of targets) {
+      if (!acc.refreshToken) continue
+      if (!force && !needsRefresh(acc.refreshToken ? acc : item)) continue
+      const key = `${channelId}:${acc.id ?? 'primary'}`
+      const inflight = this.refreshing.get(key)
+      if (inflight) {
+        last = await inflight
+        continue
+      }
+      const p = this.refreshNow(channelId, { ...item, ...acc }, acc.id).finally(() => this.refreshing.delete(key))
+      this.refreshing.set(key, p)
+      last = await p
+    }
+    return last
   }
 
-  async refreshNow(channelId, item) {
+  async refreshNow(channelId, item, accountId) {
     const provider = resolveProviderConfig(channelId, this.cfg)
     if (!provider?.tokenUrl) throw new HttpError(400, '该通道不能续期', 'oauth_no_refresh')
     const tokens = await this.exchangeRefresh(provider, item.refreshToken)
@@ -461,8 +491,8 @@ export class OAuthSubscribe {
       refreshToken: tokens.refresh_token || item.refreshToken,
       tokenExpiresAt: Number.isFinite(expiresIn) ? new Date(Date.now() + expiresIn * 1000).toISOString() : undefined,
       chatgptAccountId: accountIdFromToken(tokens.id_token || access) || item.chatgptAccountId,
-    })
-    console.log(`[gateway] OAuth 续期 ${channelId}`)
+    }, accountId)
+    console.log(`[gateway] OAuth 续期 ${channelId}${accountId ? `/${accountId}` : ''}`)
     return this.channels.store.load().items[channelId]
   }
 

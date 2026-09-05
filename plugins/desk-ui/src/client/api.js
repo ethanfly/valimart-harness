@@ -45,6 +45,7 @@ export const api = {
   openProcess: (taskId) => call('POST', `/tasks/${encodeURIComponent(taskId)}/open-process`, {}),
   attachLocal: (taskId, paths, sessionId, source) => call('POST', `/tasks/${encodeURIComponent(taskId)}/attach-local`, { paths, sessionId, source }),
   openPath: (path) => call('POST', '/open', { path }),
+  plugins: () => call('GET', '/plugins'),
   // 网关业务接口透传：/desk/api/gw/<path> → 网关 /api/<path>
   gw: {
     get: (p) => call('GET', `/gw${p}`),

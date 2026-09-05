@@ -7,5 +7,14 @@
     "size": 655872,
     "license": "MIT",
     "note": ".NET Framework 4.6.1 版（Windows 10/11、Server 2016+ 自带）。自包含的 WinSW-x64.exe 有 18 MB，没必要。"
+  },
+  "nodeLinuxX64": {
+    "version": "25.2.1",
+    "filename": "node-v25.2.1-linux-x64.tar.gz",
+    "url": "https://npmmirror.com/mirrors/node/v25.2.1/node-v25.2.1-linux-x64.tar.gz",
+    "fallbackUrl": "https://nodejs.org/dist/v25.2.1/node-v25.2.1-linux-x64.tar.gz",
+    "sha256": "2094ecdc844ea11e9777cac42672b0d89cd63d27204193a587dc5a2d276bb940",
+    "license": "MIT",
+    "note": "官方 linux-x64 发行包，与构建机 Node 25.2.1 对齐；安装目录 runtime/bin/node + runtime/lib/node_modules/npm。"
   }
 }

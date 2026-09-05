@@ -20,6 +20,7 @@
     "dev": "node scripts/launch.mjs --with-server --desktop",
     "dist:client": "node scripts/build-payload.mjs && node scripts/build-client-installer.mjs",
     "dist:gateway": "node scripts/build-gateway-installer.mjs",
+    "dist:gateway:linux": "node scripts/build-gateway-linux.mjs",
     "dist": "npm run dist:client && npm run dist:gateway",
     "backup": "node scripts/backup-gateway.mjs",
     "probe:channels": "node scripts/probe-channels.mjs",

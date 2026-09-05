@@ -87,7 +87,18 @@ export function toAnthropicBody(openaiBody, model) {
   if (system) body.system = system
   if (openaiBody.temperature !== undefined) body.temperature = openaiBody.temperature
   if (openaiBody.stop) body.stop_sequences = Array.isArray(openaiBody.stop) ? openaiBody.stop : [openaiBody.stop]
+  const thinking = reasoningToAnthropicThinking(openaiBody, model)
+  if (thinking) body.thinking = thinking
   return body
+}
+
+const THINKING_BUDGET = { low: 4096, medium: 10240, high: 16384, xhigh: 24576, max: 32000 }
+
+export function reasoningToAnthropicThinking(openaiBody) {
+  const effort = openaiBody?.reasoning_effort ?? openaiBody?.reasoning?.effort
+  if (!effort || effort === 'off' || effort === 'none' || effort === 'minimal') return undefined
+  const budget = THINKING_BUDGET[effort] ?? 10240
+  return { type: 'enabled', budget_tokens: budget }
 }
 
 export function usageFromAnthropic(usage) {

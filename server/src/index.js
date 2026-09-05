@@ -27,7 +27,7 @@ import { createRouter, parseUrl, sendError, sendJson, HttpError } from './http.j
 const startedAt = Date.now()
 
 export function createGateway(overrides = {}) {
-  const { fetchReleases, kernels, fetchNpmVersions, prepareInstaller, ...cfgOverrides } = overrides
+  const { fetchReleases, kernels, fetchNpmVersions, prepareInstaller, fetchModels, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
   const ledger = new Ledger(db, cfg)
@@ -39,7 +39,7 @@ export function createGateway(overrides = {}) {
   const knowledge = new Knowledge({ drive, tasks, db }) // 第四层通道：检索「公司里有没有人做过」
   const catalog = () => modelCatalog(cfg)
   const oauth = new OAuthSubscribe({ cfg, channels })
-  const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth })
+  const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth, channels })
 
   // 在线状态：登录会话心跳（客户端本机 host 每 30s 一次）
   const lastSeen = new Map()
@@ -76,6 +76,7 @@ export function createGateway(overrides = {}) {
     fetchNpmVersions,
     prepareInstaller,
     oauth,
+    fetchModels,
   })
   registerAdminPage(router, { cfg })
   router.get('/v1/models', (req, res) => proxy.handleModels(req, res))

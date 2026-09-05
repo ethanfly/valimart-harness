@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertGatewayStageClean, copyServerSrc, writeStagedGatewayConfig } from './lib/gateway-stage.mjs'
+import { assertGatewayStageClean, stageGatewayApp } from './lib/gateway-stage.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
@@ -77,31 +77,7 @@ fs.rmSync(stage, { recursive: true, force: true })
 fs.mkdirSync(path.join(stage, 'runtime'), { recursive: true })
 fs.mkdirSync(path.join(stage, 'service'), { recursive: true })
 fs.copyFileSync(process.execPath, path.join(stage, 'runtime', 'node.exe'))
-copyServerSrc(root, path.join(stage, 'server'))
-writeStagedGatewayConfig(root, path.join(stage, 'server'))
-const skillSrc = path.join(root, 'server', 'skills')
-if (fs.existsSync(skillSrc)) fs.cpSync(skillSrc, path.join(stage, 'server', 'skills'), { recursive: true })
-// server/src 是 ESM：安装目录里没有根 package.json，要在 server/ 放一个声明 type=module
-fs.writeFileSync(path.join(stage, 'server', 'package.json'), JSON.stringify({ name: 'the-diva-gateway', version, private: true, type: 'module' }, null, 2) + '\n')
-// 管理页花标 / 字标：admin-page.js 相对 server/src 读 ../../plugins/desk-ui/src/client/assets（安装目录须保留同一相对路径）
-const brandSrc = path.join(root, 'plugins', 'desk-ui', 'src', 'client', 'assets')
-const brandDst = path.join(stage, 'plugins', 'desk-ui', 'src', 'client', 'assets')
-fs.mkdirSync(brandDst, { recursive: true })
-for (const f of ['valimart-mark.png', 'valimart-wordmark.png']) {
-  const src = path.join(brandSrc, f)
-  if (!fs.existsSync(src)) die(`缺少品牌图 ${src}`)
-  fs.copyFileSync(src, path.join(brandDst, f))
-}
-// server/src 以 ../../scripts/... 读 pin / prepare 脚本：相对位置与仓库一致
-fs.mkdirSync(path.join(stage, 'scripts', 'kernel'), { recursive: true })
-fs.mkdirSync(path.join(stage, 'scripts', 'lib'), { recursive: true })
-for (const f of ['patches.mjs', 'locate.mjs', 'pin.json']) {
-  fs.copyFileSync(path.join(root, 'scripts', 'kernel', f), path.join(stage, 'scripts', 'kernel', f))
-}
-for (const f of ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'find-tar.mjs', 'lan-protocol.mjs']) {
-  fs.copyFileSync(path.join(root, 'scripts', 'lib', f), path.join(stage, 'scripts', 'lib', f))
-}
-fs.copyFileSync(path.join(root, 'scripts', 'backup-gateway.mjs'), path.join(stage, 'scripts', 'backup-gateway.mjs'))
+stageGatewayApp(root, stage, { version, die })
 const npmSrc = path.join(path.dirname(process.execPath), 'node_modules', 'npm')
 if (fs.existsSync(npmSrc)) {
   log('复制构建机 npm → runtime/node_modules/npm')

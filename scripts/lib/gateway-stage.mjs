@@ -20,6 +20,35 @@ export function writeStagedGatewayConfig(repoRoot, stageServerDir) {
   return prod
 }
 
+export const GATEWAY_KERNEL_FILES = ['patches.mjs', 'locate.mjs', 'pin.json']
+export const GATEWAY_LIB_FILES = ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'find-tar.mjs', 'lan-protocol.mjs']
+export const GATEWAY_BRAND_FILES = ['valimart-mark.png', 'valimart-wordmark.png']
+
+/** 拷网关业务文件（不含 Windows node.exe / WinSW，也不含 Linux runtime）。 */
+export function stageGatewayApp(repoRoot, stage, { version, die = (m) => { throw new Error(m) } } = {}) {
+  const ver = version ?? JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version
+  fs.mkdirSync(path.join(stage, 'server'), { recursive: true })
+  copyServerSrc(repoRoot, path.join(stage, 'server'))
+  writeStagedGatewayConfig(repoRoot, path.join(stage, 'server'))
+  const skillSrc = path.join(repoRoot, 'server', 'skills')
+  if (fs.existsSync(skillSrc)) fs.cpSync(skillSrc, path.join(stage, 'server', 'skills'), { recursive: true })
+  fs.writeFileSync(path.join(stage, 'server', 'package.json'), `${JSON.stringify({ name: 'the-diva-gateway', version: ver, private: true, type: 'module' }, null, 2)}\n`)
+  const brandSrc = path.join(repoRoot, 'plugins', 'desk-ui', 'src', 'client', 'assets')
+  const brandDst = path.join(stage, 'plugins', 'desk-ui', 'src', 'client', 'assets')
+  fs.mkdirSync(brandDst, { recursive: true })
+  for (const f of GATEWAY_BRAND_FILES) {
+    const src = path.join(brandSrc, f)
+    if (!fs.existsSync(src)) die(`缺少品牌图 ${src}`)
+    fs.copyFileSync(src, path.join(brandDst, f))
+  }
+  fs.mkdirSync(path.join(stage, 'scripts', 'kernel'), { recursive: true })
+  fs.mkdirSync(path.join(stage, 'scripts', 'lib'), { recursive: true })
+  for (const f of GATEWAY_KERNEL_FILES) fs.copyFileSync(path.join(repoRoot, 'scripts', 'kernel', f), path.join(stage, 'scripts', 'kernel', f))
+  for (const f of GATEWAY_LIB_FILES) fs.copyFileSync(path.join(repoRoot, 'scripts', 'lib', f), path.join(stage, 'scripts', 'lib', f))
+  fs.copyFileSync(path.join(repoRoot, 'scripts', 'backup-gateway.mjs'), path.join(stage, 'scripts', 'backup-gateway.mjs'))
+  return { version: ver }
+}
+
 export function assertGatewayStageClean(stageDir, { die = (m) => { throw new Error(m) } } = {}) {
   const dataDir = path.join(stageDir, 'server', 'data')
   if (fs.existsSync(dataDir)) die(`暂存里不能带开发 data 目录：${dataDir}`)

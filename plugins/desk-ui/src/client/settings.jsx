@@ -273,6 +273,9 @@ function ChannelTable({ channels, canEdit, onChanged }) {
             <button className="dk-btn sm" onClick={() => setDialog({ kind: 'key' })}>
               加入模型
             </button>
+            <button className="dk-btn sm" onClick={() => setDialog({ kind: 'custom' })}>
+              自定义端点
+            </button>
           </div>
         )}
       </div>
@@ -294,13 +297,27 @@ function ChannelTable({ channels, canEdit, onChanged }) {
               <td>
                 <span className={`dk-badge ${c.connected ? 'online' : 'offline'}`}>{c.statusLabel}</span>
               </td>
-              <td className="dk-small dk-dim">{c.connected ? c.models.join(', ') || '—' : <span className="dk-muted">{c.hint}</span>}</td>
+              <td className="dk-small dk-dim">
+                {c.connected ? (
+                  <>
+                    {c.models.join(', ') || '—'}
+                    {c.accountCount > 1 ? <div className="dk-xs dk-muted">{c.accountCount} 个账号轮换</div> : null}
+                  </>
+                ) : (
+                  <span className="dk-muted">{c.hint}</span>
+                )}
+              </td>
               {canEdit && (
                 <td className="num">
                   {c.connected && c.source === 'runtime' ? (
-                    <button className="dk-btn sm ghost" disabled={busy === c.id} onClick={() => disconnect(c)}>
-                      断开
-                    </button>
+                    <div className="dk-row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                      <button className="dk-btn sm" onClick={() => setDialog({ channel: c, addAccount: true })}>
+                        再登录
+                      </button>
+                      <button className="dk-btn sm ghost" disabled={busy === c.id} onClick={() => disconnect(c)}>
+                        断开
+                      </button>
+                    </div>
                   ) : c.connected ? (
                     <span className="dk-xs dk-muted">配置文件接入</span>
                   ) : (
@@ -314,18 +331,22 @@ function ChannelTable({ channels, canEdit, onChanged }) {
           ))}
         </tbody>
       </table>
-      {dialog && <ConnectChannelDialog channels={channels} initial={dialog} onClose={() => setDialog(null)} onDone={onChanged} />}
+      {dialog?.kind === 'custom' && <CustomEndpointDialog onClose={() => setDialog(null)} onDone={onChanged} />}
+      {dialog && dialog.kind !== 'custom' && <ConnectChannelDialog channels={channels} initial={dialog} onClose={() => setDialog(null)} onDone={onChanged} />}
     </div>
   )
 }
 
 function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
-  const candidates = channels.filter((c) => (initial.channel ? c.id === initial.channel.id : c.kind === initial.kind && !c.connected))
+  const candidates = channels.filter((c) => (initial.channel ? c.id === initial.channel.id : c.kind === initial.kind && (initial.addAccount || !c.connected)))
   const [channelId, setChannelId] = useState(initial.channel?.id ?? candidates[0]?.id ?? '')
   const channel = channels.find((c) => c.id === channelId)
   const [credential, setCredential] = useState('')
   const [baseUrl, setBaseUrl] = useState(channel?.baseUrl ?? '')
   const [models, setModels] = useState(channel?.hint ?? '')
+  const [contextWindow, setContextWindow] = useState(channel?.contextWindow ? String(channel.contextWindow) : '')
+  const [maxTokens, setMaxTokens] = useState(channel?.maxTokens ? String(channel.maxTokens) : '')
+  const [reasoning, setReasoning] = useState(Array.isArray(channel?.reasoningEfforts) ? channel.reasoningEfforts.join(',') : '')
   const [busy, setBusy] = useState(false)
   const [oauthNote, setOauthNote] = useState('')
   const [showPaste, setShowPaste] = useState(false)
@@ -338,6 +359,9 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
   useEffect(() => {
     setBaseUrl(channel?.baseUrl ?? '')
     setModels(channel?.hint ?? '')
+    setContextWindow(channel?.contextWindow ? String(channel.contextWindow) : '')
+    setMaxTokens(channel?.maxTokens ? String(channel.maxTokens) : '')
+    setReasoning(Array.isArray(channel?.reasoningEfforts) ? channel.reasoningEfforts.join(',') : '')
     setOauthNote('')
     setOauthState('')
     setDeviceCode('')
@@ -359,12 +383,34 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
     onDone?.()
     onClose()
   }
+  const extras = () => ({
+    contextWindow: contextWindow ? Number(contextWindow) : undefined,
+    maxTokens: maxTokens ? Number(maxTokens) : undefined,
+    reasoningEfforts: reasoning.trim() ? reasoning.split(/[,\s/]+/).filter(Boolean) : undefined,
+  })
   const submit = async () => {
     if (!channel) return
     setBusy(true)
     try {
-      const r = await api.gw.post(`/channels/${channel.id}/connect`, { credential, baseUrl, models })
+      const r = await api.gw.post(`/channels/${channel.id}/connect`, { credential, baseUrl, models, ...extras() })
       await afterConnect(r.channel.label, r.channel.models)
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const discover = async () => {
+    if (!channel) return
+    setBusy(true)
+    try {
+      const r = await api.gw.post(`/channels/${channel.id}/discover-models`, { credential, baseUrl })
+      setModels((r.models || []).map((m) => m.id).join(', '))
+      const first = r.models?.[0]
+      if (first?.contextWindow && !contextWindow) setContextWindow(String(first.contextWindow))
+      if (first?.maxTokens && !maxTokens) setMaxTokens(String(first.maxTokens))
+      if (first?.reasoningEfforts && !reasoning) setReasoning(Array.isArray(first.reasoningEfforts) ? first.reasoningEfforts.join(',') : '')
+      toast(r.source === 'upstream' ? `已拉取 ${r.models.length} 个模型` : `已用内置目录（${r.reason || '上游未返回'}）`, 'success')
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -421,7 +467,7 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
     setOauthNote('正在发起授权…')
     setOauthOpenUrl('')
     try {
-      const r = await api.gw.post(`/channels/${channel.id}/oauth/start`, { models, baseUrl: baseUrl || undefined })
+      const r = await api.gw.post(`/channels/${channel.id}/oauth/start`, { models, baseUrl: baseUrl || undefined, ...extras() })
       setOauthState(r.state || '')
       if (r.flow === 'device_code') {
         setDeviceCode(r.userCode || '')
@@ -473,8 +519,8 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
   return (
     <div className="dk-overlay" onClick={onClose}>
       <div className="dk-dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>{isSub ? '加入订阅' : '加入模型'}</h2>
-        <div className="sub">{subHint}</div>
+        <h2>{initial.addAccount ? `再登录 ${channel?.label ?? ''}` : isSub ? '加入订阅' : '加入模型'}</h2>
+        <div className="sub">{initial.addAccount ? '同一订阅再挂一个账号；额度用完后自动切到下一个。' : subHint}</div>
         <div className="dk-field">
           <label>通道</label>
           <select className="dk-select" value={channelId} onChange={(e) => setChannelId(e.target.value)} disabled={!!initial.channel}>
@@ -525,8 +571,25 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
           <input className="dk-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </div>
         <div className="dk-field">
-          <label>模型 id（逗号分隔，接入后出现在全员的模型菜单里）</label>
-          <input className="dk-input" value={models} onChange={(e) => setModels(e.target.value)} placeholder={channel?.hint} />
+          <label>模型 id（逗号分隔，可留空自动拉取）</label>
+          <div className="dk-row" style={{ gap: 8 }}>
+            <input className="dk-input" value={models} onChange={(e) => setModels(e.target.value)} placeholder={channel?.hint || '留空则自动发现'} style={{ flex: 1 }} />
+            <button className="dk-btn sm" type="button" disabled={busy || !channel} onClick={discover}>拉取列表</button>
+          </div>
+        </div>
+        <div className="dk-form-grid">
+          <div className="dk-field">
+            <label>上下文窗口</label>
+            <input className="dk-input" value={contextWindow} onChange={(e) => setContextWindow(e.target.value)} placeholder="自动 / 例如 200000" />
+          </div>
+          <div className="dk-field">
+            <label>最长输出</label>
+            <input className="dk-input" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} placeholder="自动 / 例如 32000" />
+          </div>
+          <div className="dk-field">
+            <label>思考强度</label>
+            <input className="dk-input" value={reasoning} onChange={(e) => setReasoning(e.target.value)} placeholder="例如 low,medium,high" />
+          </div>
         </div>
         <div className="dk-row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
           <button className="dk-btn" onClick={onClose}>
@@ -534,10 +597,165 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
           </button>
           {(!isSub || showPaste || !canOAuth) && (
             <button className="dk-btn primary" disabled={busy || !credential.trim() || !channel} onClick={submit}>
-              {isSub ? '接入订阅' : '接入模型'}
+              {initial.addAccount ? '添加账号' : isSub ? '接入订阅' : '接入模型'}
             </button>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function CustomEndpointDialog({ onClose, onDone }) {
+  const [label, setLabel] = useState('')
+  const [baseUrl, setBaseUrl] = useState('https://')
+  const [credential, setCredential] = useState('')
+  const [models, setModels] = useState('')
+  const [contextWindow, setContextWindow] = useState('')
+  const [maxTokens, setMaxTokens] = useState('')
+  const [reasoning, setReasoning] = useState('low,medium,high')
+  const [busy, setBusy] = useState(false)
+  const extras = () => ({
+    contextWindow: contextWindow ? Number(contextWindow) : undefined,
+    maxTokens: maxTokens ? Number(maxTokens) : undefined,
+    reasoningEfforts: reasoning.trim() ? reasoning.split(/[,\s/]+/).filter(Boolean) : undefined,
+  })
+  const save = async () => {
+    setBusy(true)
+    try {
+      const r = await api.gw.post('/channels', { label, baseUrl, credential, models, hint: models, ...extras() })
+      toast(`已添加 ${r.channel.label}${r.channel.models?.length ? `：${r.channel.models.join(', ')}` : ''}`, 'success')
+      await api.gw.get('/auth/me')
+      await refreshDeskState()
+      onDone?.()
+      onClose()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="dk-overlay" onClick={onClose}>
+      <div className="dk-dialog" onClick={(e) => e.stopPropagation()}>
+        <h2>自定义模型端点</h2>
+        <div className="sub">任意 OpenAI 兼容 / Anthropic 端点。可先填 key 再拉模型列表。</div>
+        <div className="dk-field"><label>名称</label><input className="dk-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例如 自建网关" /></div>
+        <div className="dk-field"><label>接口地址</label><input className="dk-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></div>
+        <div className="dk-field"><label>API key</label><input className="dk-input" type="password" value={credential} onChange={(e) => setCredential(e.target.value)} /></div>
+        <div className="dk-field"><label>模型 id（可留空自动拉取）</label><input className="dk-input" value={models} onChange={(e) => setModels(e.target.value)} placeholder="gpt-4o, …" /></div>
+        <div className="dk-form-grid">
+          <div className="dk-field"><label>上下文窗口</label><input className="dk-input" value={contextWindow} onChange={(e) => setContextWindow(e.target.value)} /></div>
+          <div className="dk-field"><label>最长输出</label><input className="dk-input" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} /></div>
+          <div className="dk-field"><label>思考强度</label><input className="dk-input" value={reasoning} onChange={(e) => setReasoning(e.target.value)} /></div>
+        </div>
+        <div className="dk-row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <button className="dk-btn" onClick={onClose}>取消</button>
+          <button className="dk-btn primary" disabled={busy || !label.trim() || !baseUrl.trim()} onClick={save}>保存</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- 技能 / 知识 / 插件 ---------------- */
+export function KnowledgeSection() {
+  const desk = useStoreValue(deskStore, (s) => s.desk)
+  const [q, reload] = useFetch(
+    () =>
+      Promise.all([api.gw.get('/knowledge/collections'), api.plugins().catch(() => ({ entries: [] })), api.gw.get('/plugins').catch(() => ({ entries: [] }))]).then(([col, live, catalog]) => ({
+        ...col,
+        livePlugins: live.entries ?? [],
+        catalogPlugins: catalog.entries ?? [],
+      })),
+    [desk?.user?.id],
+  )
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [scope, setScope] = useState('shared')
+  const [layer, setLayer] = useState('02-methods')
+  const [busy, setBusy] = useState(false)
+  const add = async () => {
+    setBusy(true)
+    try {
+      await api.gw.post('/knowledge/entries', { title, content, scope, layer })
+      toast('已写入知识库', 'success')
+      setTitle('')
+      setContent('')
+      reload()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (q.error) return <div className="dk-settings"><Head title="技能与知识" /><div className="dk-alert error">{q.error}</div></div>
+  if (!q.data) return <div className="dk-settings"><Head title="技能与知识" /><div className="dk-empty">加载中…</div></div>
+  const { handbook = [], skills = [], shared = {}, personal = [], livePlugins = [], catalogPlugins = [], memoryLayers = [] } = q.data
+  const plugins = livePlugins.length ? livePlugins : catalogPlugins
+  return (
+    <div className="dk-settings">
+      <Head title="技能与知识" desc="查看当前技能、知识库，并手动补充。插件列表兼容 DeepSeek Harness 的 plugin inventory。" right={<button className="dk-btn sm" onClick={reload}>刷新</button>} />
+      <div className="dk-card">
+        <div className="dk-card-title">当前技能 _shared/skills</div>
+        {skills.length === 0 ? <div className="dk-small dk-muted">还没有技能文件。</div> : (
+          <ul className="dk-small" style={{ margin: 0, paddingLeft: 18 }}>
+            {skills.map((f) => <li key={f.path}><span className="dk-mono">{f.path}</span></li>)}
+          </ul>
+        )}
+      </div>
+      <div className="dk-card">
+        <div className="dk-card-title">知识库</div>
+        <div className="dk-small dk-muted" style={{ marginBottom: 8 }}>手册 {handbook.length} · 共享 {Object.values(shared).reduce((n, l) => n + (l.files?.length ?? 0), 0)} · 个人 {personal.length}</div>
+        {handbook.slice(0, 8).map((f) => <div key={f.path} className="dk-small dk-mono">{f.path}</div>)}
+        {Object.entries(shared).map(([dir, layerInfo]) => (
+          <div key={dir} className="dk-small" style={{ marginTop: 6 }}><b>{layerInfo.label}</b> <span className="dk-muted">{layerInfo.files?.length ?? 0} 个文件</span></div>
+        ))}
+      </div>
+      <div className="dk-card">
+        <div className="dk-card-title">手动增加知识</div>
+        <div className="dk-form-grid">
+          <div className="dk-field"><label>标题</label><input className="dk-input" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+          <div className="dk-field">
+            <label>位置</label>
+            <select className="dk-select" value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="shared">共享经验</option>
+              <option value="personal">个人记忆</option>
+              <option value="handbook">岗位手册</option>
+              <option value="skill">技能</option>
+            </select>
+          </div>
+          {(scope === 'shared' || scope === 'personal') && (
+            <div className="dk-field">
+              <label>分层</label>
+              <select className="dk-select" value={layer} onChange={(e) => setLayer(e.target.value)}>
+                {(memoryLayers.length ? memoryLayers : [{ dir: '02-methods', label: '方法' }]).map((l) => <option key={l.dir} value={l.dir}>{l.label}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        <div className="dk-field" style={{ marginTop: 8 }}>
+          <label>内容</label>
+          <textarea className="dk-input" rows={6} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Markdown" />
+        </div>
+        <button className="dk-btn sm primary" disabled={busy || !title.trim() || !content.trim()} onClick={add} style={{ marginTop: 8 }}>写入</button>
+      </div>
+      <div className="dk-card">
+        <div className="dk-card-title">DeepSeek Harness 插件</div>
+        {plugins.length === 0 ? <div className="dk-small dk-muted">当前没有插件快照。官方插件列表页已启用。</div> : (
+          <table className="dk-table">
+            <thead><tr><th>id</th><th>模块</th><th>状态</th></tr></thead>
+            <tbody>
+              {plugins.map((p) => (
+                <tr key={p.entryId}>
+                  <td className="dk-mono dk-small">{p.entryId}</td>
+                  <td className="dk-small">{p.moduleName}</td>
+                  <td><span className={`dk-badge ${p.enabled ? 'online' : 'offline'}`}>{p.enabled ? (p.fiberPhase || '启用') : '关闭'}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

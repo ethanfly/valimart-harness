@@ -14,6 +14,9 @@ import { assertPublishedOnNpm, prepareKernelTarball } from '../../scripts/lib/ke
 import { hasNpm } from '../../scripts/lib/npm-cli.mjs'
 import { fetchNpmVersions, resolveNpmRegistry } from '../../scripts/lib/kernel-update.mjs'
 import { registerOAuthSubscribe, decorateChannels } from './oauth-subscribe.js'
+import { normalizeModels } from './channels.js'
+import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
+import { workspacePluginCatalog } from './dsh-plugins.js'
 
 /** 客户端内核锁定版本（scripts/kernel/pin.json）：KERNEL_LABEL 给 /api/status，pinVersion 给 bundled 回退。 */
 const KERNEL_PIN = (() => {
@@ -241,12 +244,72 @@ export function registerApi(router, ctx) {
     sendJson(res, 200, { channels: decorateChannels(channels?.view() ?? [], cfg), canEdit: user.role === 'admin' })
   })
 
+  const fetchModels = ctx.fetchModels ?? fetch
+  const resolveConnectModels = async (channel, body, credential) => {
+    let list = normalizeModels(body.models)
+    const discovered = await discoverUpstreamModels({
+      baseUrl: String(body.baseUrl ?? '').trim() || channel.baseUrl,
+      credential,
+      api: body.api || channel.api,
+      authStyle: body.authStyle,
+      channel,
+      fetchImpl: fetchModels,
+    }).catch((err) => ({ models: [], source: 'error', reason: err.message }))
+    if (list.length === 0) list = discovered.models
+    list = mergeDiscoveredModels(list, discovered.models, body, channel)
+    if (list.length === 0) throw new HttpError(400, '未能自动发现模型，请手动填写模型 id（逗号分隔）')
+    return { models: list, discover: discovered }
+  }
+
+  router.post('/api/channels', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!channels) throw new HttpError(500, '通道模块未启用')
+    const body = await readJson(req)
+    const created = channels.createCustom({ ...body, credential: undefined }, user)
+    if (String(body.credential ?? '').trim()) {
+      const { models: resolved } = await resolveConnectModels(channels.find(created.id), body, body.credential)
+      const channel = channels.connect(created.id, { ...body, models: resolved }, user)
+      sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
+      return
+    }
+    sendJson(res, 200, { channel: created, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
+  })
+
+  router.delete('/api/channels/:id', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!channels) throw new HttpError(500, '通道模块未启用')
+    sendJson(res, 200, channels.removeCustom(req.params.id))
+  })
+
+  router.post('/api/channels/:id/discover-models', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!channels) throw new HttpError(500, '通道模块未启用')
+    const channel = channels.find(req.params.id)
+    const body = await readJson(req)
+    const stored = channels.store.load().items[req.params.id]
+    const credential = String(body.credential ?? stored?.credential ?? '').trim()
+    const r = await discoverUpstreamModels({
+      baseUrl: String(body.baseUrl ?? '').trim() || stored?.baseUrl || channel.baseUrl,
+      credential,
+      api: body.api || stored?.api || channel.api,
+      authStyle: body.authStyle || stored?.authStyle,
+      channel,
+      fetchImpl: fetchModels,
+    })
+    sendJson(res, 200, r)
+  })
+
   router.post('/api/channels/:id/connect', async (req, res) => {
     const { user } = auth(req)
     requireAdmin(user)
     if (!channels) throw new HttpError(500, '通道模块未启用')
     const body = await readJson(req)
-    const channel = channels.connect(req.params.id, body, user)
+    const channelDef = channels.find(req.params.id)
+    const { models: resolved } = await resolveConnectModels(channelDef, body, body.credential)
+    const channel = channels.connect(req.params.id, { ...body, models: resolved }, user)
     console.log(`[gateway] ${user.username} 接入通道 ${channel.label}（${channel.kindLabel}），模型 ${channel.models.join(', ')}`)
     sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
   })
@@ -255,7 +318,8 @@ export function registerApi(router, ctx) {
     const { user } = auth(req)
     requireAdmin(user)
     if (!channels) throw new HttpError(500, '通道模块未启用')
-    const channel = channels.disconnect(req.params.id)
+    const body = await readJson(req)
+    const channel = channels.disconnect(req.params.id, { accountId: body.accountId })
     console.log(`[gateway] ${user.username} 断开通道 ${channel.label}`)
     sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
   })
@@ -486,6 +550,23 @@ export function registerApi(router, ctx) {
     const { user } = auth(req)
     if (!knowledge) throw new HttpError(500, '知识检索模块未启用')
     sendJson(res, 200, { ...knowledge.collections(user), memoryLayers: MEMORY_LAYERS })
+  })
+  router.post('/api/knowledge/entries', async (req, res) => {
+    const { user } = auth(req)
+    if (!knowledge) throw new HttpError(500, '知识检索模块未启用')
+    const body = await readJson(req)
+    sendJson(res, 200, { entry: knowledge.addEntry(user, body), collections: knowledge.collections(user), memoryLayers: MEMORY_LAYERS })
+  })
+
+  router.get('/api/plugins', async (req, res) => {
+    auth(req)
+    let patch = ''
+    try {
+      patch = fs.readFileSync(new URL('../../profile/cordis.patch.yml', import.meta.url), 'utf8')
+    } catch {
+      /* 安装包缺文件时仍返回核心目录 */
+    }
+    sendJson(res, 200, { ...workspacePluginCatalog(patch), compatible: true, format: 'dsh-plugin-inventory' })
   })
 
   // ---------- 内核目录 ----------

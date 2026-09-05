@@ -27,6 +27,7 @@ before(async () => {
     quickInference: { defaultModel: 'mock-echo' },
     quota: { anchor: '2026-08-31T17:45:21+08:00', weeklyCny: 100, byRole: { admin: 1000, director: 500, employee: 100 } },
     fetchReleases: async () => [],
+    fetchModels: async () => new Response(JSON.stringify({ error: 'no' }), { status: 404 }),
   })
   base = await gw.listen()
 })
@@ -292,7 +293,9 @@ test('通道：管理员加入订阅 → 全员模型目录更新；凭据不外
   const noCred = await api('POST', '/api/channels/grok/connect', { token: ctx.boss.sessionToken, body: { models: 'grok-4.6' } })
   assert.equal(noCred.status, 400)
   const noModel = await api('POST', '/api/channels/grok/connect', { token: ctx.boss.sessionToken, body: { credential: secret, models: '' } })
-  assert.equal(noModel.status, 400)
+  assert.equal(noModel.status, 200, noModel.json.error?.message)
+  assert.ok(noModel.json.channel.models.includes('grok-4.6'), '空模型时应回退到内置目录')
+  await api('POST', '/api/channels/grok/disconnect', { token: ctx.boss.sessionToken, body: {} })
 
   // 心跳带模型目录签名：接入前后签名不同，员工客户端据此在一个心跳内重写本机路由
   const sigBefore = (await api('POST', '/api/presence', { token: ctx.emp.sessionToken, body: {} })).json.modelsSignature
@@ -411,6 +414,7 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.ok(html.includes('class="word"'), '管理页 logo 用完整字标蒙版（图里已含花标）')
   assert.ok(!html.includes('class="mark"'), '字标图已含花标，不要再并一枚 mark')
   assert.ok(!html.includes('<small>harness</small>'), '管理页不应把 harness 当 logo 文字')
+  assert.match(html, /let status, channels, collections, kernel, plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
   const mark = await fetch(base + '/admin/brand/valimart-mark.png')
   assert.equal(mark.status, 200)
   assert.match(mark.headers.get('content-type'), /image\/png/)

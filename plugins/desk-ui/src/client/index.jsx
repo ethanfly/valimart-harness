@@ -5,7 +5,7 @@
 import css from './styles.css'
 import { DeskFrame, DeskLayoutController, ThemePresenter } from './layout.jsx'
 import { DeskSidebar } from './sidebar.jsx'
-import { AccountSection, ColleaguesSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
+import { AccountSection, ColleaguesSection, KnowledgeSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
 import { makeFileChip } from './composer.jsx'
@@ -147,6 +147,7 @@ export function apply(ctx) {
     { id: 'desk-personnel', order: 25, label: '人员', component: PersonnelSection },
     { id: 'desk-quick', order: 30, label: '快速推理', component: QuickInferenceSection },
     { id: 'desk-subscription', order: 35, label: '订阅', component: SubscriptionSection },
+    { id: 'desk-knowledge', order: 40, label: '技能与知识', component: KnowledgeSection },
   ]
   ctx.effect(
     () =>

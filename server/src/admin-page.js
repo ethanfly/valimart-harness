@@ -262,9 +262,10 @@ export function renderAdminHtml({ companyName }) {
   }
 
   async function renderMain() {
-    let status, channels, collections, kernel;
+    let status, channels, collections, kernel, plugins = { entries: [] };
     try {
       [status, channels, collections, kernel] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/kernel')]);
+      try { plugins = await api('GET', '/api/plugins'); } catch (e) { /* 旧网关 */ }
       if (!me) me = (await api('GET', '/api/auth/me')).user;
     } catch (err) { if (!token) return; return renderLogin(err.message); }
     const isAdmin = me.role === 'admin';
@@ -334,16 +335,17 @@ export function renderAdminHtml({ companyName }) {
         <div class="row" style="margin-bottom:10px">
           <button id="addSub" \${isAdmin ? '' : 'disabled'}>加入订阅</button>
           <button id="addKey" \${isAdmin ? '' : 'disabled'}>加入模型</button>
+          <button id="addCustom" \${isAdmin ? '' : 'disabled'}>自定义端点</button>
         </div>
         <table>
           <thead><tr><th>通道</th><th>种类</th><th>状态</th><th>模型</th><th>接入</th><th></th></tr></thead>
           <tbody>
             \${channels.channels.map((c) => \`<tr>
               <td>\${esc(c.label)}</td><td>\${esc(c.kindLabel)}</td>
-              <td class="\${c.connected ? 'ok' : 'muted'}">\${esc(c.statusLabel)}</td>
+              <td class="\${c.connected ? 'ok' : 'muted'}">\${esc(c.statusLabel)}\${c.accountCount > 1 ? ' · ' + c.accountCount + ' 账号' : ''}</td>
               <td class="mono">\${c.models.length ? esc(c.models.join(', ')) : '<span class="muted">' + esc(c.hint) + '</span>'}</td>
               <td class="muted">\${c.source === 'config' ? '服务端配置' : c.source === 'runtime' ? esc((c.connectedBy || '') + ' · ' + fmtTime(c.connectedAt)) : '—'}</td>
-              <td style="text-align:right">\${isAdmin ? (c.connected ? (c.source === 'runtime' ? '<button class="danger" data-disc="' + esc(c.id) + '">断开</button>' : '') : '<button data-conn="' + esc(c.id) + '">接入</button>') : ''}</td>
+              <td style="text-align:right">\${isAdmin ? (c.connected ? (c.source === 'runtime' ? '<button data-more="' + esc(c.id) + '">再登录</button> <button class="danger" data-disc="' + esc(c.id) + '">断开</button>' : '') : '<button data-conn="' + esc(c.id) + '">接入</button>') : ''}</td>
             </tr>\`).join('')}
           </tbody>
         </table>
@@ -362,6 +364,16 @@ export function renderAdminHtml({ companyName }) {
         <p class="desc">企业知识库的第四层通道：在公司盘（手册 / 共享经验 / 你的个人记忆 / 任务格子）和任务卡里搜「公司里有没有人做过」。只回谁、何时、在哪；不拷贝会话，细节去问那张任务卡旁边的进程。</p>
         <form id="kq" class="row"><input name="q" placeholder="例如：详情页 / 复盘 / 发货" style="flex:1;min-width:220px" /><button class="primary" type="submit">查询</button></form>
         <div id="kres" style="margin-top:10px"></div>
+        \${isAdmin ? \`<form id="kadd" style="margin-top:16px">
+          <p class="desc">手动增加知识（共享经验 / 手册 / 技能 / 个人记忆）</p>
+          <div class="field"><label>标题</label><input name="title" /></div>
+          <div class="row">
+            <div class="field" style="flex:1"><label>位置</label><select name="scope"><option value="shared">共享经验</option><option value="handbook">岗位手册</option><option value="skill">技能</option><option value="personal">个人记忆</option></select></div>
+            <div class="field" style="flex:1"><label>分层</label><select name="layer">\${(collections.memoryLayers || []).map((l) => '<option value="' + esc(l.dir) + '">' + esc(l.label) + '</option>').join('')}</select></div>
+          </div>
+          <div class="field"><label>内容</label><textarea name="content" rows="5"></textarea></div>
+          <button class="primary" type="submit">写入知识库</button>
+        </form>\` : ''}
       </section>
 
       <section class="grid2">
@@ -380,6 +392,8 @@ export function renderAdminHtml({ companyName }) {
           <h2>Agent 工具合集</h2>
           <p class="desc">客户端本机 Agent 可用的公司工具（由 desk-host 插件注册）</p>
           <table><tbody>\${TOOLS.map(([n, d]) => '<tr><td class="mono" style="white-space:nowrap">' + esc(n) + '</td><td>' + esc(d) + '</td></tr>').join('')}</tbody></table>
+          <p class="desc" style="margin-top:14px">DeepSeek Harness 插件列表（兼容 plugin inventory）</p>
+          \${(plugins.entries && plugins.entries.length) ? '<table><thead><tr><th>id</th><th>模块</th><th>状态</th></tr></thead><tbody>' + plugins.entries.map((p) => '<tr><td class="mono">' + esc(p.entryId) + '</td><td>' + esc(p.moduleName) + '</td><td>' + (p.enabled ? '启用' : '关闭') + '</td></tr>').join('') + '</tbody></table>' : '<div class="empty">没有插件快照</div>'}
         </div>
       </section>\`;
 
@@ -401,11 +415,23 @@ export function renderAdminHtml({ companyName }) {
     });
     $('#addSub').addEventListener('click', () => openConnect(channels.channels, 'subscription'));
     $('#addKey').addEventListener('click', () => openConnect(channels.channels, 'key'));
+    const addCustom = $('#addCustom');
+    if (addCustom) addCustom.addEventListener('click', () => openCustom());
     document.querySelectorAll('[data-conn]').forEach((b) => b.addEventListener('click', () => openConnect(channels.channels, null, b.dataset.conn)));
+    document.querySelectorAll('[data-more]').forEach((b) => b.addEventListener('click', () => openConnect(channels.channels, null, b.dataset.more, true)));
     document.querySelectorAll('[data-disc]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('断开后该通道的模型立刻从全员目录下架，确定？')) return;
       try { await api('POST', '/api/channels/' + encodeURIComponent(b.dataset.disc) + '/disconnect'); toast('已断开'); renderMain(); } catch (err) { toast(err.message, true); }
     }));
+    const kadd = $('#kadd');
+    if (kadd) kadd.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api('POST', '/api/knowledge/entries', { title: fd.get('title'), content: fd.get('content'), scope: fd.get('scope'), layer: fd.get('layer') });
+        toast('已写入知识库'); renderMain();
+      } catch (err) { toast(err.message, true); }
+    });
     $('#kq').addEventListener('submit', async (e) => {
       e.preventDefault();
       const q = new FormData(e.target).get('q');
@@ -424,21 +450,40 @@ export function renderAdminHtml({ companyName }) {
   }
 
   /* desk-oauth-subscribe: 只改加入订阅/接入通道弹窗，勿并入内核或 header 改动。 */
-  function openConnect(list, kind, presetId) {
-    const candidates = list.filter((c) => (presetId ? c.id === presetId : c.kind === kind) && (presetId || !c.connected));
+  function openCustom() {
+    const wrap = document.createElement('div');
+    wrap.className = 'overlay';
+    wrap.innerHTML = '<div class="dialog"><h3>自定义模型端点</h3><form id="cf"><div class="field"><label>名称</label><input name="label" required /></div><div class="field"><label>Base URL</label><input name="baseUrl" value="https://" required /></div><div class="field"><label>API key</label><input name="credential" type="password" /></div><div class="field"><label>模型 id（可留空自动拉）</label><input name="models" /></div><div class="field"><label>上下文窗口</label><input name="contextWindow" /></div><div class="field"><label>思考强度</label><input name="reasoningEfforts" placeholder="low,medium,high" /></div><div class="row" style="margin-top:16px;justify-content:flex-end"><button type="button" id="cancel">取消</button><button class="primary" type="submit">保存</button></div></form></div>';
+    document.body.appendChild(wrap);
+    wrap.querySelector('#cancel').addEventListener('click', () => wrap.remove());
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+    wrap.querySelector('#cf').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const r = await api('POST', '/api/channels', { label: fd.get('label'), baseUrl: fd.get('baseUrl'), credential: fd.get('credential'), models: fd.get('models'), contextWindow: fd.get('contextWindow') ? Number(fd.get('contextWindow')) : undefined, reasoningEfforts: fd.get('reasoningEfforts') ? String(fd.get('reasoningEfforts')).split(/[,\s]+/).filter(Boolean) : undefined });
+        toast('已添加 ' + r.channel.label); wrap.remove(); renderMain();
+      } catch (err) { toast(err.message, true); }
+    });
+  }
+
+  function openConnect(list, kind, presetId, addAccount) {
+    const candidates = list.filter((c) => (presetId ? c.id === presetId : c.kind === kind) && (presetId || addAccount || !c.connected));
     if (!candidates.length) return toast(kind === 'subscription' ? '订阅通道都已接入' : '模型通道都已接入');
     const wrap = document.createElement('div');
     wrap.className = 'overlay';
     const isSub = (presetId ? candidates[0].kind : kind) === 'subscription';
     wrap.innerHTML = \`<div class="dialog">
-      <h3>\${isSub ? '加入订阅' : '加入模型'}</h3>
+      <h3>\${addAccount ? '再登录一个账号' : isSub ? '加入订阅' : '加入模型'}</h3>
       <p class="desc" id="connDesc"></p>
       <form id="cf">
         <div class="field"><label>通道</label><select name="id">\${candidates.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.label) + '（' + esc(c.kindLabel) + '）</option>').join('')}</select></div>
         <div id="oauthBox"></div>
         <div class="field" id="credField"><label id="credLabel">\${isSub ? '订阅凭据（访问令牌）' : 'API key'}</label><input name="credential" type="password" autocomplete="off" /></div>
-        <div class="field"><label>模型 id（逗号分隔）</label><input name="models" /></div>
+        <div class="field"><label>模型 id（可留空自动拉取）</label><div class="row"><input name="models" style="flex:1" /><button type="button" id="discover">拉取列表</button></div></div>
         <div class="field"><label>Base URL（可选，留空用默认）</label><input name="baseUrl" /></div>
+        <div class="field"><label>上下文窗口</label><input name="contextWindow" placeholder="自动" /></div>
+        <div class="field"><label>思考强度</label><input name="reasoningEfforts" placeholder="low,medium,high" /></div>
         <div class="row" style="margin-top:16px;justify-content:flex-end"><button type="button" id="cancel">取消</button><button class="primary" type="submit" id="connSubmit">接入</button></div>
       </form>
     </div>\`;
@@ -488,7 +533,7 @@ export function renderAdminHtml({ companyName }) {
       setOAuthStatus('正在发起授权…');
       showOAuthLink('');
       try {
-        const r = await api('POST', '/api/channels/' + encodeURIComponent(c.id) + '/oauth/start', { models: modelsIn.value, baseUrl: baseIn.value || undefined });
+        const r = await api('POST', '/api/channels/' + encodeURIComponent(c.id) + '/oauth/start', { models: modelsIn.value, baseUrl: baseIn.value || undefined, contextWindow: wrap.querySelector('input[name=contextWindow]').value ? Number(wrap.querySelector('input[name=contextWindow]').value) : undefined, reasoningEfforts: wrap.querySelector('input[name=reasoningEfforts]').value ? wrap.querySelector('input[name=reasoningEfforts]').value.split(/[,\\s]+/).filter(Boolean) : undefined });
         if (r.flow === 'device_code') {
           const openUrl = r.verificationUriComplete || r.verificationUri;
           openAuthorizePage(openUrl, popup);
@@ -566,13 +611,22 @@ export function renderAdminHtml({ companyName }) {
     };
     sel.addEventListener('change', paintChannel);
     paintChannel();
+    const discoverBtn = wrap.querySelector('#discover');
+    if (discoverBtn) discoverBtn.addEventListener('click', async () => {
+      const c = current();
+      try {
+        const r = await api('POST', '/api/channels/' + encodeURIComponent(c.id) + '/discover-models', { credential: credIn.value, baseUrl: baseIn.value || undefined });
+        modelsIn.value = (r.models || []).map((m) => m.id).join(', ');
+        toast((r.source === 'upstream' ? '已拉取 ' : '内置目录 ') + (r.models || []).length + ' 个模型');
+      } catch (err) { toast(err.message, true); }
+    });
     wrap.querySelector('#cancel').addEventListener('click', () => { if (pollTimer) clearInterval(pollTimer); wrap.remove(); });
     wrap.addEventListener('click', (e) => { if (e.target === wrap) { if (pollTimer) clearInterval(pollTimer); wrap.remove(); } });
     wrap.querySelector('#cf').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       try {
-        const r = await api('POST', '/api/channels/' + encodeURIComponent(fd.get('id')) + '/connect', { credential: fd.get('credential'), models: fd.get('models'), baseUrl: fd.get('baseUrl') || undefined });
+        const r = await api('POST', '/api/channels/' + encodeURIComponent(fd.get('id')) + '/connect', { credential: fd.get('credential'), models: fd.get('models'), baseUrl: fd.get('baseUrl') || undefined, contextWindow: fd.get('contextWindow') ? Number(fd.get('contextWindow')) : undefined, reasoningEfforts: fd.get('reasoningEfforts') ? String(fd.get('reasoningEfforts')).split(/[,\\s]+/).filter(Boolean) : undefined });
         toast('已接入 ' + r.channel.label + '：' + r.channel.models.join(', '));
         if (pollTimer) clearInterval(pollTimer);
         wrap.remove(); renderMain();

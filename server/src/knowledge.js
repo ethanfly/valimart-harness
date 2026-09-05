@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { MEMORY_LAYERS, normalizeRel } from './drive.js'
 import { TASK_STATUS } from './tasks.js'
+import { HttpError } from './http.js'
 
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt', '.json', '.yml', '.yaml', '.csv', '.tsv', '.html', '.htm', '.xml', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.py', '.sh', '.ps1', '.sql', '.ini', '.toml', '.log'])
 const MAX_FILE = 2 * 1024 * 1024
@@ -246,4 +247,45 @@ export class Knowledge {
       personal: listFiles(`_office/${user.username}/_memory`),
     }
   }
+
+  addEntry(user, input = {}) {
+    const title = String(input.title ?? '').trim()
+    const content = String(input.content ?? '')
+    if (!title) throw new HttpError(400, '请填写标题')
+    if (!content.trim()) throw new HttpError(400, '请填写内容')
+    const scope = String(input.scope ?? 'shared')
+    let rel
+    if (scope === 'personal') {
+      const layer = MEMORY_LAYERS.find((l) => l.dir === input.layer) ?? MEMORY_LAYERS[1]
+      rel = `_office/${user.username}/_memory/${layer.dir}/${knowledgeFileName(title)}`
+    } else if (scope === 'handbook') {
+      rel = `_shared/handbook/${knowledgeFileName(title)}`
+    } else if (scope === 'skill') {
+      const slug =
+        title
+          .toLowerCase()
+          .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 40) || 'skill'
+      rel = `_shared/skills/${slug}/SKILL.md`
+    } else {
+      const layer = MEMORY_LAYERS.find((l) => l.dir === input.layer) ?? MEMORY_LAYERS[1]
+      rel = `_shared/_memory/${layer.dir}/${knowledgeFileName(title)}`
+    }
+    const mode = this.drive.canWrite(user, rel)
+    if (!mode || mode === 'append') throw new HttpError(403, '无权在该位置新增知识', 'forbidden')
+    const body = content.trimStart().startsWith('#') ? content : `# ${title}\n\n${content}`
+    const info = this.drive.write(rel, body)
+    return { file: info, path: rel, title, scope }
+  }
+}
+
+export function knowledgeFileName(title) {
+  const s = String(title ?? '')
+    .trim()
+    .replace(/[<>:"|?*\\/]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80)
+  if (!s) throw new HttpError(400, '请填写标题')
+  return s.endsWith('.md') ? s : `${s}.md`
 }

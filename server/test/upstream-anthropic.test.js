@@ -51,6 +51,13 @@ test('toAnthropicBody / toOpenAIResponse 往返字段', () => {
   assert.equal(body.model, 'claude-opus-4-6')
   assert.equal(body.max_tokens, 128)
   assert.equal(body.stream, false)
+  assert.equal(body.thinking, undefined)
+  const thinking = toAnthropicBody(
+    { model: 'claude-opus-4-6', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'high' },
+    { upstreamModel: 'claude-opus-4-6', reasoningEfforts: ['low', 'high'] },
+  )
+  assert.equal(thinking.thinking.type, 'enabled')
+  assert.ok(thinking.thinking.budget_tokens > 0)
   const openai = toOpenAIResponse(
     {
       id: 'msg_1',

@@ -7,6 +7,7 @@ directories:
 files:
   - main.js
   - preload.js
+  - dsh-web-url.cjs
   - splash.html
   - build/icon.png
   - build/valimart-wordmark.png
