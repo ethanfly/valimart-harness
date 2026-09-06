@@ -42,6 +42,8 @@ export function makeFileChip(ctx) {
       const conversation = ctx.get('conversation')
       const shell = conversation?.input?.shell?.(sessionId)
       const refs = files.map((f) => ({ rel: f.rel, mention: mentionOf(f.rel), label: f.name })).filter((r) => r.mention)
+      const names = refs.map((r) => r.label)
+      const skipped = files.length - refs.length
       if (shell) {
         for (const r of refs) {
           const snap = shell.snapshot
@@ -61,11 +63,12 @@ export function makeFileChip(ctx) {
           }
           if (!ok) shell.setDraft(`${shell.snapshot.draft}${/\s$/.test(shell.snapshot.draft) || !shell.snapshot.draft ? '' : ' '}${r.mention} `)
         }
-        return
+        return { inserted: refs.length, names, skipped }
       }
       // 兜底：拿不到输入服务时直接改草稿文本
       const cur = draftRef.current
       inputActions?.setDraft?.(`${cur}${cur && !/\s$/.test(cur) ? ' ' : ''}${refs.map((r) => r.mention).join(' ')} `)
+    return { inserted: refs.length, names, skipped }
     }
 
     const onPick = async (ev) => {
@@ -79,9 +82,9 @@ export function makeFileChip(ctx) {
         const payload = []
         for (const f of list) payload.push({ name: f.name, dataBase64: await readAsBase64(f) })
         const r = await api.attachFiles(sessionId, payload, cwd)
-        insert(r.files)
-        setCount((n) => n + r.files.length)
-        toast(`已放入工作目录 _attachments/：${r.files.map((f) => f.name).join('、')}`)
+        const res = insert(r.files)
+        setCount((n) => n + (res?.inserted ?? r.files.length))
+        toast(res?.skipped ? `已放入工作目录并引用 ${res.names.join('、')}；另有 ${res.skipped} 个文件名含引号/控制字符，已上传但未插入引用` : `已放入工作目录 _attachments/：${res.names.join('、')}`)
       } catch (err) {
         toast(err.message ?? String(err), 'error')
       } finally {

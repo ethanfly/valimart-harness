@@ -65,12 +65,65 @@ export class LlmProxy {
     } catch {
       throw new HttpError(400, 'invalid JSON body')
     }
+    // JSON.parse('null') 是合法 JSON 但会得到 null，不能让它走到 body.model 上变成 500
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, '请求体必须是 JSON 对象', 'invalid_body')
     const model = this.findModel(body.model)
-    if (!model) throw new HttpError(404, `模型 ${body.model} 不在公司目录里`, 'model_not_found')
+    if (!model) throw new HttpError(404, '模型 ' + body.model + ' 不在公司目录里', 'model_not_found')
     if (this.ledger.exceeded(user, model.provider)) {
-      throw new HttpError(429, `本周 ${model.providerLabel} 额度已用完，刷新时间 ${this.ledger.quotaView(user, [{ id: model.provider }])[0]?.refreshAt ?? ''}`, 'quota_exceeded')
+      throw new HttpError(429, '本周 ' + model.providerLabel + ' 额度已用完，刷新时间 ' + (this.ledger.quotaView(user, [{ id: model.provider }])[0]?.refreshAt ?? ''), 'quota_exceeded')
     }
     const upstream = this.cfg.upstreams[model.provider]
+    // mock 上游（离线演示）不消耗上游资源，不用排队
+    if (upstream.kind === 'mock') return this.mockChat(user, model, body, res, upstream)
+    // 同一用户在同一上游上的请求串行执行：exceeded() 检查到 record() 记账之间隔着一整段上游调用，
+    // 不串行的话并发请求能同时越过周额度线（TOCTOU）
+    return this.withProviderLock(user.id + ':' + model.provider, () => this.proxyChat(user, model, body, res, upstream))
+  }
+
+  /** (userId:provider) → 排队链 的简单先到先服务门闩。 */
+  locks = new Map()
+  async withProviderLock(key, fn) {
+    const prev = this.locks.get(key) ?? Promise.resolve()
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const next = prev.then(() => gate)
+    this.locks.set(key, next)
+    await prev.catch(() => {})
+    try {
+      return await fn()
+    } finally {
+      release()
+      if (this.locks.get(key) === next) this.locks.delete(key)
+    }
+  }
+
+  async mockChat(user, model, body, res, upstream) {
+    const started = Date.now()
+    const stream = body.stream === true
+    const finish = (usage, status, extra = {}) => {
+      const cost = estimateCostCny(model, usage)
+      this.ledger.record({
+        userId: user.id,
+        username: user.username,
+        provider: model.provider,
+        model: model.id,
+        stream,
+        status,
+        latencyMs: Date.now() - started,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        cachedTokens: usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        costCny: cost,
+        ...extra,
+      })
+    }
+    return this.mock(body, model, res, stream, finish)
+  }
+
+  /** 真正的上游转发（在 withProviderLock 内串行执行）。 */
+  async proxyChat(user, model, body, res, upstream) {
     const started = Date.now()
     const stream = body.stream === true
     const finish = (usage, status, extra = {}) => {
@@ -91,21 +144,24 @@ export class LlmProxy {
       })
     }
 
-    if (upstream.kind === 'mock') return this.mock(body, model, res, stream, finish)
-
     const ac = new AbortController()
-    req.on('close', () => ac.abort())
+    // 客户端断连要取消上游（不然生成照跑、额度照扣）：req 'close' 在请求体读完的那一刻就触发过，
+    // 此刻挂监听永远等不到下一次，所以挂在响应侧 —— 连接断了且响应还没写完就 abort。
+    const onResClose = () => {
+      if (!res.writableEnded) ac.abort()
+    }
+    res.on('close', onResClose)
     let upstreamRes
     try {
       upstreamRes = await this.fetchUpstream(upstream, body, model, { stream, signal: ac.signal })
     } catch (err) {
       if (ac.signal.aborted) return
       finish(undefined, 'upstream_unreachable')
-      throw new HttpError(502, `上游 ${model.providerLabel} 不可达：${err.message}`, 'upstream_unreachable')
+      throw new HttpError(502, '上游 ' + model.providerLabel + ' 不可达：' + err.message, 'upstream_unreachable')
     }
     if (!upstreamRes.ok) {
       const text = await upstreamRes.text()
-      finish(undefined, `upstream_${upstreamRes.status}`)
+      finish(undefined, 'upstream_' + upstreamRes.status)
       res.writeHead(upstreamRes.status, { 'content-type': upstreamRes.headers.get('content-type') ?? 'application/json' })
       res.end(text)
       return
@@ -121,7 +177,7 @@ export class LlmProxy {
         translator.push(text)
         translator.end()
         const converted = {
-          id: `chatcmpl-${Date.now()}`,
+          id: 'chatcmpl-' + Date.now(),
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1000),
           model: model.id,
@@ -156,6 +212,7 @@ export class LlmProxy {
     if (anthropic) return this.pipeAnthropicStream(upstreamRes, res, model, finish, ac)
     return this.pipeOpenAIStream(upstreamRes, res, finish, ac)
   }
+
 
   liveUpstream(upstream) {
     return this.cfg.upstreams[upstream.id] ?? upstream

@@ -11,12 +11,23 @@ export class ApiError extends Error {
   }
 }
 
-async function call(method, path, body, { raw = false } = {}) {
-  const res = await fetch(`/desk/api${path}`, {
-    method,
-    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+async function call(method, path, body, { raw = false, timeoutMs = 20_000 } = {}) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  let res
+  try {
+    res = await fetch(`/desk/api${path}`, {
+      method,
+      headers: body !== undefined ? { 'content-type': 'application/json' } : {},
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctrl.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') throw new ApiError(0, '请求超时，请检查本机服务或网关是否在线', 'timeout')
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
   if (raw) return res
   const text = await res.text()
   let json
@@ -39,7 +50,7 @@ export const api = {
   syncDrive: () => call('POST', '/drive/sync', {}),
   produced: (sessionId) => call('GET', `/sessions/${encodeURIComponent(sessionId)}/produced`),
   lastAssistant: (sessionId) => call('GET', `/sessions/${encodeURIComponent(sessionId)}/last-assistant`),
-  attachFiles: (sessionId, files, cwd) => call('POST', `/sessions/${encodeURIComponent(sessionId)}/attach-files`, { files, cwd }),
+  attachFiles: (sessionId, files, cwd) => call('POST', `/sessions/${encodeURIComponent(sessionId)}/attach-files`, { files, cwd }, { timeoutMs: 120_000 }),
   bindSession: (taskId, sessionId, title) => call('POST', `/tasks/${encodeURIComponent(taskId)}/bind-session`, { sessionId, title }),
   unbindSession: (taskId, sessionId) => call('POST', `/tasks/${encodeURIComponent(taskId)}/unbind-session`, { sessionId }),
   openProcess: (taskId) => call('POST', `/tasks/${encodeURIComponent(taskId)}/open-process`, {}),
@@ -105,10 +116,16 @@ export async function loadPeople() {
 /** 后台轮询：登录态 + 任务列表。 */
 export function startPolling() {
   let stopped = false
+  let inflight = false
   const tick = async () => {
-    if (stopped) return
-    const desk = await refreshDeskState()
-    if (desk?.loggedIn) await loadTasks()
+    if (stopped || inflight) return
+    inflight = true
+    try {
+      const desk = await refreshDeskState()
+      if (desk?.loggedIn) await loadTasks()
+    } finally {
+      inflight = false
+    }
   }
   tick()
   const timer = setInterval(tick, 15_000)

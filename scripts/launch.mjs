@@ -28,7 +28,7 @@ const args = process.argv.slice(2)
 const has = (k) => args.includes(k)
 const argOf = (k, dflt) => {
   const i = args.indexOf(k)
-  return i >= 0 && args[i + 1] ? args[i + 1] : dflt
+  return i >= 0 && args[i + 1] && !String(args[i + 1]).startsWith('-') ? args[i + 1] : dflt
 }
 
 const prefix = path.resolve(argOf('--prefix', defaultPrefix()))
@@ -41,9 +41,20 @@ const bareUrl = `http://127.0.0.1:${port}/`
 let url = bareUrl
 
 const log = (msg) => console.log(`[launch] ${msg}`)
-const die = (msg) => {
+
+// 收尾登记：children 在最前面声明（早期阶段的 die 也会用到），shutdown 为函数声明会提升
+const children = []
+let shuttingDown = false
+function die(msg) {
   console.error(`[launch] ${msg}`)
-  process.exit(1)
+  if (children.length === 0) process.exit(1)
+  shutdown(1)
+}
+function shutdown(code = 0) {
+  if (shuttingDown) return
+  shuttingDown = true
+  for (const c of children) killTree(c)
+  setTimeout(() => process.exit(code), 200)
 }
 
 // ---------- 0. 内核 ----------
@@ -77,14 +88,6 @@ try {
 // ---------- 3. 网关地址 ----------
 const gatewayUrl = (argOf('--gateway') ?? process.env.DESK_GATEWAY_URL ?? readGatewayUrl(repoPatch)).replace(/\/+$/, '')
 
-const children = []
-let shuttingDown = false
-function shutdown(code = 0) {
-  if (shuttingDown) return
-  shuttingDown = true
-  for (const c of children) killTree(c)
-  setTimeout(() => process.exit(code), 200)
-}
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
@@ -111,6 +114,10 @@ async function ensureGateway() {
   }
   const child = spawn(process.execPath, [path.join(root, 'server', 'src', 'index.js')], { cwd: root, stdio: 'inherit', env })
   children.push(child)
+  child.on('error', (err) => {
+    console.error(`[launch] 网关进程启动失败：${err.message}`)
+    shutdown(1)
+  })
   child.on('exit', (code) => {
     if (!shuttingDown) {
       console.error(`[launch] 网关退出（${code}），一起收工`)
@@ -131,6 +138,10 @@ async function startClient() {
   const webUrl = createDshWebUrlWatcher()
   const child = spawnClient({ kernelBin: dshBin, profileName: 'desk', port, dshHome, cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
   children.push(child)
+  child.on('error', (err) => {
+    console.error(`[launch] 客户端进程启动失败：${err.message}`)
+    shutdown(1)
+  })
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
   child.stdout.on('data', (d) => {
@@ -196,6 +207,10 @@ function openDesktopWindow() {
     { stdio: 'ignore', detached: false },
   )
   children.push(child)
+  child.on('error', (err) => {
+    console.error(`[launch] 桌面窗口进程启动失败：${err.message}`)
+    shutdown(1)
+  })
   log(`桌面窗口已打开（${path.basename(browser)} 应用模式）；关掉窗口即退出`)
   child.on('exit', () => {
     if (!shuttingDown) {

@@ -149,7 +149,7 @@ export function registerApi(router, ctx) {
       }
     }
     const { token, item: session } = db.createLoginSession(admin.id, cfg.loginTtlDays ?? 30, body.device ?? 'setup')
-    const gatewayToken = body.gatewayToken === false ? null : db.issueGatewayToken(admin.id, body.device ?? 'desktop', session.id).token
+    const gatewayToken = body.gatewayToken === false ? null : db.issueGatewayToken(admin.id, body.device ?? 'desktop', session.id, cfg.loginTtlDays ?? 30).token
     db.updateUser(admin.id, { lastLoginAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() })
     presence.touch(admin.id)
     console.log(`[gateway] 初始设置完成：管理员 ${admin.username}，公司「${companyName}」${colleagues.length ? `，同事 ${colleagues.length} 人` : ''}`)
@@ -166,7 +166,7 @@ export function registerApi(router, ctx) {
     if (user.disabled) throw new HttpError(403, '账号已停用，请联系管理员', 'account_disabled')
     const { token, item: session } = db.createLoginSession(user.id, cfg.loginTtlDays ?? 30, body.device)
     // 网关令牌绑定这次登录（这台电脑）；管理页 / 网页登录不需要调模型，传 gatewayToken:false 就不签发，也不会打断桌面端
-    const gatewayToken = body.gatewayToken === false ? null : db.issueGatewayToken(user.id, body.device ?? 'desktop', session.id).token
+    const gatewayToken = body.gatewayToken === false ? null : db.issueGatewayToken(user.id, body.device ?? 'desktop', session.id, cfg.loginTtlDays ?? 30).token
     db.updateUser(user.id, { lastLoginAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() })
     drive.ensureOffice(user.username)
     presence.touch(user.id)
@@ -192,7 +192,7 @@ export function registerApi(router, ctx) {
 
   router.post('/api/auth/gateway-token', async (req, res) => {
     const { user, session } = auth(req)
-    const { token } = db.issueGatewayToken(user.id, 'desktop-reissue', session.id)
+    const { token } = db.issueGatewayToken(user.id, 'desktop-reissue', session.id, cfg.loginTtlDays ?? 30)
     sendJson(res, 200, { gatewayToken: token })
   })
 
@@ -382,7 +382,12 @@ export function registerApi(router, ctx) {
         presence.leave(target.id)
       }
     }
-    if (body.weeklyQuotaCny !== undefined) db.updateUserSettings(target.id, { weeklyQuotaCny: body.weeklyQuotaCny === null ? undefined : Number(body.weeklyQuotaCny) })
+    if (body.weeklyQuotaCny !== undefined) {
+      // 校验数字：NaN/Infinity 会让 weeklyLimitCny 变成 NaN，被 exceeded() 当成无限额度（设错一个数 = 该员工永久免限额）
+      const rawQuota = body.weeklyQuotaCny === null ? null : Number(body.weeklyQuotaCny)
+      if (rawQuota !== null && (!Number.isFinite(rawQuota) || rawQuota < 0)) throw new HttpError(400, '周额度必须是 ≥0 的数字（0 = 不限额）')
+      db.updateUserSettings(target.id, { weeklyQuotaCny: rawQuota ?? undefined })
+    }
     const updated = db.updateUser(target.id, patch)
     sendJson(res, 200, { user: publicUser(updated), ...personnelView() })
   })
@@ -525,6 +530,11 @@ export function registerApi(router, ctx) {
     const rel = parseUrl(req).searchParams.get('path')
     if (!rel) throw new HttpError(400, '缺少 path')
     if (drive.canWrite(user, rel) !== 'full') throw new HttpError(403, '无权删除')
+    const st = drive.stat(rel)
+    if (!st.exists) throw new HttpError(404, '路径不存在')
+    // 禁止目录整删（rmSync recursive 会把整棵 inbox / _office 目录连交付物一起删掉）：
+    // 文件按条删 —— 任务交付物走 /api/tasks/:id/deliverables，公司盘文件由文件管理器删单个文件
+    if (st.isDir) throw new HttpError(400, '不能整个目录删除：请删除目录内的文件，或通过任务卡的交付物管理删除', 'no_recursive_delete')
     drive.remove(rel)
     sendJson(res, 200, { ok: true })
   })

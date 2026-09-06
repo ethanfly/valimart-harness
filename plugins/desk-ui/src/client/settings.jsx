@@ -9,12 +9,14 @@ const ROLE = { admin: '管理员', director: '总监', employee: '员工' }
 
 function useFetch(fn, deps = []) {
   const [state, setState] = useState({ loading: true, data: null, error: null })
+  const seq = useRef(0)
   const reload = async () => {
+    const my = ++seq.current
     try {
       const data = await fn()
-      setState({ loading: false, data, error: null })
+      if (seq.current === my) setState({ loading: false, data, error: null })
     } catch (err) {
-      setState({ loading: false, data: null, error: err.message })
+      if (seq.current === my) setState({ loading: false, data: null, error: err.message })
     }
   }
   useEffect(() => {
@@ -922,22 +924,27 @@ export function QuickInferenceSection() {
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   useEffect(() => {
     if (q.data && !model) setModel(q.data.model ?? '')
   }, [q.data])
   if (q.error) return <div className="dk-settings"><Head title="快速推理" /><div className="dk-alert error">{q.error}</div></div>
   if (!q.data) return <div className="dk-settings"><Head title="快速推理" /><div className="dk-empty">加载中…</div></div>
   const saveModel = async (m) => {
+    const prev = model
     setModel(m)
     try {
       await api.gw.patch('/quick-inference', { model: m || null })
       toast('快速推理模型已更新', 'success')
+      reload()
     } catch (err) {
+      setModel(prev) // 失败回滚，避免下拉显示一个没保存上的模型
       toast(err.message, 'error')
     }
   }
   const runIt = async () => {
-    if (!prompt.trim()) return
+    if (!prompt.trim() || busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setResult(null)
     try {
@@ -947,6 +954,7 @@ export function QuickInferenceSection() {
     } catch (err) {
       setResult({ error: err.message })
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }

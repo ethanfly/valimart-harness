@@ -40,7 +40,15 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
         <button className={`dk-iconbtn${tab === 'sessions' ? ' active' : ''}`} title="会话" onClick={() => setTab('sessions')}>
           <IconChat />
         </button>
-        <button className={`dk-iconbtn${tab === 'tasks' ? ' active' : ''}`} title="任务" onClick={() => setTab('tasks')}>
+        <button
+          className={`dk-iconbtn${tab === 'tasks' ? ' active' : ''}`}
+          title="任务"
+          onClick={() => {
+            setTab('tasks')
+            // 窄栏里任务列表不显示：还没选中任务时点「任务」直接展开侧栏，别让用户落进“去左侧选一个”的死胡同
+            if (!deskStore.get().selectedTaskId) toggleSidebar()
+          }}
+        >
           <IconTask />
         </button>
         <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
@@ -109,6 +117,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
 function TaskList({ tasks, desk }) {
   const selected = useStoreValue(deskStore, (s) => s.selectedTaskId)
   const error = useStoreValue(deskStore, (s) => s.tasksError)
+  const loadedAt = useStoreValue(deskStore, (s) => s.tasksLoadedAt)
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('open') // open | mine | all | done
   const [creating, setCreating] = useState(false)
@@ -162,7 +171,8 @@ function TaskList({ tasks, desk }) {
       </div>
       <div className="dk-tasklist-scroll">
         {error && <div className="dk-alert error dk-xs">{error}</div>}
-        {groups.length === 0 && <div className="dk-empty">暂无任务。点右上角「+」新建。</div>}
+        {groups.length === 0 && !error && loadedAt === 0 && <div className="dk-empty">正在加载任务…</div>}
+        {groups.length === 0 && !error && loadedAt > 0 && <div className="dk-empty">暂无任务。点右上角「+」新建。</div>}
         {groups.map((g) => (
           <div key={g.key}>
             <div className="dk-taskgroup">

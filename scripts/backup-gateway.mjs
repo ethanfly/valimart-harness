@@ -97,7 +97,7 @@ export function zipDir(dir, zipFile) {
 
 function argOf(name) {
   const i = process.argv.indexOf(name)
-  return i >= 0 ? process.argv[i + 1] : undefined
+  return i >= 0 && process.argv[i + 1] && !String(process.argv[i + 1]).startsWith('-') ? process.argv[i + 1] : undefined
 }
 
 export function backupGateway({ dataDir = defaultDataDir(), out, keepDir = false } = {}) {
@@ -122,7 +122,15 @@ export function backupGateway({ dataDir = defaultDataDir(), out, keepDir = false
   return { ...snap, artifact }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+// 双侧 realpath：经 junction / 符号链接路径调用本文件时也能进 CLI 分支（与 init.mjs / bootstrap.mjs 一致）
+const isMain = (() => {
+  try {
+    const invoked = process.argv[1] && fs.realpathSync(process.argv[1])
+    return !!invoked && invoked === fs.realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+})()
 if (isMain) {
   try {
     const r = backupGateway({ dataDir: argOf('--data-dir'), out: argOf('--out') })

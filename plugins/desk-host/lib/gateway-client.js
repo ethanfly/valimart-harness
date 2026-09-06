@@ -40,16 +40,20 @@ export class GatewayClient {
       clearTimeout(timer)
       throw new GatewayError(0, `无法连接公司网关 ${this.baseUrl}：${err.message}`, 'unreachable')
     }
-    clearTimeout(timer)
-    const ct = res.headers.get('content-type') ?? ''
-    if (ct.includes('application/json')) {
-      const json = await res.json()
-      if (!res.ok) throw new GatewayError(res.status, json?.error?.message ?? `网关返回 ${res.status}`, json?.error?.code ?? 'gateway_error', json)
-      return json
+    // 超时必须覆盖 body 读取阶段：大 tar / 大附件中途断流要能中止，而不是挂到内核层超时
+    try {
+      const ct = res.headers.get('content-type') ?? ''
+      if (ct.includes('application/json')) {
+        const json = await res.json()
+        if (!res.ok) throw new GatewayError(res.status, json?.error?.message ?? `网关返回 ${res.status}`, json?.error?.code ?? 'gateway_error', json)
+        return json
+      }
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (!res.ok) throw new GatewayError(res.status, buf.toString('utf8').slice(0, 300) || `网关返回 ${res.status}`, 'gateway_error')
+      return buf
+    } finally {
+      clearTimeout(timer)
     }
-    const buf = Buffer.from(await res.arrayBuffer())
-    if (!res.ok) throw new GatewayError(res.status, buf.toString('utf8').slice(0, 300) || `网关返回 ${res.status}`, 'gateway_error')
-    return buf
   }
 
   get(p, o) {

@@ -176,8 +176,12 @@ export function apply(ctx) {
     const stop = startPolling()
     const unsub = deskStore.subscribe(() => {
       const s = deskStore.get()
+      // 花名册加载失败会静默返回：等 retry 窗口到期后把 _peopleRequested 复位，让下一轮轮询重试（否则要登出才能恢复）
+      if (s.desk?.loggedIn && s.people.length === 0 && s._peopleRequested && Date.now() >= (s._peopleRetryAt ?? 0)) {
+        deskStore.set({ _peopleRequested: false })
+      }
       if (s.desk?.loggedIn && s.people.length === 0 && !s._peopleRequested) {
-        deskStore.set({ _peopleRequested: true })
+        deskStore.set({ _peopleRequested: true, _peopleRetryAt: Date.now() + 20_000 })
         loadPeople()
       }
       if (!s.desk?.loggedIn && s._peopleRequested) deskStore.set({ _peopleRequested: false, people: [] })

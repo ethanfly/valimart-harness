@@ -25,7 +25,7 @@ const args = process.argv.slice(2)
 const has = (k) => args.includes(k)
 const argOf = (k, dflt) => {
   const i = args.indexOf(k)
-  return i >= 0 && args[i + 1] ? args[i + 1] : dflt
+  return i >= 0 && args[i + 1] && !String(args[i + 1]).startsWith('-') ? args[i + 1] : dflt
 }
 const log = (m) => console.log(`[payload] ${m}`)
 const die = (m) => {
@@ -38,7 +38,15 @@ const stage = path.join(root, 'build', 'kernel-stage')
 const gateway = argOf('--gateway', process.env.DESK_GATEWAY_URL)
 const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
 
-fs.rmSync(out, { recursive: true, force: true })
+// --out 可以是任意路径：绝不能整目录 rmSync（配错会删掉项目树）。只清空它的直接子项，且目录像项目根就拒绝。
+if (fs.existsSync(out)) {
+  if (fs.existsSync(path.join(out, 'package.json')) || fs.existsSync(path.join(out, '.git'))) {
+    die('--out 看起来是项目目录（含 package.json/.git），拒绝清空：' + out)
+  }
+  for (const entry of fs.readdirSync(out)) {
+    fs.rmSync(path.join(out, entry), { recursive: true, force: true })
+  }
+}
 fs.mkdirSync(out, { recursive: true })
 
 // 1. node.exe

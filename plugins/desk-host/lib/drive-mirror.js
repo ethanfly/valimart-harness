@@ -17,11 +17,31 @@ export class DriveMirror {
     this.index = new Map() // rel -> sha256（上次同步时远端状态）
     this.syncing = null
     fs.mkdirSync(root, { recursive: true })
+    this.tombPath = path.join(root, '.deleted-remote.json')
+    this.tomb = new Set(this.loadTomb())
+  }
+
+  loadTomb() {
+    try {
+      return JSON.parse(fs.readFileSync(this.tombPath, 'utf8'))
+    } catch {
+      return []
+    }
+  }
+
+  saveTomb() {
+    try {
+      fs.writeFileSync(this.tombPath, JSON.stringify([...this.tomb]))
+    } catch {
+      /* 写不进就只在本会话生效 */
+    }
   }
 
   abs(rel) {
+    // 前缀必须落在整段路径分隔符上：只比较字符串前缀会让「根目录同名兄弟目录」越过防线
+    const rootRes = path.resolve(this.root)
     const full = path.resolve(this.root, rel)
-    if (!full.startsWith(path.resolve(this.root))) throw new Error('路径越界')
+    if (full !== rootRes && !full.startsWith(rootRes + path.sep)) throw new Error('路径越界')
     return full
   }
 
@@ -53,8 +73,21 @@ export class DriveMirror {
         this.index.set(f.path, f.sha256)
         downloaded++
       }
-      // 远端删除的个人区/收件箱文件：本地保留但不再跟踪（避免误删用户文件）
-      for (const rel of [...this.index.keys()]) if (!remote.has(rel)) this.index.delete(rel)
+      // 远端删除：本地保留副本（避免误删用户文件），但不再跟踪。个人区的删除要记墓碑 ——
+      // 不记的话下一轮 pushPersonal 会把这个旧副本当成“本地新增”传回去，删除永远无法收敛。
+      const me = this.state.data.user?.username
+      const myPrefix = `_office/${me}/`
+      for (const rel of [...this.index.keys()]) {
+        if (remote.has(rel)) {
+          if (this.tomb.delete(rel)) this.saveTomb() // 远端重现（恢复/重新上传）：取消墓碑
+          continue
+        }
+        if (me && rel.startsWith(myPrefix)) {
+          this.tomb.add(rel)
+          this.saveTomb()
+        }
+        this.index.delete(rel)
+      }
       this.ensureLayout(snap)
       // 只在有变化或首次同步时打日志，避免心跳把日志刷屏
       if (downloaded || !this.everSynced) this.log(`公司盘同步完成：${snap.files.length} 个文件，下载 ${downloaded} 个`)
@@ -74,12 +107,14 @@ export class DriveMirror {
     const dir = this.abs(base)
     if (!fs.existsSync(dir)) return { pushed: 0 }
     let pushed = 0
-    const walk = (rel) => {
+    const walk = (rel, tomb) => {
       for (const d of fs.readdirSync(this.abs(rel), { withFileTypes: true })) {
         if (d.name.startsWith('.')) continue
         const childRel = `${rel}/${d.name}`
-        if (d.isDirectory()) walk(childRel)
+        if (d.isDirectory()) walk(childRel, tomb)
         else {
+          // 墓碑 = 网关那边已删除、我们不回推的旧副本（先于读盘/哈希拦截）
+          if (tomb.includes(childRel)) continue
           const buf = fs.readFileSync(this.abs(childRel))
           if (buf.length > 20 * 1024 * 1024) continue
           const sha = sha256(buf)
@@ -90,21 +125,30 @@ export class DriveMirror {
       }
     }
     this.pending = []
-    walk(base)
+    const liveTomb = new Set([...this.tomb].filter((r) => r.startsWith(base + '/')))
+    walk(base, liveTomb)
     for (const p of this.pending) {
       await this.gateway.put(`/api/drive/file?path=${encodeURIComponent(p.rel)}`, p.buf, { raw: true, headers: { 'content-type': 'application/octet-stream' } })
       this.index.set(p.rel, p.sha)
+      if (this.tomb.delete(p.rel)) this.saveTomb()
     }
     if (pushed) this.log(`个人记忆回推 ${pushed} 个文件`)
     return { pushed }
   }
 
   async sync() {
-    const { pushed } = await this.pushPersonal()
-    const r = await this.pull()
-    this.state.data.lastSyncAt = new Date().toISOString()
-    this.state.save()
-    return { ...r, pulled: r.downloaded, pushed }
+    // 整体串行化：pushPersonal 与 pull 共享 this.index/this.tomb，心跳与手动/attach 并发会双写同一批判定
+    if (this.syncBusy) return this.syncBusy
+    this.syncBusy = (async () => {
+      const { pushed } = await this.pushPersonal()
+      const r = await this.pull()
+      this.state.data.lastSyncAt = new Date().toISOString()
+      this.state.save()
+      return { ...r, pulled: r.downloaded, pushed }
+    })().finally(() => {
+      this.syncBusy = null
+    })
+    return this.syncBusy
   }
 
   ensureLayout(snap) {

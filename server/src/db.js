@@ -125,8 +125,9 @@ export class Db {
    * 别的电脑上的令牌不受影响（换电脑不把上一台踢下线；管理页 / 网页登录也不会打断桌面端）。
    * 管理员「吊销令牌」/ 停用账号仍然一次吊销这个人所有电脑上的令牌（revokeGatewayTokens）。
    */
-  issueGatewayToken(userId, label, sessionId = null) {
+  issueGatewayToken(userId, label, sessionId = null, ttlDays = 90) {
     const token = `dgw_${crypto.randomBytes(24).toString('base64url')}`
+    const now = Date.now()
     const item = {
       id: newId('gt-'),
       userId,
@@ -134,7 +135,9 @@ export class Db {
       tokenHash: sha256(token),
       prefix: token.slice(0, 12),
       label: label ?? 'desktop',
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(now).toISOString(),
+      // 令牌不是永久有效的：即使会话忘了登出/吊销，泄露的令牌也会在 TTL 后自己失效
+      expiresAt: new Date(now + ttlDays * 86400_000).toISOString(),
       lastUsedAt: null,
       revokedAt: null,
     }
@@ -151,7 +154,7 @@ export class Db {
   /** 某个登录会话（某台电脑）当前有效的网关令牌。 */
   gatewayTokenForSession(sessionId) {
     if (!sessionId) return undefined
-    return this.gatewayTokens.load().items.find((t) => t.sessionId === sessionId && !t.revokedAt)
+    return this.gatewayTokens.load().items.find((t) => t.sessionId === sessionId && !t.revokedAt && (!t.expiresAt || Date.parse(t.expiresAt) >= Date.now()))
   }
   /** 登出：只收回这台电脑的令牌。 */
   revokeGatewayTokensForSession(sessionId) {
@@ -171,6 +174,13 @@ export class Db {
     const h = sha256(token)
     const item = this.gatewayTokens.load().items.find((t) => t.tokenHash === h)
     if (!item || item.revokedAt) return undefined
+    // 旧版签发的令牌没有 expiresAt，视为不过期（兼容已存数据）
+    if (item.expiresAt && Date.parse(item.expiresAt) < Date.now()) return undefined
+    // 绑定登录会话的令牌：会话被吊销（登出/管理员踢下线）后令牌同步失效，不能比会话活得久
+    if (item.sessionId) {
+      const s = this.loginSessions.load().items.find((x) => x.id === item.sessionId)
+      if (!s || s.revokedAt) return undefined
+    }
     return item
   }
   touchGatewayToken(id) {

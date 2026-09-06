@@ -616,14 +616,25 @@ export function apply(ctx, config) {
     res.end(body)
   }
   const readJson = async (req) => {
+    // 盲 CSRF 常用 text/plain 发简单请求：非 JSON 内容类型直接 415，别把任意文本当 JSON 解析
+    const ct = String(req.headers['content-type'] ?? '')
+    if (ct && !ct.includes('application/json') && !ct.includes('text/json')) {
+      throw Object.assign(new Error('请求体必须是 application/json'), { status: 415, code: 'bad_content_type' })
+    }
     const chunks = []
     for await (const c of req) chunks.push(c)
     const text = Buffer.concat(chunks).toString('utf8')
-    return text ? JSON.parse(text) : {}
+    try {
+      return text ? JSON.parse(text) : {}
+    } catch {
+      throw Object.assign(new Error('请求体不是合法 JSON'), { status: 400, code: 'bad_json' })
+    }
   }
-  const fail = (res, err) => {
+  const fail = (res, err, opts = {}) => {
     const status = err instanceof GatewayError ? (err.status || 502) : err.status ?? 500
-    if (err instanceof GatewayError && err.status === 401 && state.loggedIn) {
+    // 默认：网关 401 就认为登录失效（吊销/过期），清登录态、拆模型路由。
+    // 登录/首次设置路由传 keepLogin：输错密码只是本次失败，不能连坐清掉仍有效的旧会话。
+    if (!opts.keepLogin && err instanceof GatewayError && err.status === 401 && state.loggedIn) {
       state.clearLogin('登录已失效，请重新登录')
       removeLlmRoute().catch(() => {})
     }
@@ -640,6 +651,16 @@ export function apply(ctx, config) {
           const rel = url.pathname.replace(/^\/desk\/api/, '') || '/'
           const method = req.method ?? 'GET'
           try {
+            // /desk/api 只服务本机工作台页面：他源/跨站请求一律拒绝。
+            // 盲 CSRF 能从浏览器网页打到 http://127.0.0.1 的本机接口（attach-local 上传本机文件、/open 拉资源管理器、/gw 改数据）
+            const secFetch = String(req.headers['sec-fetch-site'] ?? '')
+            if (secFetch && secFetch !== 'same-origin' && secFetch !== 'same-site' && secFetch !== 'none') {
+              return json(res, 403, { error: { message: '跨站请求被拒绝', code: 'bad_origin' } })
+            }
+            const origin = req.headers['origin']
+            if (origin && (!req.headers['host'] || String(new URL(origin).host) !== String(req.headers['host']))) {
+              return json(res, 403, { error: { message: '跨源请求被拒绝', code: 'bad_origin' } })
+            }
             if (method === 'GET' && rel === '/state') return json(res, 200, state.publicView())
             if (method === 'GET' && rel === '/discover') {
               const want = url.searchParams.get('gatewayUrl')
@@ -660,8 +681,20 @@ export function apply(ctx, config) {
               const r = await gateway.get('/api/setup', { token: null })
               return json(res, 200, r)
             }
-            if (method === 'POST' && rel === '/setup') return json(res, 200, await completeSetup(await readJson(req)))
-            if (method === 'POST' && rel === '/login') return json(res, 200, await login(await readJson(req)))
+            if (method === 'POST' && rel === '/setup') {
+              try {
+                return json(res, 200, await completeSetup(await readJson(req)))
+              } catch (err) {
+                return fail(res, err, { keepLogin: true })
+              }
+            }
+            if (method === 'POST' && rel === '/login') {
+              try {
+                return json(res, 200, await login(await readJson(req)))
+              } catch (err) {
+                return fail(res, err, { keepLogin: true })
+              }
+            }
             if (method === 'POST' && rel === '/logout') return json(res, 200, await logout())
             if (method === 'POST' && rel === '/drive/sync') {
               if (!state.loggedIn) throw Object.assign(new Error('未登录'), { status: 401 })
@@ -824,13 +857,19 @@ const ATTACH_MAX_TOTAL = 64 * 1024 * 1024
 function writeAttachments(cwd, files) {
   const dir = path.join(path.resolve(cwd), ATTACH_DIR)
   fs.mkdirSync(dir, { recursive: true })
+  // 第一遍只解码并累计大小：超限在写任何文件之前就 413，不留半截附件
+  const parsed = []
   let total = 0
-  const out = []
   for (const f of files) {
     const base = path.basename(String(f?.name ?? '')).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || 'file'
     const buf = Buffer.from(String(f?.dataBase64 ?? ''), 'base64')
     total += buf.length
     if (total > ATTACH_MAX_TOTAL) throw Object.assign(new Error('附件总大小超过 64MB'), { status: 413, code: 'too_large' })
+    parsed.push({ base, buf })
+  }
+  // 第二遍才落盘
+  const out = []
+  for (const { base, buf } of parsed) {
     const ext = path.extname(base)
     const stem = base.slice(0, base.length - ext.length)
     let name = base

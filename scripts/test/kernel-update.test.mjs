@@ -396,15 +396,29 @@ test('fetchKernelUpdate：无 sha256 → skip', async (t) => {
   assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
 })
 
-test('fetchKernelUpdate：已有 pending 且 sha 相同 → skip', async (t) => {
+test('fetchKernelUpdate：已有 pending 且 tar 就位、sha 相同 → skip', async (t) => {
   const pendingDir = hostTmp(t)
   const sha = 'cd'.repeat(32)
   writePending(pendingDir, { version: '9.0.0', sha256: sha })
+  // 生产里 pending 与 tar 是一起落盘的：tar 在才算“已下载就绪”，才允许短路 skip
+  fs.writeFileSync(pendingPaths(pendingDir).tar, 'already-downloaded-kernel.tar')
   const gw = mockGateway({ current: { bundled: false, version: '9.0.0', sha256: sha, tarball: true } })
   const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
   assert.equal(r.action, 'skip')
   assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), false)
   assert.equal(readPending(pendingDir).sha256, sha)
+})
+
+test('fetchKernelUpdate：pending 记录在但 tar 丢失 → 清记录重新下载（不再假 skip）', async (t) => {
+  const pendingDir = hostTmp(t)
+  const sha = 'cd'.repeat(32)
+  writePending(pendingDir, { version: '9.0.0', sha256: sha })
+  const gw = mockGateway({ current: { bundled: false, version: '9.0.0', sha256: sha, tarball: true } })
+  const r = await fetchKernelUpdate({ gateway: gw, pendingDir, localVersion: '1.0.0', log: () => {} })
+  // 它真的尝试重新下载了（不再短路成 already-pending）；mock tar 与 sha 不符 → 清 pending 报错
+  assert.equal(gw.calls.some((c) => c.p === '/api/kernel/tarball'), true)
+  assert.equal(readPending(pendingDir), null)
+  assert.notEqual(r.action, 'skip')
 })
 
 test('fetchKernelUpdate：pending sha 与 current 不符且本地已是 current → cleared', async (t) => {

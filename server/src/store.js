@@ -52,7 +52,16 @@ export class JsonFile {
    */
   update(mutator) {
     const data = this.load()
-    const result = mutator(data)
+    // mutator 抛异常时它可能已经改了内存里的 data（例如批量交付物写了一半）：先快照，失败还原，
+    // 防止“客户端收到失败、改动却在下一次保存时落库”的半提交污染。
+    const snapshot = JSON.stringify(data)
+    let result
+    try {
+      result = mutator(data)
+    } catch (err) {
+      this.data = JSON.parse(snapshot)
+      throw err
+    }
     this.save()
     return result
   }
@@ -105,7 +114,14 @@ export class SqliteFile {
 
   update(mutator) {
     const data = this.load()
-    const result = mutator(data)
+    const snapshot = JSON.stringify(data)
+    let result
+    try {
+      result = mutator(data)
+    } catch (err) {
+      this.data = JSON.parse(snapshot)
+      throw err
+    }
     this.save()
     return result
   }

@@ -2,7 +2,11 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
-## 现在在哪（2026-09-04 傍晚）
+## 现在在哪（2026-09-06）
+
+- **全量体验/缺陷清扫：完成并提交**。四路并行审计（网关服务端 / 桌面壳+脚本 / desk-ui / desk-host）→ 修掉约 40 项，最严重的是：任务卡正文跨任务串数据、llm-proxy 客户端断连不取消上游（照跑照扣费）、store 半提交污染、网关令牌永久有效、个人区远端删除被镜像“复活”、/desk/api 无来源校验。过程与逐项清单见 `docs/sessions/2026-09-06.md`；`npm test` 169/169。
+
+## 上一轮（2026-09-04 傍晚）
 
 - 仓库：<https://git.ethan.team/ethanfly/company-harness>，分支 `main`（安装包工作用户同意直接提交在 `main` 上）
 - 目标：复刻视频里的「企业交付工作台」—— 现产品名 **valimart harness**（统一服务端 + 共享模型 token + 桌面客户端）
@@ -40,8 +44,18 @@
 | 网关数据固定在 `%ProgramData%\valimart harness Gateway\data`，由服务定义 XML 的 `DESK_GATEWAY_DATA` 注入（优先于 `config.local.json` 的 `dataDir`）；XML 每次安装 / 升级由 `init.mjs` 重生成 | 数据不在 `%ProgramFiles%` 下、卸载保留；旧目录 `%ProgramData%\THE DIVA Gateway` 备份脚本仍识别。安装版 `config.local.json` 写 `seedAdmin: false` + `seedUsers: []`，首次打开管理页 / 客户端走引导，不播种 boss 与演示账号 |
 | 网关卸载器只删 `runtime\ server\ service\ README.txt Uninstall.exe`，不 `RMDir /r $INSTDIR` | 用户在目录页选了已有目录时不能整个清空 |
 | `dist:gateway` 的 makensis 复用 electron-builder 缓存（`MAKENSIS` 环境变量可覆盖） | 不再装一套 NSIS；代价是要先跑过 `dist:client` |
+| 网关令牌带 TTL（=登录会话 TTL）并校验绑定会话未被吊销 | 之前令牌永久有效：重登录 / 忘记登出会无限累积永不失效的令牌；现在令牌自己会过期，登出 / 管理员吊销仍即时生效。旧版无 expiresAt 的令牌视为不过期（兼容存量） |
+| 公司盘 DELETE 拒绝目录整删 | `rmSync recursive` 一次能删整棵 inbox / _office（含交付物文件）；要删就删到文件级（任务交付物走任务卡接口） |
+| `/desk/api` 只信任本机工作台同源页面（Sec-Fetch-Site / Origin），非 JSON content-type 不给解析 | 本机回环接口权限大（上传本机文件、拉资源管理器、直通网关业务 API），网页盲 CSRF 面必须关掉 |
 
 ## 下次该干嘛（按优先级）
+
+### 0. 清扫遗留：语义待拍板 + 性能项（2026-09-06）
+
+- **额度口径**：现在“每个上游各一份完整周额度”，员工接 N 个上游可用 N 份；UI 概念像是单一周预算。要改成总额度就动 `ledger.exceeded/quotaView` + 管理页展示（标注不确定是否刻意，先问你）。
+- **终态任务内容**：approved/pending_final 下 assigner/assignee 仍能改 title/content/submission 且不再走验收——是否有意？要锁就进 `tasks.js` update()。
+- 性能：公司盘快照每 30s 全量 sha256 阻塞事件循环（>20MB 交付物被静默跳过）；`knowledge.search` 全树同步扫盘无超时/无上限——建议 mtime 增量 + 单查询限时。usage.jsonl 只增不删、内存全量缓存。
+- desk-host：内核 `-prev` 只清不复用（boot 崩溃无自动回退）、patches.mjs 先落盘后 --check、主代理+子代理工作流下任务绑定 / produced 产物索引失效（U1）、needsRelogin 时路由不拆、换人登录删工作区注册。
 
 ### 1. 安装包：剩余验收与小项
 

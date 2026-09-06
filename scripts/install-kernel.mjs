@@ -25,7 +25,7 @@ const args = process.argv.slice(2)
 const has = (k) => args.includes(k)
 const argOf = (k) => {
   const i = args.indexOf(k)
-  return i >= 0 ? args[i + 1] : undefined
+  return i >= 0 && args[i + 1] && !String(args[i + 1]).startsWith('-') ? args[i + 1] : undefined
 }
 const prefix = path.resolve(argOf('--prefix') ?? defaultPrefix())
 const dshHome = path.resolve(argOf('--dsh-home') ?? defaultDshHome())

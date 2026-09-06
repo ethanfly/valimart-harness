@@ -109,8 +109,16 @@
       btn.addEventListener('click', () => pick(btn.dataset.act))
     }
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') pick('cancel')
-      if (e.key === 'Enter') pick('minimize')
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        pick('cancel')
+        return
+      }
+      // 焦点在按钮上时 Enter 交给按钮原生 click（否则先触发 minimize、后触发 quit/cancel，「退出」对键盘不可达）
+      if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault()
+        pick('minimize')
+      }
     })
   </script>
 </body>

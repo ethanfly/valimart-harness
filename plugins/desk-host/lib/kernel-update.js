@@ -66,7 +66,13 @@ export async function fetchKernelUpdate({ gateway, pendingDir, localVersion, log
         return { action: 'cleared', detail: 'sha-mismatch' }
       }
     } else if (pending && pending.sha256 === current.sha256) {
-      return { action: 'skip', detail: 'already-pending' }
+      // 记录在但 tar 丢了（清盘/杀软/中断残留）：不能一直短路成 already-pending —— 那样升级永不生效
+      if (!fs.existsSync(helpers.pendingPaths(pendingDir).tar)) {
+        helpers.clearPending(pendingDir)
+        log('pending tar 缺失，清除记录后重新下载')
+      } else {
+        return { action: 'skip', detail: 'already-pending' }
+      }
     }
 
     const skip = skipReason(current, localVersion)

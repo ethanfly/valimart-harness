@@ -18,7 +18,7 @@ const args = process.argv.slice(2)
 const has = (k) => args.includes(k)
 const argOf = (k) => {
   const i = args.indexOf(k)
-  return i >= 0 ? args[i + 1] : undefined
+  return i >= 0 && args[i + 1] && !String(args[i + 1]).startsWith('-') ? args[i + 1] : undefined
 }
 
 function usage(msg) {
@@ -97,12 +97,19 @@ function cmdPrepare() {
   const version = argOf('--version')
   if (!version) usage('缺少 --version')
   const outDir = path.resolve(argOf('--out') ?? 'build/kernel-update')
-  const prefix = path.resolve(argOf('--prefix') ?? fs.mkdtempSync(path.join(os.tmpdir(), `diva-kprep-${version}-`)))
+  const givenPrefix = argOf('--prefix')
+  // 没给 --prefix 时用临时目录装内核（几百 MB）：成功失败都要清掉，别每次 prepare 泄漏一份完整安装
+  const tempPrefix = givenPrefix ? null : fs.mkdtempSync(path.join(os.tmpdir(), `diva-kprep-${version}-`))
+  const prefix = path.resolve(givenPrefix ?? tempPrefix)
   const skillsDir = path.resolve(argOf('--skills-dir') ?? path.join(defaultDshHome(), 'desk', 'drive', '_shared', 'skills'))
   const log = (msg) => console.log(`[kernel] ${msg}`)
-  const { tarPath, manifest } = prepareKernelTarball({ version, prefix, outDir, skillsDir, log })
-  log(`写出 ${tarPath}`)
-  console.log(JSON.stringify(manifest, null, 2))
+  try {
+    const { tarPath, manifest } = prepareKernelTarball({ version, prefix, outDir, skillsDir, log })
+    log(`写出 ${tarPath}`)
+    console.log(JSON.stringify(manifest, null, 2))
+  } finally {
+    if (tempPrefix) fs.rmSync(tempPrefix, { recursive: true, force: true })
+  }
 }
 
 async function cmdPublish() {

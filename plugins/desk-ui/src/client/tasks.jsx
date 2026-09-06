@@ -163,7 +163,7 @@ export function TaskPanel({ ctx, taskId, useSessions, chatOpen }) {
         </div>
       </div>
       <div className={`dk-task-body${chatOpen ? ' narrow' : ''}`}>
-        {tab === 'overview' ? <Overview ctx={ctx} task={task} me={me} editable={editable} currentSession={current} /> : <WorkLog ctx={ctx} task={task} me={me} useSessions={useSessions} />}
+        {tab === 'overview' ? <Overview key={task.id} ctx={ctx} task={task} me={me} editable={editable} currentSession={current} /> : <WorkLog key={task.id} ctx={ctx} task={task} me={me} useSessions={useSessions} />}
       </div>
     </div>
   )
@@ -191,20 +191,42 @@ function TitleEditor({ task, editable }) {
 }
 
 function Steps({ task }) {
-  const idx = { draft: 0, pending_review: 1, pending_final: 2, approved: 3, rejected: 3 }[task.status] ?? 0
+  // 驳回发生在哪一格：初审驳回停在「待审」，终审驳回停在「待终审」——不要把没走到的格子画成已完成
+  const reviewRejected = task.status === 'rejected' && !task.final && task.review?.decision === 'reject'
+  const finalRejected = task.status === 'rejected' && task.final?.decision === 'reject'
+  const pendingIdx = { draft: 0, pending_review: 1, pending_final: 2 }[task.status] ?? 0
   const steps = [
     { n: '01', l: '提交验收', d: task.submittedAt ? fmtTime(task.submittedAt) : '进行中' },
-    { n: '02', l: '待审', d: task.reviewedAt ? `${fmtTime(task.reviewedAt)} · ${who(task.reviewer)}` : task.reviewer ? `审核人 ${who(task.reviewer)}` : '未指定审核人' },
-    { n: '03', l: '待终审', d: task.finalizedAt ? `${fmtTime(task.finalizedAt)} · ${who(task.finalReviewer)}` : task.status === 'pending_final' ? '等待管理员终审' : '—' },
-    { n: '04', l: task.status === 'rejected' ? '驳回' : '通过', d: task.status === 'approved' ? `通过 · ${fmtTime(task.finalizedAt)}` : task.status === 'rejected' ? `驳回 · ${(task.final ?? task.review)?.comment || '无说明'}` : '—' },
+    {
+      n: '02',
+      l: '待审',
+      d: reviewRejected ? `初审驳回 · ${fmtTime(task.reviewedAt)}` : task.reviewedAt ? `${fmtTime(task.reviewedAt)} · ${who(task.reviewer)}` : task.reviewer ? `审核人 ${who(task.reviewer)}` : '未指定审核人',
+    },
+    {
+      n: '03',
+      l: '待终审',
+      d: finalRejected ? `终审驳回 · ${fmtTime(task.finalizedAt)}` : task.finalizedAt ? `${fmtTime(task.finalizedAt)} · ${who(task.finalReviewer)}` : task.status === 'pending_final' ? '等待管理员终审' : '—',
+    },
+    {
+      n: '04',
+      l: task.status === 'rejected' ? '驳回' : '通过',
+      d: task.status === 'approved' ? `通过 · ${fmtTime(task.finalizedAt)}` : task.status === 'rejected' ? `驳回 · ${(task.final ?? task.review)?.comment || '无说明'}` : '—',
+    },
   ]
+  const stateOf = (i) => {
+    if (task.status === 'approved') return 'done'
+    if (reviewRejected) return i === 0 ? 'done' : i === 1 ? 'rejected' : ''
+    if (finalRejected) return i < 2 ? 'done' : i === 2 ? 'rejected' : ''
+    if (i < pendingIdx) return 'done'
+    if (i === pendingIdx) return 'current'
+    return ''
+  }
   return (
     <div className="dk-steps">
       {steps.map((s, i) => {
         let cls = 'dk-step'
-        if (task.status === 'rejected' && i === 3) cls += ' rejected'
-        else if (i < idx || (task.status === 'approved' && i === 3)) cls += ' done'
-        else if (i === idx) cls += ' current'
+        const st = stateOf(i)
+        if (st) cls += ' ' + st
         return (
           <div key={s.n} className={cls}>
             <div className="n">{s.n}</div>
@@ -344,14 +366,26 @@ function TextSection({ task, field, title, editable, adoptSession, placeholder }
   const [v, setV] = useState(task[field] ?? '')
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const skipBlurSave = useRef(false)
   useEffect(() => {
     if (!dirty) setV(task[field] ?? '')
   }, [task[field], dirty])
-  const save = async () => {
+  // 失焦即静默保存：切 tab / 切任务 / 点别处时输入不再白白丢掉；点「保存 / 采用」这类
+  // 会自己写库的按钮时先在 onMouseDown 置 skip，避免旧草稿把刚采用的新内容覆盖掉。
+  const saveNow = async ({ toastOk = true } = {}) => {
     setBusy(true)
-    const r = await run(() => api.gw.patch(`/tasks/${task.id}`, { [field]: v }), `${title}已保存`)
+    const r = await run(() => api.gw.patch(`/tasks/${task.id}`, { [field]: v }), toastOk ? `${title}已保存` : null)
     setBusy(false)
     if (r) setDirty(false)
+  }
+  const save = () => saveNow()
+  const onBlur = () => {
+    if (!dirty || !editable) return
+    if (skipBlurSave.current) {
+      skipBlurSave.current = false
+      return
+    }
+    saveNow({ toastOk: false })
   }
   const adopt = async () => {
     if (!adoptSession) {
@@ -382,11 +416,22 @@ function TextSection({ task, field, title, editable, adoptSession, placeholder }
         <span>{title}</span>
         {editable && (
           <div className="dk-row" style={{ gap: 6 }}>
-            <button className="dk-btn sm" disabled={busy} onClick={adopt} title="把任务进程窗口里 Agent 的最新回复填进来">
+            <button
+              className="dk-btn sm"
+              disabled={busy}
+              onMouseDown={() => { skipBlurSave.current = true }}
+              onClick={adopt}
+              title="把任务进程窗口里 Agent 的最新回复填进来"
+            >
               <IconChat size={13} /> 采用进{title}
             </button>
             {dirty && (
-              <button className="dk-btn sm primary" disabled={busy} onClick={save}>
+              <button
+                className="dk-btn sm primary"
+                disabled={busy}
+                onMouseDown={() => { skipBlurSave.current = true }}
+                onClick={save}
+              >
                 保存
               </button>
             )}

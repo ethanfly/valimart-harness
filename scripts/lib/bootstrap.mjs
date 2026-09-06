@@ -76,16 +76,21 @@ export function readGatewayUrl(patchFile, fallback = 'http://127.0.0.1:8790') {
 /** Windows 上用 junction（不需要开发者模式）；已指向同一目标则保留。 */
 export function linkJunction(linkPath, target) {
   fs.mkdirSync(path.dirname(linkPath), { recursive: true })
+  let existed = false
   try {
     const st = fs.lstatSync(linkPath)
+    existed = true
     if (st.isSymbolicLink()) {
       if (path.resolve(fs.readlinkSync(linkPath)) === path.resolve(target)) return 'kept'
       fs.unlinkSync(linkPath)
     } else if (st.isDirectory()) {
       fs.rmSync(linkPath, { recursive: true, force: true })
     } else fs.unlinkSync(linkPath)
-  } catch {
-    /* 不存在 */
+  } catch (err) {
+    // 链接本来就不存在是常态；存在却删不掉（EBUSY/EPERM/只读）要明说，别让下面 symlinkSync 报个难懂的 EEXIST
+    if (existed || err.code !== 'ENOENT') {
+      throw new Error(`无法替换 ${linkPath} → ${target}（${err.code || err.message}）`)
+    }
   }
   fs.symlinkSync(target, linkPath, 'junction')
   return 'linked'
@@ -165,7 +170,13 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
 export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = noop }) {
   const pending = readPending(pendingDir)
   const paths = pendingPaths(pendingDir)
-  if (!pending || !fs.existsSync(paths.tar)) return { applied: false, detail: 'no-pending' }
+  if (!pending) return { applied: false, detail: 'no-pending' }
+  if (!fs.existsSync(paths.tar)) {
+    // pending 记录在但 tar 丢了（清理/杀软/中断残留）：清记录，别让“已下载”假象卡死升级
+    clearPending(pendingDir)
+    log('kernel-next 记录在但 tar 缺失，已清除记录（等待重新下载）')
+    return { applied: false, detail: 'pending-tar-missing' }
+  }
   if (hashFile(paths.tar) !== pending.sha256) {
     clearPending(pendingDir)
     log('内核更新未生效，校验失败，仍用旧内核')

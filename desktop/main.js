@@ -35,7 +35,11 @@ const nodeExe = path.join(payloadDir, 'runtime', process.platform === 'win32' ? 
 class Log {
   constructor(file) {
     this.file = file
-    fs.mkdirSync(path.dirname(file), { recursive: true })
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+    } catch {
+      /* 日志目录建不起来（如 home 只读）时只降级为不落盘，不打断启动 */
+    }
     this.rotate()
   }
   rotate() {
@@ -78,19 +82,6 @@ async function findFreePort(preferred, tries) {
       srv.close(() => resolve(port))
     })
   })
-}
-async function waitHttp(url, timeoutMs) {
-  const started = Date.now()
-  for (;;) {
-    try {
-      const r = await fetch(url)
-      if (r.ok || r.status < 500) return
-    } catch {
-      /* 还没起来 */
-    }
-    if (Date.now() - started > timeoutMs) throw new Error(`内核 ${timeoutMs / 1000} 秒内没有就绪（${url}）`)
-    await new Promise((r) => setTimeout(r, 300))
-  }
 }
 function killTree(child) {
   if (!child || child.exitCode !== null || child.signalCode) return
@@ -182,6 +173,22 @@ function runBootstrap() {
     bootstrapChild = child
     let ready = null
     let buf = ''
+    let settled = false
+    const fail = (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      killTree(child)
+      reject(err)
+    }
+    const win = (ev) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(ev)
+    }
+    // 总超时：解压/装内核卡住时不能永远停在 splash（fatal 兜底也会把 bootstrap 进程一起杀）
+    const timer = setTimeout(() => fail(new Error('启动准备超过 3 分钟仍未完成，已中止')), 180_000)
     const handleLine = (raw) => {
       const line = raw.trim()
       if (!line) return
@@ -194,7 +201,7 @@ function runBootstrap() {
       }
       if (!ev || typeof ev !== 'object') return
       if (ev.step === 'ready') ready = ev
-      else if (ev.step === 'error') reject(new Error(ev.detail))
+      else if (ev.step === 'error') fail(new Error(ev.detail))
       else setStatus(describe(ev))
     }
     child.stdout.setEncoding('utf8')
@@ -209,14 +216,14 @@ function runBootstrap() {
     })
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (d) => log.write('bootstrap:err', d))
-    child.on('error', reject)
+    child.on('error', (err) => fail(err))
     // close（而不是 exit）：此时 stdio 已全部读完，最后一行 ready 不会丢；再把没带换行的尾巴解析掉
     child.on('close', (code) => {
       bootstrapChild = null
       handleLine(buf)
       buf = ''
-      if (code === 0 && ready) resolve(ready)
-      else reject(new Error(`启动准备失败（退出码 ${code}）`))
+      if (code === 0 && ready) win(ready)
+      else fail(new Error(`启动准备失败（退出码 ${code}）`))
     })
   })
 }
@@ -259,6 +266,8 @@ let quitting = false
 let closeBusy = false
 let forceClose = false
 let shutdownStarted = false
+/** 主窗口已经正常打开过（决定崩溃对话框文案与「重新打开」按钮） */
+let appLive = false
 
 /** 只放行 http/https 到系统浏览器，其他协议一律丢弃。 */
 function openExternal(u) {
@@ -511,6 +520,7 @@ async function openMainWindow(url, { attach = false } = {}) {
     }
     throw err
   }
+  appLive = true
   log.write('app', `就绪 ${url}`)
 }
 
@@ -568,26 +578,37 @@ async function fatal(err) {
   log.write('app', `FATAL ${err && err.stack ? err.stack : err}`)
   quitting = true
   killTree(kernel)
+  killTree(bootstrapChild)
   if (splash && !splash.isDestroyed()) splash.hide()
+  const live = appLive && mainWin && !mainWin.isDestroyed()
   const { response } = await dialog.showMessageBox({
     type: 'error',
-    title: 'valimart harness 无法启动',
-    message: 'valimart harness 无法启动',
+    title: live ? 'valimart harness 运行中断' : 'valimart harness 无法启动',
+    message: live ? '内核进程意外退出，工作台已关闭。' : 'valimart harness 无法启动',
     detail: `${err.message}\n\n日志：${log.file}`,
-    buttons: ['打开日志目录', '退出'],
-    defaultId: 1,
-    cancelId: 1,
+    buttons: live ? ['重新打开', '打开日志目录', '退出'] : ['打开日志目录', '退出'],
+    defaultId: live ? 0 : 1,
+    cancelId: live ? 2 : 1,
     noLink: true,
   })
-  if (response === 0) await shell.openPath(logDir)
-  app.exit(1)
+  if (live && response === 0) {
+    app.relaunch()
+    app.exit(0)
+  } else {
+    if ((live && response === 1) || (!live && response === 0)) await shell.openPath(logDir)
+    app.exit(1)
+  }
 }
 
 // Electron 自身状态（Chromium 缓存 / 单实例锁文件）也放进 appDir，运行时状态只落 ~/.company-desk 与 ~/.dsh；须在取锁之前设好
 const electronDir = path.join(appDir, 'electron')
-fs.mkdirSync(electronDir, { recursive: true })
-app.setPath('userData', electronDir)
-app.setPath('sessionData', electronDir)
+try {
+  fs.mkdirSync(electronDir, { recursive: true })
+  app.setPath('userData', electronDir)
+  app.setPath('sessionData', electronDir)
+} catch {
+  // appDir 不可写（home 只读 / 磁盘满 / 路径被占用）：退回 Electron 默认 userData，不让原生错误框打断启动
+}
 
 app.on('window-all-closed', () => shutdown(0))
 app.on('before-quit', () => {

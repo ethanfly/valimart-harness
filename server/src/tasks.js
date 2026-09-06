@@ -169,27 +169,39 @@ export class Tasks {
       if (!this.canView(task, user)) throw new HttpError(403, '无权查看该任务')
       if (!(user.role === 'admin' || task.assigneeId === user.id || task.assignerId === user.id)) throw new HttpError(403, '只有提交人可以添加交付物')
       if (!Array.isArray(files) || files.length === 0) throw new HttpError(400, '没有文件')
-      const added = []
+      // 三段式提交：先校验（零副作用）→ 全部写盘成功才改内存并留痕；中途失败回滚已写文件，
+      // 避免“客户端收到失败、前几个交付物却已写进任务卡/盘里”的半提交。
+      const planned = []
       for (const f of files) {
         const name = String(f.name ?? '').replace(/[\\/]+/g, '_').trim()
         if (!name) throw new HttpError(400, '文件名不能为空')
-        const data = Buffer.from(f.dataBase64 ?? '', 'base64')
         const rel = `projects/inbox/${task.id}/${name}`
-        const info = this.drive.write(rel, data)
-        const existing = task.deliverables.find((d) => d.name === name)
-        const record = {
-          name,
-          path: rel,
-          size: info.size,
-          addedAt: new Date().toISOString(),
-          addedBy: user.id,
-          source: f.source ?? 'manual',
-          sessionId: f.sessionId ?? null,
-          localPath: f.localPath ?? null,
+        planned.push({ name, rel, f, record: { name, path: rel, size: 0, addedAt: new Date().toISOString(), addedBy: user.id, source: f.source ?? 'manual', sessionId: f.sessionId ?? null, localPath: f.localPath ?? null } })
+      }
+      const written = []
+      try {
+        for (const p of planned) {
+          const data = Buffer.from(p.f.dataBase64 ?? '', 'base64')
+          const info = this.drive.write(p.rel, data)
+          written.push({ p, info })
         }
-        if (existing) Object.assign(existing, record)
-        else task.deliverables.push(record)
-        added.push(record)
+      } catch (err) {
+        for (const { p } of written) {
+          try {
+            this.drive.remove(p.rel)
+          } catch {
+            /* 尽力回滚 */
+          }
+        }
+        throw err
+      }
+      const added = []
+      for (const { p, info } of written) {
+        p.record.size = info.size
+        const existing = task.deliverables.find((d) => d.name === p.name)
+        if (existing) Object.assign(existing, p.record)
+        else task.deliverables.push(p.record)
+        added.push(p.record)
       }
       this.log(task, user, 'file', `添加交付物：${added.map((a) => a.name).join('、')}`, { files: added.map((a) => a.name), sessionId: files[0]?.sessionId ?? null })
       return task
@@ -202,8 +214,10 @@ export class Tasks {
       if (!(user.role === 'admin' || task.assigneeId === user.id || task.assignerId === user.id)) throw new HttpError(403, '只有提交人可以删除交付物')
       const idx = task.deliverables.findIndex((d) => d.name === name)
       if (idx < 0) throw new HttpError(404, '交付物不存在')
-      const [d] = task.deliverables.splice(idx, 1)
+      const d = task.deliverables[idx]
+      // 先删盘后改内存：盘删失败（IO 错）时记录还在，状态一致；盘删成功后再动内存，不会半提交
       this.drive.remove(d.path)
+      task.deliverables.splice(idx, 1)
       this.log(task, user, 'file', `移除交付物：${d.name}`)
       return task
     })
