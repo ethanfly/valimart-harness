@@ -53,6 +53,8 @@ export class Db {
   }
   createUser({ username, password, displayName, role, department, seed = false }) {
     if (!/^[a-zA-Z0-9_.-]{2,32}$/.test(username)) throw new Error('账号只能包含字母、数字、._-，长度 2-32')
+    // 用户名会拼进 _office/<用户名>/… 本机路径：禁掉 . 开头/结尾与连续 .. （既是遍历风险也让格子路径塌陷）
+    if (/(^\.|\.$|\.\.)/.test(username)) throw new Error('账号不能以点开头或结尾，也不能含连续两点')
     if (!ROLES.includes(role)) throw new Error(`未知角色 ${role}`)
     if (this.getUserByName(username)) throw new Error(`账号 ${username} 已存在`)
     if (typeof password !== 'string' || password.length < 6) throw new Error('密码至少 6 位')

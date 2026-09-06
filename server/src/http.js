@@ -54,11 +54,15 @@ export function parseUrl(req) {
 export async function readBody(req, limit = 64 * 1024 * 1024) {
   const chunks = []
   let size = 0
+  let overflow = false
   for await (const chunk of req) {
     size += chunk.length
-    if (size > limit) throw new HttpError(413, 'request body too large')
-    chunks.push(chunk)
+    if (size > limit) overflow = true
+    // 超限后继续把请求体读完（丢弃），而不是半路抛错：keep-alive 连接上残留未读字节
+    // 会污染下一个请求的帧解析（400 / 串包），也会让客户端等不到 413
+    if (!overflow) chunks.push(chunk)
   }
+  if (overflow) throw new HttpError(413, 'request body too large')
   return Buffer.concat(chunks)
 }
 

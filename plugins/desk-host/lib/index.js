@@ -298,7 +298,9 @@ export function apply(ctx, config) {
       if (r.gatewayTokenActive === false && !state.data.needsRelogin) {
         state.data.needsRelogin = true
         state.data.lastError = '这台电脑的网关令牌已失效（管理员吊销或已在别处重置），请重新登录以获取新令牌'
-        log('本机网关令牌已失效')
+        log('本机网关令牌已失效，移除模型路由')
+        // 令牌已死：本机模型路由必须拆掉，不然模型菜单还在、一调用就报误导性的「模型连接失败」
+        await removeLlmRoute().catch(() => {})
       }
       state.save()
       // 管理员在网关上接入/断开了通道：不用等界面刷新，一个心跳内全员的模型菜单就跟着变
@@ -329,6 +331,8 @@ export function apply(ctx, config) {
         if (me.gatewayTokenActive === false || !state.data.gatewayToken) {
           state.data.needsRelogin = true
           state.data.lastError = '网关令牌已失效，请重新登录'
+          // 旧会话可能残留着指向已死令牌的模型路由：开机校验发现令牌无效就拆掉，避免误导性报错
+          await removeLlmRoute().catch(() => {})
         } else {
           await configureLlmRoute(me.company, state.data.gatewayToken)
         }
@@ -378,10 +382,25 @@ export function apply(ctx, config) {
     return agent?.session?.id ?? agent?.id
   }
 
+  /** 任务绑定沿会话树向上找：主进程绑定 tk-xxx 后，它派生的子代理（subagent_fork / ralph）
+   *  的会话 id 不在 taskSessions 里，但 header.parentSession 一直指回主进程——沿祖先链爬到绑定。 */
+  function taskOfSessionOrAncestor(sid) {
+    let cur = sid ? String(sid) : undefined
+    const seen = new Set()
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      const t = state.taskOfSession(cur)
+      if (t) return t
+      const rec = ctx.sessions.get?.(cur)
+      cur = rec?.header?.parentSession ? String(rec.header.parentSession) : undefined
+    }
+    return undefined
+  }
+
   function resolveTaskId(exec, explicit) {
     if (explicit) return explicit
     const sid = sessionIdOf(exec)
-    const bound = state.taskOfSession(sid ? String(sid) : undefined)
+    const bound = taskOfSessionOrAncestor(sid)
     if (!bound) throw new Error('当前进程没有绑定任务卡：请在任务页打开任务进程，或显式传 taskId')
     return bound
   }
@@ -592,7 +611,7 @@ export function apply(ctx, config) {
     text: (context) => {
       const scope = context?.scope
       const sid = scope?.session?.id ?? scope?.id ?? scope?.agent?.id
-      const taskId = state.taskOfSession(sid ? String(sid) : undefined)
+      const taskId = taskOfSessionOrAncestor(sid)
       if (!taskId) return ''
       const dir = mirror.taskDir(taskId)
       const head = [
