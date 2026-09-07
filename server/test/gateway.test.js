@@ -428,6 +428,8 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.ok(html.includes('x-client-build-id'), '管理页上传安装包应带 buildId')
   assert.ok(html.includes('data-edit='), '已接入通道应有编辑入口')
   assert.match(html, /form:not\(\.row\) > button/, '堆叠表单提交按钮与上一栏留间距（写入知识库不贴内容框）')
+  assert.match(html, /body \{[^}]*overflow:hidden/, '桌面端侧栏固定：页面本身不滚')
+  assert.match(html, /main \{[^}]*overflow-y:auto/, '只有主栏滚动，左侧导航不跟着走')
   assert.match(html, /#channels table/, '通道表单独定列宽，避免模型把短列挤成竖排')
   assert.match(html, /\.ch-models/, '通道模型用标签折行，不把整行撑乱')
   assert.ok(html.includes('/admin/brand/valimart-mark.png'), 'favicon 仍用花标')

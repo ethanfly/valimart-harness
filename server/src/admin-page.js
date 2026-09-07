@@ -74,10 +74,11 @@ export function renderAdminHtml({ companyName }) {
 <style>
   :root { --bg:#f6f6f4; --card:#fff; --text:#1c1c1c; --muted:#6b6b6b; --line:#e6e6e2; --accent:#1c1c1c; --ok:#0a7d37; --warn:#b26a00; --bad:#b3261e; --chip:#f0efe9; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  header { display:flex; align-items:center; gap:16px; padding:14px 24px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; }
-  .app { display:flex; align-items:flex-start; min-height:calc(100vh - 57px); }
-  #nav { display:none; width:188px; flex:0 0 188px; min-height:calc(100vh - 57px); padding:14px 10px; border-right:1px solid var(--line); background:var(--card); position:sticky; top:57px; align-self:stretch; }
+  html, body { height:100%; }
+  body { margin:0; overflow:hidden; display:flex; flex-direction:column; background:var(--bg); color:var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:14px 24px; border-bottom:1px solid var(--line); background:var(--card); flex:0 0 auto; z-index:5; }
+  .app { display:flex; align-items:stretch; flex:1; min-height:0; }
+  #nav { display:none; width:188px; flex:0 0 188px; padding:14px 10px; border-right:1px solid var(--line); background:var(--card); overflow-y:auto; }
   body.ready #nav { display:block; }
   #nav a { display:block; padding:8px 12px; border-radius:8px; color:inherit; text-decoration:none; font-size:13px; }
   #nav a:hover { background:#f3f3f0; }
@@ -88,7 +89,7 @@ export function renderAdminHtml({ companyName }) {
   .login .logo .word { height:22px; width:calc(22px * 4.97); }
   header .sp { flex:1; }
   header .who { color:var(--muted); font-size:13px; }
-  main { flex:1; min-width:0; max-width: 1080px; margin: 0 auto; padding: 24px 28px 64px; }
+  main { flex:1; min-width:0; min-height:0; overflow-y:auto; padding: 24px max(28px, calc((100% - 1080px) / 2)) 64px; }
   section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
   h2 { margin:0 0 4px; font-size:16px; }
   .desc { color:var(--muted); font-size:13px; margin:0 0 14px; }
@@ -161,9 +162,13 @@ export function renderAdminHtml({ companyName }) {
   table select { height:28px; max-width:148px; }
   .fold-body table { font-size:12px; }
   @media (max-width: 760px) {
-    .app { flex-direction:column; }
-    body.ready #nav { display:flex; width:100%; flex:none; min-height:0; position:static; border-right:none; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:4px; }
+    html, body { height:auto; }
+    body { overflow:auto; display:block; }
+    header { position:sticky; top:0; }
+    .app { flex-direction:column; height:auto; min-height:0; }
+    body.ready #nav { display:flex; width:100%; flex:none; min-height:0; overflow:visible; border-right:none; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:4px; position:sticky; top:53px; z-index:4; }
     #nav a { padding:6px 10px; }
+    main { overflow:visible; min-height:0; padding:16px; }
   }
 </style>
 </head>
