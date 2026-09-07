@@ -450,6 +450,26 @@ test('周额度：用满后 429', async () => {
   assert.equal(ok.status, 200)
 })
 
+test('周额度：并发两笔只放行一笔，第二笔 429', async () => {
+  const created = await api('POST', '/api/personnel/users', {
+    token: ctx.boss.sessionToken,
+    body: { username: 'quota-race', password: 'quota123', displayName: '额度竞态', role: 'employee', department: '测试' },
+  })
+  assert.equal(created.status, 201)
+  await api('PATCH', `/api/personnel/users/${created.json.user.id}`, { token: ctx.boss.sessionToken, body: { weeklyQuotaCny: 0.0000005 } })
+  const login = await api('POST', '/api/auth/login', { body: { username: 'quota-race', password: 'quota123', device: 'test' } })
+  assert.equal(login.status, 200)
+  const body = { model: 'mock-echo', messages: [{ role: 'user', content: 'race' }] }
+  const [a, b] = await Promise.all([
+    api('POST', '/v1/chat/completions', { token: login.json.gatewayToken, body }),
+    api('POST', '/v1/chat/completions', { token: login.json.gatewayToken, body }),
+  ])
+  const statuses = [a.status, b.status].sort()
+  assert.deepEqual(statuses, [200, 429])
+  const denied = a.status === 429 ? a : b
+  assert.equal(denied.json.error.code, 'quota_exceeded')
+})
+
 test('内核：总监可 GET 管理视图；员工 GET 403；总监不能 publish', async () => {
   const empGet = await api('GET', '/api/admin/kernel', { token: ctx.emp.sessionToken })
   assert.equal(empGet.status, 403)

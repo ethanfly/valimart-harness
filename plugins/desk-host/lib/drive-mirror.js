@@ -15,7 +15,6 @@ export class DriveMirror {
     this.state = state
     this.log = log ?? (() => {})
     this.index = new Map() // rel -> sha256（上次同步时远端状态）
-    this.syncing = null
     fs.mkdirSync(root, { recursive: true })
     this.tombPath = path.join(root, '.deleted-remote.json')
     this.tomb = new Set(this.loadTomb())
@@ -45,89 +44,109 @@ export class DriveMirror {
     return full
   }
 
+  /** 排队门闩：push / pull / sync 共享 index 与 tomb，并发会双写。后到的操作等当前结束再跑（不合并，避免 attach 之后拿到过期 pull）。 */
+  async runExclusive(fn) {
+    const prev = this.syncBusy ?? Promise.resolve()
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const next = prev.then(() => gate)
+    this.syncBusy = next
+    await prev.catch(() => {})
+    try {
+      return await fn()
+    } finally {
+      release()
+      if (this.syncBusy === next) this.syncBusy = null
+    }
+  }
+
   /** 拉取：远端快照 → 下载变更文件；返回统计。 */
   async pull() {
-    if (this.syncing) return this.syncing
-    this.syncing = (async () => {
-      const snap = await this.gateway.get('/api/drive/snapshot')
-      let downloaded = 0
-      const remote = new Set()
-      for (const f of snap.files) {
-        remote.add(f.path)
-        const full = this.abs(f.path)
-        let localSha
-        try {
-          localSha = sha256(fs.readFileSync(full))
-        } catch {
-          localSha = undefined
-        }
-        if (localSha === f.sha256) {
-          this.index.set(f.path, f.sha256)
-          continue
-        }
-        // 本地被改过且远端没变：属于待回推，不覆盖
-        if (localSha !== undefined && this.index.get(f.path) === f.sha256) continue
-        const buf = await this.gateway.get(`/api/drive/file?path=${encodeURIComponent(f.path)}`)
-        fs.mkdirSync(path.dirname(full), { recursive: true })
-        fs.writeFileSync(full, buf)
+    return this.runExclusive(() => this.pullNow())
+  }
+
+  async pullNow() {
+    const snap = await this.gateway.get('/api/drive/snapshot')
+    let downloaded = 0
+    const remote = new Set()
+    for (const f of snap.files) {
+      remote.add(f.path)
+      const full = this.abs(f.path)
+      let localSha
+      try {
+        localSha = sha256(fs.readFileSync(full))
+      } catch {
+        localSha = undefined
+      }
+      if (localSha === f.sha256) {
         this.index.set(f.path, f.sha256)
-        downloaded++
+        continue
       }
-      // 远端删除：本地保留副本（避免误删用户文件），但不再跟踪。个人区的删除要记墓碑 ——
-      // 不记的话下一轮 pushPersonal 会把这个旧副本当成“本地新增”传回去，删除永远无法收敛。
-      const me = this.state.data.user?.username
-      const myPrefix = `_office/${me}/`
-      for (const rel of [...this.index.keys()]) {
-        if (remote.has(rel)) {
-          if (this.tomb.delete(rel)) this.saveTomb() // 远端重现（恢复/重新上传）：取消墓碑
-          continue
-        }
-        if (me && rel.startsWith(myPrefix)) {
-          this.tomb.add(rel)
-          this.saveTomb()
-        }
-        this.index.delete(rel)
+      // 本地被改过且远端没变：属于待回推，不覆盖
+      if (localSha !== undefined && this.index.get(f.path) === f.sha256) continue
+      const buf = await this.gateway.get(`/api/drive/file?path=${encodeURIComponent(f.path)}`)
+      fs.mkdirSync(path.dirname(full), { recursive: true })
+      fs.writeFileSync(full, buf)
+      this.index.set(f.path, f.sha256)
+      downloaded++
+    }
+    // 远端删除：本地保留副本（避免误删用户文件），但不再跟踪。个人区的删除要记墓碑 ——
+    // 不记的话下一轮 pushPersonal 会把这个旧副本当成“本地新增”传回去，删除永远无法收敛。
+    const me = this.state.data.user?.username
+    const myPrefix = `_office/${me}/`
+    for (const rel of [...this.index.keys()]) {
+      if (remote.has(rel)) {
+        if (this.tomb.delete(rel)) this.saveTomb() // 远端重现（恢复/重新上传）：取消墓碑
+        continue
       }
-      this.ensureLayout(snap)
-      // 只在有变化或首次同步时打日志，避免心跳把日志刷屏
-      if (downloaded || !this.everSynced) this.log(`公司盘同步完成：${snap.files.length} 个文件，下载 ${downloaded} 个`)
-      this.everSynced = true
-      return { files: snap.files.length, downloaded }
-    })().finally(() => {
-      this.syncing = null
-    })
-    return this.syncing
+      if (me && rel.startsWith(myPrefix)) {
+        this.tomb.add(rel)
+        this.saveTomb()
+      }
+      this.index.delete(rel)
+    }
+    this.ensureLayout(snap)
+    // 只在有变化或首次同步时打日志，避免心跳把日志刷屏
+    if (downloaded || !this.everSynced) this.log(`公司盘同步完成：${snap.files.length} 个文件，下载 ${downloaded} 个`)
+    this.everSynced = true
+    return { files: snap.files.length, downloaded }
   }
 
   /** 回推：个人记忆区内本地新增/修改的文件写回网关。 */
   async pushPersonal() {
+    return this.runExclusive(() => this.pushPersonalNow())
+  }
+
+  async pushPersonalNow() {
     const me = this.state.data.user?.username
     if (!me) return { pushed: 0 }
     const base = `_office/${me}`
     const dir = this.abs(base)
     if (!fs.existsSync(dir)) return { pushed: 0 }
     let pushed = 0
+    const pending = []
     const walk = (rel, tomb) => {
       for (const d of fs.readdirSync(this.abs(rel), { withFileTypes: true })) {
         if (d.name.startsWith('.')) continue
         const childRel = `${rel}/${d.name}`
         if (d.isDirectory()) walk(childRel, tomb)
         else {
-          // 墓碑 = 网关那边已删除、我们不回推的旧副本（先于读盘/哈希拦截）
-          if (tomb.includes(childRel)) continue
+          // 墓碑是 Set：网关已删、本机旧副本不回推（先于读盘/哈希拦截）
+          if (tomb.has(childRel)) continue
           const buf = fs.readFileSync(this.abs(childRel))
           if (buf.length > 20 * 1024 * 1024) continue
           const sha = sha256(buf)
           if (this.index.get(childRel) === sha) continue
           pushed++
-          this.pending.push({ rel: childRel, buf, sha })
+          pending.push({ rel: childRel, buf, sha })
         }
       }
     }
-    this.pending = []
     const liveTomb = new Set([...this.tomb].filter((r) => r.startsWith(base + '/')))
     walk(base, liveTomb)
-    for (const p of this.pending) {
+    for (const p of pending) {
       await this.gateway.put(`/api/drive/file?path=${encodeURIComponent(p.rel)}`, p.buf, { raw: true, headers: { 'content-type': 'application/octet-stream' } })
       this.index.set(p.rel, p.sha)
       if (this.tomb.delete(p.rel)) this.saveTomb()
@@ -137,18 +156,13 @@ export class DriveMirror {
   }
 
   async sync() {
-    // 整体串行化：pushPersonal 与 pull 共享 this.index/this.tomb，心跳与手动/attach 并发会双写同一批判定
-    if (this.syncBusy) return this.syncBusy
-    this.syncBusy = (async () => {
-      const { pushed } = await this.pushPersonal()
-      const r = await this.pull()
+    return this.runExclusive(async () => {
+      const { pushed } = await this.pushPersonalNow()
+      const r = await this.pullNow()
       this.state.data.lastSyncAt = new Date().toISOString()
       this.state.save()
       return { ...r, pulled: r.downloaded, pushed }
-    })().finally(() => {
-      this.syncBusy = null
     })
-    return this.syncBusy
   }
 
   ensureLayout(snap) {

@@ -443,6 +443,7 @@ function TextSection({ task, field, title, editable, adoptSession, placeholder }
         value={v}
         readOnly={!editable}
         placeholder={placeholder}
+        onBlur={onBlur}
         onChange={(e) => {
           setV(e.target.value)
           setDirty(true)

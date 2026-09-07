@@ -40,3 +40,16 @@ test('侧栏任务空态文案存在，且不回退到假任务标题', () => {
   assert.match(sidebar, /暂无任务/)
   assert.doesNotMatch(sidebar, /学习agent|季度复盘|详情页/)
 })
+
+test('任务正文 textarea 绑定 onBlur 静默保存', () => {
+  const tasks = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/tasks.jsx'), 'utf8')
+  assert.match(tasks, /const onBlur = \(\) =>/)
+  assert.match(tasks, /<textarea[\s\S]*onBlur=\{onBlur\}/)
+})
+
+test('表单控件默认高度与按钮对齐', () => {
+  const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8').replace(/\s+/g, ' ')
+  assert.match(css, /\.dk-input:not\(textarea\), \.dk-select \{[^}]*height: 30px/)
+  assert.match(css, /\.dk-btn \{[^}]*height: 30px/)
+  assert.match(css, /\.dk-input\.sm, \.dk-select\.sm \{[^}]*height: 26px/)
+})

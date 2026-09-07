@@ -151,7 +151,7 @@ function TaskList({ tasks, desk }) {
     <div className="dk-tasklist">
       <div className="dk-tasklist-tools">
         <div className="dk-grow" style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 8, top: 6, color: 'var(--dk-text-3)' }}>
+          <span className="dk-search-icon">
             <IconSearch size={13} />
           </span>
           <input className="dk-input sm" style={{ paddingLeft: 26 }} placeholder="搜索任务" value={q} onChange={(e) => setQ(e.target.value)} />

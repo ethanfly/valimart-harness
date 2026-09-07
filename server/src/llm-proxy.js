@@ -69,15 +69,15 @@ export class LlmProxy {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, '请求体必须是 JSON 对象', 'invalid_body')
     const model = this.findModel(body.model)
     if (!model) throw new HttpError(404, '模型 ' + body.model + ' 不在公司目录里', 'model_not_found')
-    if (this.ledger.exceeded(user, model.provider)) {
-      throw new HttpError(429, '本周 ' + model.providerLabel + ' 额度已用完，刷新时间 ' + (this.ledger.quotaView(user, [{ id: model.provider }])[0]?.refreshAt ?? ''), 'quota_exceeded')
-    }
     const upstream = this.cfg.upstreams[model.provider]
-    // mock 上游（离线演示）不消耗上游资源，不用排队
-    if (upstream.kind === 'mock') return this.mockChat(user, model, body, res, upstream)
-    // 同一用户在同一上游上的请求串行执行：exceeded() 检查到 record() 记账之间隔着一整段上游调用，
-    // 不串行的话并发请求能同时越过周额度线（TOCTOU）
-    return this.withProviderLock(user.id + ':' + model.provider, () => this.proxyChat(user, model, body, res, upstream))
+    // 额度检查必须在锁内：锁外先查再排队，上一笔已记账超额后仍会放行。mock 也记账，同样要串行。
+    return this.withProviderLock(user.id + ':' + model.provider, () => {
+      if (this.ledger.exceeded(user, model.provider)) {
+        throw new HttpError(429, '本周 ' + model.providerLabel + ' 额度已用完，刷新时间 ' + (this.ledger.quotaView(user, [{ id: model.provider }])[0]?.refreshAt ?? ''), 'quota_exceeded')
+      }
+      if (upstream.kind === 'mock') return this.mockChat(user, model, body, res, upstream)
+      return this.proxyChat(user, model, body, res, upstream)
+    })
   }
 
   /** (userId:provider) → 排队链 的简单先到先服务门闩。 */
@@ -417,52 +417,54 @@ export class LlmProxy {
   async completeOnce(user, modelId, messages, { maxTokens = 512, tag = 'quick-inference' } = {}) {
     const model = this.findModel(modelId)
     if (!model) throw new HttpError(404, `模型 ${modelId} 不在公司目录里`, 'model_not_found')
-    if (this.ledger.exceeded(user, model.provider)) throw new HttpError(429, `本周 ${model.providerLabel} 额度已用完`, 'quota_exceeded')
     const upstream = this.cfg.upstreams[model.provider]
-    const started = Date.now()
-    let content = ''
-    let usage
-    if (upstream.kind === 'mock') {
-      const last = [...messages].reverse().find((m) => m.role === 'user')
-      content = `【Mock 快速推理】${typeof last?.content === 'string' ? last.content.slice(0, 120) : ''} → 好的，已处理。`
-      usage = { prompt_tokens: Math.ceil(JSON.stringify(messages).length / 3), completion_tokens: Math.ceil(content.length / 1.5) }
-    } else {
-      const body = { model: model.upstreamModel, messages, stream: false, max_tokens: maxTokens }
-      if (model.compat?.thinkingFormat === 'deepseek' && model.reasoningEfforts) body.thinking = { type: 'disabled' }
-      const r = await this.fetchUpstream(upstream, body, model, { stream: false })
-      const text = await r.text()
-      if (!r.ok) throw new HttpError(502, `上游返回 ${r.status}: ${text.slice(0, 300)}`, 'upstream_error')
-      let json
-      if (usesChatgptCodex(upstream)) {
-        const translator = createCodexSseTranslator({ model: model.id })
-        translator.push(text)
-        translator.end()
-        json = {
-          choices: [{ message: { role: 'assistant', content: translator.text } }],
-          usage: translator.usage,
-        }
+    return this.withProviderLock(user.id + ':' + model.provider, async () => {
+      if (this.ledger.exceeded(user, model.provider)) throw new HttpError(429, `本周 ${model.providerLabel} 额度已用完`, 'quota_exceeded')
+      const started = Date.now()
+      let content = ''
+      let usage
+      if (upstream.kind === 'mock') {
+        const last = [...messages].reverse().find((m) => m.role === 'user')
+        content = `【Mock 快速推理】${typeof last?.content === 'string' ? last.content.slice(0, 120) : ''} → 好的，已处理。`
+        usage = { prompt_tokens: Math.ceil(JSON.stringify(messages).length / 3), completion_tokens: Math.ceil(content.length / 1.5) }
       } else {
-        json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
+        const body = { model: model.upstreamModel, messages, stream: false, max_tokens: maxTokens }
+        if (model.compat?.thinkingFormat === 'deepseek' && model.reasoningEfforts) body.thinking = { type: 'disabled' }
+        const r = await this.fetchUpstream(upstream, body, model, { stream: false })
+        const text = await r.text()
+        if (!r.ok) throw new HttpError(502, `上游返回 ${r.status}: ${text.slice(0, 300)}`, 'upstream_error')
+        let json
+        if (usesChatgptCodex(upstream)) {
+          const translator = createCodexSseTranslator({ model: model.id })
+          translator.push(text)
+          translator.end()
+          json = {
+            choices: [{ message: { role: 'assistant', content: translator.text } }],
+            usage: translator.usage,
+          }
+        } else {
+          json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
+        }
+        content = json.choices?.[0]?.message?.content ?? ''
+        usage = json.usage
       }
-      content = json.choices?.[0]?.message?.content ?? ''
-      usage = json.usage
-    }
-    const latencyMs = Date.now() - started
-    this.ledger.record({
-      userId: user.id,
-      username: user.username,
-      provider: model.provider,
-      model: model.id,
-      stream: false,
-      status: 'ok',
-      tag,
-      latencyMs,
-      promptTokens: usage?.prompt_tokens ?? 0,
-      completionTokens: usage?.completion_tokens ?? 0,
-      cachedTokens: usage?.prompt_cache_hit_tokens ?? 0,
-      costCny: estimateCostCny(model, usage),
+      const latencyMs = Date.now() - started
+      this.ledger.record({
+        userId: user.id,
+        username: user.username,
+        provider: model.provider,
+        model: model.id,
+        stream: false,
+        status: 'ok',
+        tag,
+        latencyMs,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        cachedTokens: usage?.prompt_cache_hit_tokens ?? 0,
+        costCny: estimateCostCny(model, usage),
+      })
+      return { content, usage, latencyMs, model: model.id }
     })
-    return { content, usage, latencyMs, model: model.id }
   }
 
   async mock(body, model, res, stream, finish) {

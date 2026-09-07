@@ -68,7 +68,7 @@ export function makeFileChip(ctx) {
       // 兜底：拿不到输入服务时直接改草稿文本
       const cur = draftRef.current
       inputActions?.setDraft?.(`${cur}${cur && !/\s$/.test(cur) ? ' ' : ''}${refs.map((r) => r.mention).join(' ')} `)
-    return { inserted: refs.length, names, skipped }
+      return { inserted: refs.length, names, skipped }
     }
 
     const onPick = async (ev) => {

@@ -163,7 +163,7 @@ export function LoginOverlay() {
               onChange={(e) => { setUrlTouched(true); setGatewayUrl(e.target.value) }}
               placeholder="正在寻找局域网…"
             />
-            <button className="dk-btn sm" type="button" disabled={discovering} onClick={() => runDiscover({ overwrite: true })}>
+            <button className="dk-btn" type="button" disabled={discovering} onClick={() => runDiscover({ overwrite: true })}>
               {discovering ? '寻找中' : '重新寻找'}
             </button>
           </div>
@@ -210,7 +210,7 @@ export function LoginOverlay() {
               上一步
             </button>
           )}
-          <button className="dk-btn primary" type="submit" disabled={busy} style={{ flex: 1, height: 36, justifyContent: 'center' }}>
+          <button className="dk-btn primary" type="submit" disabled={busy} style={{ flex: 1, justifyContent: 'center' }}>
             {busy ? '请稍候…' : needsSetup ? (setupStep === 3 ? '完成并登录' : '下一步') : '登录'}
           </button>
         </div>

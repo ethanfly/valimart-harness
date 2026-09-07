@@ -535,7 +535,7 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
         </div>
         {isSub && canOAuth && (
           <div className="dk-field">
-            <button className="dk-btn primary" type="button" disabled={busy} onClick={startOAuth} style={{ height: 36, justifyContent: 'center' }}>
+            <button className="dk-btn primary block" type="button" disabled={busy} onClick={startOAuth}>
               {busy ? '请稍候…' : '登录账号'}
             </button>
             {deviceCode && <div className="dk-mono" style={{ fontSize: 22, letterSpacing: 2, marginTop: 8 }}>{deviceCode}</div>}
@@ -576,7 +576,7 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
           <label>模型 id（逗号分隔，可留空自动拉取）</label>
           <div className="dk-row" style={{ gap: 8 }}>
             <input className="dk-input" value={models} onChange={(e) => setModels(e.target.value)} placeholder={channel?.hint || '留空则自动发现'} style={{ flex: 1 }} />
-            <button className="dk-btn sm" type="button" disabled={busy || !channel} onClick={discover}>拉取列表</button>
+            <button className="dk-btn" type="button" disabled={busy || !channel} onClick={discover}>拉取列表</button>
           </div>
         </div>
         <div className="dk-form-grid">
@@ -738,7 +738,7 @@ export function KnowledgeSection() {
         </div>
         <div className="dk-field" style={{ marginTop: 8 }}>
           <label>内容</label>
-          <textarea className="dk-input" rows={6} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Markdown" />
+          <textarea className="dk-textarea" rows={6} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Markdown" />
         </div>
         <button className="dk-btn sm primary" disabled={busy || !title.trim() || !content.trim()} onClick={add} style={{ marginTop: 8 }}>写入</button>
       </div>
