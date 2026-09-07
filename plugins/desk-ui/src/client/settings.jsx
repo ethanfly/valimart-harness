@@ -3,6 +3,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, refreshDeskState, fmtCny, fmtDateTime, fmtTime, loadPeople } from './api.js'
+import { clientVersionDetail, clientVersionLabel } from './version.js'
 import { deskStore, useStoreValue, toast } from './store.js'
 
 const ROLE = { admin: '管理员', director: '总监', employee: '员工' }
@@ -112,6 +113,17 @@ export function AccountSection({ close }) {
           <div><div className="k">登录时间</div><div className="v">{fmtDateTime(desk.loginAt)}</div></div>
           <div><div className="k">网关令牌</div><div className="v">{desk.tokenHint ? <span className="dk-mono">{desk.tokenHint}</span> : '—'} <span className={`dk-badge ${desk.online ? 'online' : 'offline'}`}>{desk.online ? '有效' : '离线'}</span></div></div>
           <div><div className="k">模型路由</div><div className="v">{desk.modelCount ?? 0} 个模型经网关提供{desk.defaultModel ? ` · 默认 ${desk.defaultModel}` : ''}</div></div>
+          <div>
+            <div className="k">客户端版本</div>
+            <div className="v">
+              {clientVersionLabel(desk.client)}
+              {desk.client?.buildId && desk.client.buildId !== clientVersionLabel(desk.client) ? (
+                <span className="dk-muted dk-mono dk-xs" style={{ marginLeft: 8 }} title={desk.client.buildId}>
+                  {clientVersionDetail(desk.client)}
+                </span>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
       {quotas.length > 0 && (
@@ -1360,6 +1372,7 @@ const CLOSE_OPTIONS = [
 
 /* ---------------- 桌面（仅 Electron） ---------------- */
 export function DesktopSection() {
+  const desk = useStoreValue(deskStore, (s) => s.desk)
   const shell = typeof window !== 'undefined' ? window.deskShell : null
   const [prefs, setPrefs] = useState(null)
   const [error, setError] = useState('')
@@ -1367,10 +1380,20 @@ export function DesktopSection() {
     if (!shell?.getPrefs) return
     shell.getPrefs().then(setPrefs).catch((err) => setError(err.message || String(err)))
   }, [])
+  const versionCard = (
+    <div className="dk-card">
+      <div className="dk-card-title">本机版本</div>
+      <div className="dk-kv">
+        <div><div className="k">客户端</div><div className="v">{clientVersionLabel(desk?.client)}</div></div>
+        <div><div className="k">构建</div><div className="v dk-mono dk-small">{clientVersionDetail(desk?.client)}</div></div>
+      </div>
+    </div>
+  )
   if (!shell?.getPrefs) {
     return (
       <div className="dk-settings">
         <Head title="桌面" desc="这项只在安装版 / Electron 客户端里生效。" />
+        {versionCard}
       </div>
     )
   }
@@ -1386,6 +1409,7 @@ export function DesktopSection() {
   return (
     <div className="dk-settings">
       <Head title="桌面" desc="关闭右上角窗口时：后台继续连网关，或退出整个程序。" />
+      {versionCard}
       {error && <div className="dk-alert error">{error}</div>}
       <div className="dk-card">
         <div className="dk-card-title">关闭窗口时</div>

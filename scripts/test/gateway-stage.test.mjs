@@ -77,6 +77,25 @@ test('stageGatewayApp：含客户端目录与共用库', () => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+test('stageGatewayApp：服务端引用的 scripts/lib 都必须打进包', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-gw-libs-'))
+  const stage = path.join(dir, 'stage')
+  stageGatewayApp(repo, stage, { version: '0.0.0-test' })
+  const srcDir = path.join(repo, 'server', 'src')
+  const needed = new Set()
+  for (const name of fs.readdirSync(srcDir, { recursive: true })) {
+    const file = path.join(srcDir, name)
+    if (!fs.statSync(file).isFile() || !/\.(js|mjs)$/.test(file)) continue
+    const text = fs.readFileSync(file, 'utf8')
+    for (const m of text.matchAll(/from ['"]\.\.\/\.\.\/scripts\/lib\/([^'"]+)['"]/g)) needed.add(m[1])
+  }
+  assert.ok(needed.has('model-input.mjs'), 'config/channels 已引用 model-input')
+  for (const f of needed) {
+    assert.ok(fs.existsSync(path.join(stage, 'scripts', 'lib', f)), `安装包缺少 scripts/lib/${f}`)
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
 test('网关安装器：默认目录是新产品名，并改写旧版 THE DIVA Gateway', () => {
   const nsi = fs.readFileSync(path.join(repo, 'installer', 'gateway.nsi'), 'utf8')
   assert.match(nsi, /!define PRODUCT "valimart harness Gateway"/)

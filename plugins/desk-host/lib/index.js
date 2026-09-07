@@ -19,12 +19,14 @@ import { DeskState } from './state.js'
 import { GatewayClient, GatewayError } from './gateway-client.js'
 import { DriveMirror } from './drive-mirror.js'
 import { ProducedIndex } from './produced.js'
+import { serveSessionImage } from './session-image.js'
 import { fetchKernelUpdate, readLocalKernelVersion, resolvePendingDir } from './kernel-update.js'
 import { fetchClientUpdate, resolveClientPendingDir, resolvePayloadDir } from './client-update.js'
-import { readLocalBuildId } from '../../../scripts/lib/client-update.mjs'
+import { clientPublicInfo, readLocalPayload } from '../../../scripts/lib/client-update.mjs'
 import { discoverGateways } from './lan-discover.js'
 import { portFromUrl } from '../../../scripts/lib/lan-protocol.mjs'
 import { gitBranchesForWorkspaces } from '../../../scripts/lib/git-head.mjs'
+import { resolveModelInput } from '../../../scripts/lib/model-input.mjs'
 
 export const name = 'desk-host'
 export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry']
@@ -61,6 +63,7 @@ export function apply(ctx, config) {
   const mirror = new DriveMirror({ root: state.data.driveDir, gateway, state, log })
   const produced = new ProducedIndex(stateDir)
   const credential = credentialRef(config.credentialName)
+  const publicDesk = () => ({ ...state.publicView(), client: clientPublicInfo(resolvePayloadDir()) })
 
   // ---------- 会话事件：窗口产物索引 ----------
   ctx.on('session/event', (session, event) => {
@@ -100,6 +103,7 @@ export function apply(ctx, config) {
         contextWindow: m.contextWindow,
         maxTokens: m.maxTokens,
         reasoningEfforts: normalizeEfforts(m.reasoningEfforts),
+        input: resolveModelInput(m),
       })
     }
     // 网关对外统一是 OpenAI 兼容 + deepseek 思维链格式（其他厂商由网关在服务端转换）
@@ -223,15 +227,17 @@ export function apply(ctx, config) {
   }
 
   function scheduleClientUpdate() {
-    const localBuildId = readLocalBuildId(resolvePayloadDir())
-    if (!localBuildId) {
+    const local = readLocalPayload(resolvePayloadDir())
+    if (!local?.buildId) {
       log('客户端更新: skip no-local-build')
       return
     }
     fetchClientUpdate({
       gateway,
       pendingDir: resolveClientPendingDir(),
-      localBuildId,
+      localBuildId: local.buildId,
+      localInstallerVersion: local.installerVersion,
+      payloadDir: resolvePayloadDir(),
       log: (msg) => log(`客户端更新: ${msg}`),
     }).catch((err) => log(`客户端更新失败: ${err.message}`))
   }
@@ -254,7 +260,7 @@ export function apply(ctx, config) {
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
     scheduleKernelUpdate()
     scheduleClientUpdate()
-    return state.publicView()
+    return publicDesk()
   }
 
   async function completeSetup({ gatewayUrl, companyName, admin, colleagues, device }) {
@@ -274,7 +280,7 @@ export function apply(ctx, config) {
     log(`初始设置完成，已登录 ${result.user.username}`)
     scheduleKernelUpdate()
     scheduleClientUpdate()
-    return state.publicView()
+    return publicDesk()
   }
 
   async function logout() {
@@ -288,7 +294,7 @@ export function apply(ctx, config) {
     await removeLlmRoute()
     state.clearLogin(null)
     log('已登出')
-    return state.publicView()
+    return publicDesk()
   }
 
   /** 本机缓存的公司模型目录签名（与网关 /api/presence 返回的 modelsSignature 同一算法）。 */
@@ -615,6 +621,7 @@ export function apply(ctx, config) {
         `## 企业交付工作台（${c?.name ?? '公司'}）`,
         `你在为 ${u.displayName}（账号 ${u.username}，${u.roleLabel}，${u.department}）工作，通过公司网关使用模型，用量按人记账。`,
         `公司盘本机镜像：${state.data.driveDir}`,
+        `图片交付：生成或修改图片后，最终回复使用 Markdown 图片语法 ![图片说明](<图片路径>) 直接展示，路径相对于当前会话工作目录或为目录内的绝对路径；不要只给文件名或只调用 read_image。`,
         `- _shared/_memory/ 共享经验（全员只读；01-projects 项目、02-methods 方法、03-evidence 证据、04-reviews 复盘、05-logs 日志(追加)、90-system 系统/规定(追加)）`,
         `- _shared/handbook/ 岗位手册 / 公司技能手册：地图上的 how 已经是结论，有就按那条做，没有就说明没有。`,
         `- _office/${u.username}/_memory/ 你的个人记忆（跟人走）。值得复用的做法、踩过的坑，用 company_memory_write 写进去。`,
@@ -700,7 +707,7 @@ export function apply(ctx, config) {
             if (origin && (!req.headers['host'] || String(new URL(origin).host) !== String(req.headers['host']))) {
               return json(res, 403, { error: { message: '跨源请求被拒绝', code: 'bad_origin' } })
             }
-            if (method === 'GET' && rel === '/state') return json(res, 200, state.publicView())
+            if (method === 'GET' && rel === '/state') return json(res, 200, publicDesk())
             if (method === 'GET' && rel === '/workspace-git') {
               return json(res, 200, { items: gitBranchesForWorkspaces(ctx.workspaceRegistry?.list?.() ?? []) })
             }
@@ -743,6 +750,13 @@ export function apply(ctx, config) {
               const r = await mirror.sync()
               await ensureWorkspaces()
               return json(res, 200, { ...r, driveDir: state.data.driveDir })
+            }
+            if (method === 'GET' && /^\/sessions\/[^/]+\/image$/.test(rel)) {
+              const sid = decodeURIComponent(rel.split('/')[2])
+              return await serveSessionImage(req, res, {
+                loggedIn: state.loggedIn, session: ctx.sessions.get?.(sid), source: url.searchParams.get('path'),
+                info: url.searchParams.get('info') === '1',
+              })
             }
             if (method === 'GET' && rel.startsWith('/sessions/') && rel.endsWith('/produced')) {
               const sid = decodeURIComponent(rel.split('/')[2])

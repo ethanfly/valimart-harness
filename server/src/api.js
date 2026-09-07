@@ -21,6 +21,7 @@ import { workspacePluginCatalog } from './dsh-plugins.js'
 import { openOrg } from './org.js'
 import { exportBundle, importBundle } from './bundle.js'
 import { AGENT_TOOLS } from './agent-tools.js'
+import { extractClientMetaFromInstaller, resolvePublishedBuildId } from '../../scripts/lib/client-update.mjs'
 
 /** 客户端内核锁定版本（scripts/kernel/pin.json）：KERNEL_LABEL 给 /api/status，pinVersion 给 bundled 回退。 */
 const KERNEL_PIN = (() => {
@@ -894,13 +895,16 @@ export function registerApi(router, ctx) {
     const ct = String(req.headers['content-type'] ?? '')
     try {
       if (ct.includes('application/octet-stream')) {
-        const buildId = String(req.headers['x-client-build-id'] ?? '').trim()
-        if (!buildId) throw new HttpError(400, '缺少 x-client-build-id', 'bad_request')
         const expectedSha = String(req.headers['x-client-sha256'] ?? '').trim()
         const version = String(req.headers['x-client-version'] ?? '').trim()
         const filename = String(req.headers['x-client-filename'] ?? '').trim()
         const buf = await readBody(req, 512 * 1024 * 1024)
         if (!buf.length) throw new HttpError(400, '空的客户端安装包', 'bad_request')
+        const buildId = resolvePublishedBuildId({
+          headerBuildId: req.headers['x-client-build-id'],
+          extracted: extractClientMetaFromInstaller(buf),
+        })
+        if (!buildId) throw new HttpError(400, '安装包里读不到 buildId，请用 npm run dist:client 新打的包', 'bad_request')
         const tmpExe = path.join(os.tmpdir(), `diva-client-upload-${process.pid}-${Date.now()}.exe`)
         fs.writeFileSync(tmpExe, buf)
         try {
@@ -928,6 +932,15 @@ export function registerApi(router, ctx) {
     requireAdmin(user)
     try {
       sendJson(res, 200, clients.rollback())
+    } catch (err) {
+      throwCatalog(err)
+    }
+  })
+  router.delete('/api/admin/client/:buildId', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 200, clients.remove(req.params.buildId))
     } catch (err) {
       throwCatalog(err)
     }

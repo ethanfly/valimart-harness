@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, applyTask, loadTask, loadTasks, loadPeople, fmtDateTime, fmtTime, fmtBytes } from './api.js'
 import { deskStore, useStoreValue, toast } from './store.js'
 import { layoutActions } from './layout.jsx'
+import { safeOpenSession } from './safe-open-session.js'
 import { Logotype } from './login.jsx'
 import { IconClose, IconRefresh, IconLayout, IconChat, IconPlus, IconFolder, IconSend, IconTrash, IconLink, IconCheck } from './icons.jsx'
 
@@ -82,7 +83,7 @@ export async function openTaskProcess(ctx, task) {
     } catch {
       /* 标题由首条消息自动生成也可以 */
     }
-    ctx.sessions.open(sessionId)
+    safeOpenSession(ctx, sessionId)
     layoutActions.openTaskChat()
     return sessionId
   } catch (err) {
@@ -745,7 +746,10 @@ function WorkLog({ ctx, task, me, useSessions }) {
             <button
               className="dk-btn sm"
               onClick={() => {
-                ctx.sessions.open(s.sessionId)
+                if (!safeOpenSession(ctx, s.sessionId, { requireKnown: true })) {
+                  toast('该进程不在本机，已无法打开', 'error')
+                  return
+                }
                 layoutActions.openTaskChat()
               }}
             >
@@ -782,7 +786,10 @@ function WorkLog({ ctx, task, me, useSessions }) {
                     className="dk-btn sm ghost"
                     style={{ marginLeft: 6, height: 20, padding: '0 6px' }}
                     onClick={() => {
-                      ctx.sessions.open(l.sessionId)
+                      if (!safeOpenSession(ctx, l.sessionId, { requireKnown: true })) {
+                        toast('该进程不在本机，已无法打开', 'error')
+                        return
+                      }
                       layoutActions.openTaskChat()
                     }}
                   >
@@ -813,7 +820,7 @@ export function TaskChatColumn({ ctx, taskId, useSessions, children }) {
     if (autoOpened.current === task.id) return
     autoOpened.current = task.id
     const last = task.sessions?.at(-1)
-    if (last && last.sessionId !== current) ctx.sessions.open(last.sessionId)
+    if (last && last.sessionId !== current) safeOpenSession(ctx, last.sessionId, { requireKnown: true })
   }, [task?.id])
 
   if (!task) return <div className="dk-task-placeholder">未选择任务</div>

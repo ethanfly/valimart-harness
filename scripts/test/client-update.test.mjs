@@ -14,6 +14,8 @@ import {
   readClientPending,
   writeClientPending,
   clearClientPending,
+  extractClientMetaFromInstaller,
+  resolvePublishedBuildId,
   shouldFetchClientUpdate,
   shouldApplyClientUpdate,
   applyPendingClientUpdate,
@@ -85,6 +87,72 @@ test('shouldFetchClientUpdate：无发布 / 同 buildId / 已 pending 不拉', (
   assert.equal(shouldFetchClientUpdate({ available: true, buildId: 'b', sha256: '22'.repeat(32) }, 'a', null).fetch, true)
 })
 
+test('shouldFetchClientUpdate：发布填错 buildId 但安装包文件名已是本机版本则不拉', () => {
+  const current = {
+    available: true,
+    buildId: '0.1.1',
+    sha256: '22'.repeat(32),
+    filename: 'valimart-harness-Setup-0.1.0-20260907.0658.exe',
+  }
+  assert.deepEqual(
+    shouldFetchClientUpdate(current, '0.1.0+0.1.2-rc.1.20260907-0658.8d73e2ac', null, {
+      installerVersion: '0.1.0-20260907.0658',
+    }),
+    { fetch: false, reason: 'same-build' },
+  )
+  assert.equal(
+    shouldFetchClientUpdate(
+      { ...current, filename: 'valimart-harness-Setup-0.1.0-20260908.1200.exe' },
+      'old',
+      null,
+      { installerVersion: '0.1.0-20260907.0658' },
+    ).fetch,
+    true,
+  )
+})
+
+test('shouldApplyClientUpdate：pending 文件名已含本机 installerVersion 则不再静默安装', () => {
+  const pending = {
+    buildId: '0.1.1',
+    sha256: 'aa'.repeat(32),
+    filename: 'valimart-harness-Setup-0.1.0-20260907.0658.exe',
+  }
+  const skip = shouldApplyClientUpdate(pending, {
+    packaged: true,
+    exeExists: true,
+    sha: pending.sha256,
+    localBuildId: '0.1.0+real',
+    localInstallerVersion: '0.1.0-20260907.0658',
+  })
+  assert.equal(skip.apply, false)
+  assert.equal(skip.reason, 'already-current')
+})
+
+test('extractClientMetaFromInstaller：从安装包明文读 VMBUILD / installerVersion', () => {
+  const id = '0.1.0+0.1.2-rc.1.20260907-0658.8d73e2ac'
+  const utf16 = Buffer.from(`Valimart VMBUILD ${id} ProductVersion 0.1.0-20260907.0658`, 'utf16le')
+  assert.deepEqual(extractClientMetaFromInstaller(utf16), { buildId: id, installerVersion: '0.1.0-20260907.0658' })
+  const latin = Buffer.from(`padding VMBUILD ${id} more`)
+  assert.equal(extractClientMetaFromInstaller(latin).buildId, id)
+  assert.equal(extractClientMetaFromInstaller(Buffer.from('MZ hello world')), null)
+})
+
+test('resolvePublishedBuildId：安装包内的 buildId 优先于手填', () => {
+  assert.equal(
+    resolvePublishedBuildId({ headerBuildId: '0.1.1', extracted: { buildId: '0.1.0+real' } }),
+    '0.1.0+real',
+  )
+  assert.equal(
+    resolvePublishedBuildId({ headerBuildId: '0.1.1', extracted: { installerVersion: '0.1.0-20260907.0658' } }),
+    '0.1.1',
+  )
+  assert.equal(
+    resolvePublishedBuildId({ headerBuildId: '', extracted: { installerVersion: '0.1.0-20260907.0658' } }),
+    '0.1.0-20260907.0658',
+  )
+  assert.equal(resolvePublishedBuildId({}), '')
+})
+
 test('shouldApplyClientUpdate：仅安装版且 hash 对才应用；开发版不装', () => {
   const pending = { buildId: 'new', sha256: 'aa'.repeat(32) }
   assert.equal(shouldApplyClientUpdate(pending, { packaged: false, exeExists: true, sha: pending.sha256 }).apply, false)
@@ -94,7 +162,7 @@ test('shouldApplyClientUpdate：仅安装版且 hash 对才应用；开发版不
   const ok = shouldApplyClientUpdate(pending, { packaged: true, exeExists: true, sha: pending.sha256, localBuildId: 'old' })
   assert.equal(ok.apply, true)
   assert.deepEqual(ok.args, silentInstallArgs())
-  assert.deepEqual(silentInstallArgs(), ['/S'])
+  assert.deepEqual(silentInstallArgs(), ['/S', '--force-run'])
 })
 
 test('openClientCatalog：入库、发布、回滚、员工视图', (t) => {
@@ -129,6 +197,51 @@ test('openClientCatalog：入库、发布、回滚、员工视图', (t) => {
   assert.equal(cat.employeeView().buildId, '0.1.0+bbb')
   const rb = cat.rollback()
   assert.equal(rb.buildId, '0.1.0+aaa')
+})
+
+test('openClientCatalog：删除历史包；删当前则回退上一版或清空', (t) => {
+  const dataDir = tmp(t)
+  const cat = openClientCatalog(dataDir)
+  const exeA = path.join(dataDir, 'a.exe')
+  const exeB = path.join(dataDir, 'b.exe')
+  const exeC = path.join(dataDir, 'c.exe')
+  fs.writeFileSync(exeA, 'A')
+  fs.writeFileSync(exeB, 'B')
+  fs.writeFileSync(exeC, 'C')
+  cat.saveArtifact({ buildId: '0.1.0+aaa', exePath: exeA, manifest: { version: '0.1.0', filename: 'Setup-A.exe' } })
+  cat.saveArtifact({ buildId: '0.1.0+bbb', exePath: exeB, manifest: { version: '0.1.0', filename: 'Setup-B.exe' } })
+  cat.saveArtifact({ buildId: '0.1.0+ccc', exePath: exeC, manifest: { version: '0.1.0', filename: 'Setup-C.exe' } })
+  cat.publish('0.1.0+aaa')
+  cat.publish('0.1.0+bbb')
+
+  const gone = cat.remove('0.1.0+ccc')
+  assert.equal(gone.removed, '0.1.0+ccc')
+  assert.equal(gone.current.buildId, '0.1.0+bbb')
+  assert.deepEqual(gone.stored.map((v) => v.buildId).sort(), ['0.1.0+aaa', '0.1.0+bbb'])
+  assert.equal(cat.employeeView().buildId, '0.1.0+bbb')
+
+  const prev = cat.remove('0.1.0+aaa')
+  assert.equal(prev.current.previous, null)
+  assert.equal(prev.current.buildId, '0.1.0+bbb')
+  assert.deepEqual(prev.stored.map((v) => v.buildId), ['0.1.0+bbb'])
+
+  const cur = cat.remove('0.1.0+bbb')
+  assert.equal(cur.current, null)
+  assert.equal(cur.stored.length, 0)
+  assert.equal(cat.employeeView().available, false)
+  assert.equal(cat.downloadPath(), null)
+
+  cat.saveArtifact({ buildId: '0.1.0+aaa', exePath: exeA, manifest: { version: '0.1.0', filename: 'Setup-A.exe' } })
+  cat.saveArtifact({ buildId: '0.1.0+bbb', exePath: exeB, manifest: { version: '0.1.0', filename: 'Setup-B.exe' } })
+  cat.publish('0.1.0+aaa')
+  cat.publish('0.1.0+bbb')
+  const fallback = cat.remove('0.1.0+bbb')
+  assert.equal(fallback.current.buildId, '0.1.0+aaa')
+  assert.equal(fallback.current.previous, null)
+  assert.equal(cat.employeeView().available, true)
+
+  assert.throws(() => cat.remove('0.1.0+missing'), /尚未入库/)
+  assert.throws(() => cat.remove('../x'), /非法/)
 })
 
 test('openClientCatalog：sha 不符拒绝入库', (t) => {
@@ -193,7 +306,7 @@ test('pending 读写', (t) => {
   assert.equal(readClientPending(dir), null)
 })
 
-test('applyPendingClientUpdate：安装版 hash 对则 spawn /S', (t) => {
+test('applyPendingClientUpdate：安装版 hash 对则静默安装，并要求安装结束后重新打开', (t) => {
   const dir = tmp(t)
   const payloadDir = tmp(t)
   const exe = clientPendingPaths(dir).exe
@@ -215,10 +328,10 @@ test('applyPendingClientUpdate：安装版 hash 对则 spawn /S', (t) => {
   })
   assert.equal(r.applied, true)
   assert.equal(r.buildId, '0.1.0+new')
-  assert.deepEqual(r.args, ['/S'])
+  assert.deepEqual(r.args, ['/S', '--force-run'])
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].file, exe)
-  assert.deepEqual(spawned[0].args, ['/S'])
+  assert.deepEqual(spawned[0].args, ['/S', '--force-run'])
   assert.equal(spawned[0].opts.detached, true)
 })
 
@@ -278,6 +391,80 @@ test('applyPendingClientUpdate：已是当前版或 hash 不对则清 pending �
   assert.equal(dev.applied, false)
   assert.equal(dev.reason, 'dev')
   assert.equal(spawned.length, 0)
+})
+
+test('applyPendingClientUpdate：catalog buildId 填错但安装包就是当前版则清 pending 且不装', (t) => {
+  const dir = tmp(t)
+  const payloadDir = tmp(t)
+  const exe = clientPendingPaths(dir).exe
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(exe, 'FAKE-SETUP-LOOP')
+  const sha = hashFile(exe)
+  writeClientPending(dir, {
+    buildId: '0.1.1',
+    sha256: sha,
+    filename: 'valimart-harness-Setup-0.1.0-20260907.0658.exe',
+  })
+  fs.writeFileSync(
+    path.join(payloadDir, 'payload.json'),
+    JSON.stringify({
+      buildId: '0.1.0+0.1.2-rc.1.20260907-0658.8d73e2ac',
+      installerVersion: '0.1.0-20260907.0658',
+    }),
+  )
+  const spawned = []
+  const r = applyPendingClientUpdate({
+    pendingDir: dir,
+    payloadDir,
+    packaged: true,
+    hashFile,
+    spawn: (...a) => {
+      spawned.push(a)
+    },
+  })
+  assert.equal(r.applied, false)
+  assert.equal(r.reason, 'already-current')
+  assert.equal(spawned.length, 0)
+  assert.equal(readClientPending(dir), null)
+})
+
+test('fetchClientUpdate：同 installerVersion 不拉且清掉错 pending', async (t) => {
+  const pendingDir = tmp(t)
+  const payloadDir = tmp(t)
+  fs.writeFileSync(
+    path.join(payloadDir, 'payload.json'),
+    JSON.stringify({
+      buildId: '0.1.0+0.1.2-rc.1.20260907-0658.8d73e2ac',
+      installerVersion: '0.1.0-20260907.0658',
+    }),
+  )
+  fs.mkdirSync(pendingDir, { recursive: true })
+  fs.writeFileSync(clientPendingPaths(pendingDir).exe, 'PENDING-SAME-INSTALLER')
+  writeClientPending(pendingDir, {
+    buildId: '0.1.1',
+    sha256: '33'.repeat(32),
+    filename: 'valimart-harness-Setup-0.1.0-20260907.0658.exe',
+  })
+  const gw = mockGateway({
+    current: {
+      available: true,
+      buildId: '0.1.1',
+      sha256: '33'.repeat(32),
+      filename: 'valimart-harness-Setup-0.1.0-20260907.0658.exe',
+    },
+  })
+  const r = await fetchClientUpdate({
+    gateway: gw,
+    pendingDir,
+    localBuildId: '0.1.0+0.1.2-rc.1.20260907-0658.8d73e2ac',
+    localInstallerVersion: '0.1.0-20260907.0658',
+    payloadDir,
+    log: () => {},
+  })
+  assert.equal(r.action, 'skip')
+  assert.equal(r.detail, 'same-build')
+  assert.equal(gw.calls.some((c) => c.p === '/api/client/download'), false)
+  assert.equal(readClientPending(pendingDir), null)
 })
 
 test('发布 CLI 与 npm script 指向网关 /api/admin/client/publish', () => {

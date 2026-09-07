@@ -6,6 +6,7 @@ import {
   inferModelMeta,
   mergeDiscoveredModels,
   modelsListUrl,
+  openaiCompatUrl,
   normalizeDiscoveredModel,
 } from '../src/upstream-models.js'
 import { isUpstreamQuotaExhausted } from '../src/upstream-quota.js'
@@ -19,9 +20,19 @@ test('inferModelMeta：按 id 自动补上下文与思考强度', () => {
   assert.ok(ds.reasoningEfforts.high)
 })
 
+test('openaiCompatUrl：无 /v1 的自定义端点要补上，已有 /v1 不再叠', () => {
+  assert.equal(openaiCompatUrl('https://api-merge.ethan.team', '/chat/completions'), 'https://api-merge.ethan.team/v1/chat/completions')
+  assert.equal(openaiCompatUrl('https://api.deepseek.com', '/chat/completions'), 'https://api.deepseek.com/v1/chat/completions')
+  assert.equal(openaiCompatUrl('https://api.x.ai/v1', '/chat/completions'), 'https://api.x.ai/v1/chat/completions')
+  assert.equal(openaiCompatUrl('https://api.x.ai/v1/', '/chat/completions'), 'https://api.x.ai/v1/chat/completions')
+  assert.equal(openaiCompatUrl('https://api.x.ai/v1/chat/completions', '/chat/completions'), 'https://api.x.ai/v1/chat/completions')
+  assert.equal(openaiCompatUrl('https://api-merge.ethan.team', '/images/generations'), 'https://api-merge.ethan.team/v1/images/generations')
+})
+
 test('modelsListUrl / normalizeDiscoveredModel', () => {
   assert.equal(modelsListUrl('https://api.x.ai/v1'), 'https://api.x.ai/v1/models')
   assert.equal(modelsListUrl('https://api.x.ai/v1/'), 'https://api.x.ai/v1/models')
+  assert.equal(modelsListUrl('https://api-merge.ethan.team'), 'https://api-merge.ethan.team/v1/models')
   const m = normalizeDiscoveredModel({ id: 'grok-4.6', display_name: 'Grok 4.6' }, { reasoningEfforts: ['low', 'high'] })
   assert.equal(m.name, 'Grok 4.6')
   assert.equal(normalizeDiscoveredModel({ id: 'grok-4.6' }).name, undefined)

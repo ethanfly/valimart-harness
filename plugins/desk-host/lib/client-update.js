@@ -21,6 +21,9 @@ export function resolvePayloadDir() {
 }
 
 async function loadHelpers() {
+  if (process.env.NODE_TEST_CONTEXT) {
+    return import(new URL('../../../scripts/lib/client-update.mjs', import.meta.url).href)
+  }
   const packaged = path.join(resolveAppDir(), 'scripts', 'lib', 'client-update.mjs')
   if (fs.existsSync(packaged)) return import(pathToFileURL(packaged).href)
   return import(new URL('../../../scripts/lib/client-update.mjs', import.meta.url).href)
@@ -33,15 +36,25 @@ async function loadHash() {
 }
 
 /**
- * @param {{ gateway: { get: Function, request: Function }, pendingDir: string, localBuildId?: string, log?: (msg: string) => void }} opts
+ * @param {{ gateway: { get: Function, request: Function }, pendingDir: string, localBuildId?: string, localInstallerVersion?: string, payloadDir?: string, log?: (msg: string) => void }} opts
  */
-export async function fetchClientUpdate({ gateway, pendingDir, localBuildId, log = () => {} } = {}) {
+export async function fetchClientUpdate({
+  gateway,
+  pendingDir,
+  localBuildId,
+  localInstallerVersion,
+  payloadDir,
+  log = () => {},
+} = {}) {
   try {
     const helpers = await loadHelpers()
     const { hashFile } = await loadHash()
     const current = await gateway.get('/api/client/current')
     let pending = helpers.readClientPending(pendingDir)
     const paths = helpers.clientPendingPaths(pendingDir)
+    const local = typeof helpers.readLocalPayload === 'function' ? helpers.readLocalPayload(payloadDir || resolvePayloadDir()) : null
+    const buildId = localBuildId || local?.buildId
+    const installerVersion = localInstallerVersion || local?.installerVersion
 
     if (pending && (pending.sha256 !== current?.sha256 || pending.buildId !== current?.buildId)) {
       helpers.clearClientPending(pendingDir)
@@ -53,8 +66,9 @@ export async function fetchClientUpdate({ gateway, pendingDir, localBuildId, log
       log('pending exe 缺失，清除记录后重新下载')
     }
 
-    const decision = helpers.shouldFetchClientUpdate(current, localBuildId, pending)
+    const decision = helpers.shouldFetchClientUpdate(current, buildId, pending, { installerVersion })
     if (!decision.fetch) {
+      if (decision.reason === 'same-build' && pending) helpers.clearClientPending(pendingDir)
       if (decision.reason === 'already-pending') return { action: 'skip', detail: 'already-pending' }
       return { action: 'skip', detail: decision.reason }
     }

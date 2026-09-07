@@ -172,6 +172,56 @@ test('每个模型可单独设上下文，未填的用通道默认', async () =>
   assert.equal(me.json.company.models.find((m) => m.id === 'custom-large')?.contextWindow, 64000)
 })
 
+test('每个模型可单独设是否支持图片识别', async () => {
+  const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
+  const token = login.json.sessionToken
+  const created = await api('POST', '/api/channels', {
+    token,
+    body: { label: '识图通道', baseUrl: `${fakeUrl}/v1`, credential: 'key-ok', models: 'vision-off-mini, vision-on-large' },
+  })
+  assert.equal(created.status, 200, created.json.error?.message)
+  const custom = created.json.channel
+
+  const edited = await api('PATCH', `/api/channels/${custom.id}`, {
+    token,
+    body: {
+      models: [
+        { id: 'vision-off-mini', vision: false },
+        { id: 'vision-on-large', vision: true },
+      ],
+    },
+  })
+  assert.equal(edited.status, 200, edited.json.error?.message)
+  const mini = edited.json.channel.modelDetails.find((m) => m.id === 'vision-off-mini')
+  const large = edited.json.channel.modelDetails.find((m) => m.id === 'vision-on-large')
+  assert.equal(mini?.vision, false)
+  assert.equal(large?.vision, true)
+
+  const me = await api('GET', '/api/auth/me', { token })
+  assert.deepEqual(me.json.company.models.find((m) => m.id === 'vision-off-mini')?.input, ['text'])
+  assert.equal(me.json.company.models.find((m) => m.id === 'vision-off-mini')?.vision, false)
+  assert.deepEqual(me.json.company.models.find((m) => m.id === 'vision-on-large')?.input, ['text', 'image'])
+  assert.equal(me.json.company.models.find((m) => m.id === 'vision-on-large')?.vision, true)
+})
+
+test('自定义端点 baseUrl 无 /v1 时聊天打 /v1/chat/completions', async () => {
+  const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
+  const token = login.json.sessionToken
+  hits.length = 0
+  const created = await api('POST', '/api/channels', {
+    token,
+    body: { label: '无v1通道', baseUrl: fakeUrl, credential: 'key-ok', models: 'plain-chat' },
+  })
+  assert.equal(created.status, 200, created.json.error?.message)
+  const chat = await api('POST', '/v1/chat/completions', {
+    token: login.json.gatewayToken,
+    body: { model: 'plain-chat', messages: [{ role: 'user', content: 'hi' }], stream: false },
+  })
+  assert.equal(chat.status, 200, JSON.stringify(chat.json))
+  assert.ok(hits.some((h) => h.method === 'POST' && h.url === '/v1/chat/completions'), JSON.stringify(hits))
+  assert.equal(hits.some((h) => h.url === '/chat/completions'), false)
+})
+
 test('同一通道多账号：额度用尽切到下一个', async () => {
   const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
   const token = login.json.sessionToken

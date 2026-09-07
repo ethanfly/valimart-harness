@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "mdast-util-from-markdown": "^2.0.3"
   }
 }

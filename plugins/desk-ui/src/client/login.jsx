@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { api, refreshDeskState, loadTasks, loadPeople } from './api.js'
 import { deskStore, useStoreValue, toast } from './store.js'
 import { Logotype, PRODUCT_TAG } from './brand.jsx'
+import { clientVersionDetail, clientVersionLabel } from './version.js'
 
 export { Logotype, PRODUCT_NAME, PRODUCT_TAG } from './brand.jsx'
 
@@ -224,6 +225,9 @@ export function LoginOverlay() {
           {needsSetup
             ? '没有演示账号。引导只在库里还没有任何用户时出现；完成后即可用刚设置的管理员登录。'
             : '打开登录页会先找本机是否已有网关服务，没有再找局域网。登录后本机只保存你个人的网关令牌；模型密钥保存在公司服务器，不会下发到本机。'}
+        </div>
+        <div className="dk-client-ver" title={clientVersionDetail(desk?.client)}>
+          {clientVersionLabel(desk?.client)}
         </div>
       </form>
     </div>

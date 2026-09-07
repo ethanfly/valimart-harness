@@ -31,6 +31,25 @@ test('infer / uses：官方 Anthropic 走 messages，其它走 OpenAI 兼容', (
   assert.equal(anthropicMessagesUrl('https://api.anthropic.com/v1/messages'), 'https://api.anthropic.com/v1/messages')
 })
 
+test('toAnthropicMessages：OpenAI image_url 转成 Anthropic image block', () => {
+  const { messages } = toAnthropicMessages([
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '描述一下这张图片' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,aaa' } },
+      ],
+    },
+  ])
+  assert.equal(messages[0].role, 'user')
+  assert.ok(Array.isArray(messages[0].content))
+  assert.deepEqual(messages[0].content[0], { type: 'text', text: '描述一下这张图片' })
+  assert.deepEqual(messages[0].content[1], {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'aaa' },
+  })
+})
+
 test('toAnthropicMessages：抽出 system、合并连续同角色、保证 user 开头', () => {
   const { system, messages } = toAnthropicMessages([
     { role: 'system', content: '你是公司助手' },

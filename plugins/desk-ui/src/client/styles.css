@@ -40,8 +40,8 @@ html.dk-desk-electron input,
 html.dk-desk-electron textarea,
 html.dk-desk-electron select,
 html.dk-desk-electron a,
-html.dk-desk-electron .dk-resizer,
-html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
+html.dk-desk-electron .dk-resizer { -webkit-app-region: no-drag; }
+html.dk-desk-electron .dk-brand { -webkit-app-region: drag; }
 
 .dk-frame {
   position: fixed;
@@ -63,7 +63,6 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
   display: flex;
   align-items: stretch;
   user-select: none;
-  -webkit-app-region: drag;
   z-index: 1100;
   pointer-events: none;
 }
@@ -78,6 +77,8 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
   display: flex;
   align-items: center;
   pointer-events: auto;
+  /* Native region on other platforms; Windows preload supplies explicit pointer dragging. */
+  -webkit-app-region: drag;
 }
 .dk-titlebar-title {
   display: inline-flex;
@@ -490,6 +491,15 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
 .dk-side-tabs .dk-seg button { flex: 1; justify-content: center; }
 .dk-side-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 8px 0 4px; }
 .dk-side-footer { flex: none; padding: 8px 12px 12px 6px; border-top: 1px solid var(--dk-border-soft); display: flex; flex-direction: column; gap: 2px; }
+.dk-client-ver {
+  font-size: 11px;
+  color: var(--dk-text-3);
+  font-family: var(--dk-mono);
+  padding: 4px 8px 0;
+  user-select: text;
+  letter-spacing: 0.01em;
+}
+.dk-dialog .dk-client-ver { margin-top: 10px; text-align: center; padding: 0; }
 .dk-side-user { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 8px; cursor: default; }
 .dk-side-user:hover { background: var(--dk-hover); }
 .dk-avatar {
@@ -677,3 +687,10 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
 .dk-choice.on { border-color: var(--dk-accent); background: var(--dk-accent-soft); }
 .dk-choice input { margin-top: 3px; }
 .dk-choice b { font-size: 13px; font-weight: 600; }
+
+/* Assistant images keep their Markdown position and open in a keyboard-accessible dialog. */
+.dk-session-markdown img { max-width: 100%; height: auto; cursor: zoom-in; }
+.dk-image-preview { border: 0; border-radius: 12px; padding: 16px; max-width: 94vw; max-height: 92vh; background: var(--dsw-alias-bg-base, white); }
+.dk-image-preview::backdrop { background: rgb(0 0 0 / 65%); }
+.dk-image-preview > button { display: block; margin: 0 0 12px auto; }
+.dk-image-preview > img { display: block; max-width: 88vw; max-height: 78vh; object-fit: contain; cursor: default; }

@@ -17,6 +17,8 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { createDshWebUrlWatcher, hasLaunchToken, resolveDshWebUrl, sameWebOrigin } = require('./dsh-web-url.cjs')
 const { closePromptToResponse, readDesktopPrefs, writeDesktopPrefs, resolveCloseChoice } = require('./prefs.cjs')
+const { attachImageMenu } = require('./image-menu.cjs')
+const { attachWindowDrag } = require('./window-drag.cjs')
 
 const APP_ID = 'team.ethan.valimart-harness'
 const args = process.argv
@@ -417,6 +419,8 @@ async function openMainWindow(url, { attach = false } = {}) {
   })
   mainWin.setMenu(null)
   attachWindowChrome(mainWin)
+  attachImageMenu(mainWin, url, { Menu, shell, dialog })
+  if (process.platform === 'win32') attachWindowDrag(mainWin, url, { ipcMain })
   mainWin.webContents.setWindowOpenHandler(({ url: u }) => {
     if (sameWebOrigin(u, url)) return { action: 'allow' }
     openExternal(u)
@@ -551,7 +555,7 @@ async function maybeApplyPendingClient() {
       hashFile,
       spawn,
       afterSpawn: ({ buildId }) => {
-        log.write('app', `应用客户端更新 ${buildId}，启动静默安装后退出`)
+        log.write('app', `应用客户端更新 ${buildId}，退出后由安装器在更新完成时重新打开客户端`)
         setTimeout(() => app.exit(0), 400)
       },
     })

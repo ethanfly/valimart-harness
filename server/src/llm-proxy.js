@@ -22,6 +22,7 @@ import {
   usesChatgptCodex,
 } from './upstream-chatgpt.js'
 import { isUpstreamQuotaExhausted } from './upstream-quota.js'
+import { openaiCompatUrl } from './upstream-models.js'
 
 export class LlmProxy {
   constructor({ db, cfg, ledger, catalog, oauth, channels }) {
@@ -377,7 +378,7 @@ export class LlmProxy {
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1000),
           model: model.id,
-          choices: [{ index: 0, message: { role: 'assistant', content: translator.text }, finish_reason: 'stop' }],
+          choices: [{ index: 0, message: translator.message, finish_reason: translator.finishReason }],
           usage: translator.usage,
         }
         usage = converted.usage
@@ -496,7 +497,7 @@ export class LlmProxy {
       }
       const forward = mediaForwardBody(body, model, apiPath)
       const p = apiPath.startsWith('/') ? apiPath : '/' + apiPath
-      return fetch(`${upstream.baseUrl.replace(/\/+$/, '')}${p}`, {
+      return fetch(openaiCompatUrl(upstream.baseUrl, p), {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: 'application/json' },
         body: JSON.stringify(forward),
@@ -526,7 +527,7 @@ export class LlmProxy {
     }
     const forward = { ...body, model: model.upstreamModel }
     if (stream) forward.stream_options = { ...(body.stream_options ?? {}), include_usage: true }
-    return fetch(`${upstream.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    return fetch(openaiCompatUrl(upstream.baseUrl, '/chat/completions'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: stream ? 'text/event-stream' : 'application/json' },
       body: JSON.stringify(forward),
@@ -583,12 +584,14 @@ export class LlmProxy {
         if (done) break
         for (const piece of translator.push(decoder.decode(value, { stream: true }))) res.write(piece)
       }
+      for (const piece of translator.push(decoder.decode())) res.write(piece)
       for (const piece of translator.end()) res.write(piece)
       finish(translator.usage, 'ok')
       res.end()
-    } catch {
+    } catch (err) {
       finish(translator.usage, ac.signal.aborted ? 'client_aborted' : 'stream_error')
       try {
+        if (!ac.signal.aborted) res.write(`data: ${JSON.stringify({ error: { message: err.message, type: 'upstream_error', code: 'codex_stream_error' } })}\n\n`)
         res.end()
       } catch {
         /* ignore */

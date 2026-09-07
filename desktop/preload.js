@@ -1,5 +1,5 @@
 /**
- * 桌面壳预加载：只暴露窗口控制。无 deskShell 时（浏览器 / Edge --app）渲染进程不画标题栏。
+ * 桌面壳预加载：窗口控制及 Windows 标题栏拖动。无 deskShell 时渲染进程不画标题栏。
  * 插件 UI 尚未挂上时先插一条兜底按钮，避免隐藏原生栏后窗口无法关闭。
  */
 'use strict'
@@ -36,7 +36,7 @@ function installFallback() {
   bar.id = FALLBACK_ID
   bar.setAttribute('role', 'banner')
   bar.style.cssText =
-    'position:fixed;top:0;right:0;height:36px;z-index:2147483000;display:flex;align-items:stretch;-webkit-app-region:drag;user-select:none;'
+    'position:fixed;top:0;left:0;right:0;height:36px;z-index:2147483000;display:flex;justify-content:flex-end;align-items:stretch;-webkit-app-region:drag;user-select:none;'
   bar.innerHTML = [
     `<button type="button" data-act="min" aria-label="最小化" style="${btnCss}">${glyph('<path d="M1 5h8"/>')}</button>`,
     `<button type="button" data-act="max" aria-label="最大化" style="${btnCss}">${glyph('<rect x="1.5" y="1.5" width="7" height="7"/>')}</button>`,
@@ -63,12 +63,55 @@ function installFallback() {
 
 function bootChrome() {
   document.documentElement.classList.add('dk-desk-electron')
+  if (process.platform === 'win32') installWindowDrag()
   const sync = () => {
     if (document.querySelector('.dk-titlebar')) document.getElementById(FALLBACK_ID)?.remove()
     else installFallback()
   }
   sync()
   new MutationObserver(sync).observe(document.documentElement, { childList: true, subtree: true })
+}
+
+function installWindowDrag() {
+  // Keep the fallback in the preload, so it also covers the startup title bar and older UI payloads.
+  const style = document.createElement('style')
+  style.textContent = '.dk-titlebar-main, .dk-titlebar-main *, .dk-brand, .dk-brand *, #dk-shell-fallback, #dk-shell-fallback * { -webkit-app-region: no-drag !important; }'
+  document.head.append(style)
+  let dragging = null
+  const dragTarget = (event) => {
+    const element = event.target.closest?.('.dk-titlebar-main, .dk-brand, #dk-shell-fallback')
+    return element && !event.target.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]') ? element : null
+  }
+  const end = () => {
+    if (!dragging) return
+    const { element, pointerId } = dragging
+    dragging = null
+    ipcRenderer.send('desk:drag-end')
+    if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId)
+  }
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.isTrusted || event.button !== 0 || !event.isPrimary) return
+    const element = dragTarget(event)
+    if (!element) return
+    event.preventDefault()
+    end()
+    dragging = { element, pointerId: event.pointerId }
+    element.setPointerCapture(event.pointerId)
+    ipcRenderer.send('desk:drag-start', { x: event.screenX, y: event.screenY })
+  }, true)
+  document.addEventListener('dblclick', (event) => {
+    if (!event.isTrusted || event.button !== 0 || !dragTarget(event)) return
+    event.preventDefault()
+    end()
+    ipcRenderer.send('desk:window-maximize')
+  }, true)
+  document.addEventListener('pointermove', (event) => {
+    if (!dragging || event.pointerId !== dragging.pointerId) return
+    if (!(event.buttons & 1)) return end()
+    ipcRenderer.send('desk:drag-move', { x: event.screenX, y: event.screenY })
+  }, true)
+  for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) document.addEventListener(name, end, true)
+  window.addEventListener('blur', end)
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootChrome, { once: true })

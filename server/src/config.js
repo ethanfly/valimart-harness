@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveModelInput } from '../../scripts/lib/model-input.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const serverRoot = path.resolve(here, '..')
@@ -144,6 +145,8 @@ export function modelCatalog(cfg) {
         contextWindow: m.contextWindow ?? 128000,
         maxTokens: m.maxTokens ?? 8192,
         reasoningEfforts: m.reasoningEfforts ?? false,
+        input: resolveModelInput(m),
+        vision: resolveModelInput(m).includes('image'),
         compat: { ...(up.compat ?? {}), ...(m.compat ?? {}) },
         priceCnyPerM: m.priceCnyPerM ?? { input: 0, output: 0, cachedInput: 0 },
         upstreamModel: m.upstreamModel ?? m.id,

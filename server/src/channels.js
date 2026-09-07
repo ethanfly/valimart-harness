@@ -13,6 +13,7 @@ import { accountIdFromToken, isOpenAiPublicApi } from './oauth-tokens.js'
 import { chatgptProvider } from './oauth-providers/chatgpt.js'
 import { ACCOUNT_EXHAUSTED_MINUTES } from './upstream-quota.js'
 import { HttpError } from './http.js'
+import { resolveModelInput } from '../../scripts/lib/model-input.mjs'
 
 export const CHANNEL_KIND_LABELS = { subscription: '订阅', key: 'key' }
 
@@ -114,7 +115,14 @@ export class Channels {
         source: runtime ? 'runtime' : connected ? 'config' : null,
         modelCount: connected ? (up?.models ?? []).length : 0,
         models: connected ? (up?.models ?? []).map((m) => m.id) : [],
-        modelDetails: connected ? (up?.models ?? []).map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens, reasoningEfforts: m.reasoningEfforts })) : [],
+        modelDetails: connected ? (up?.models ?? []).map((m) => ({
+          id: m.id,
+          name: m.name,
+          contextWindow: m.contextWindow,
+          maxTokens: m.maxTokens,
+          reasoningEfforts: m.reasoningEfforts,
+          vision: resolveModelInput(m).includes('image'),
+        })) : [],
         connectedAt: runtime?.connectedAt ?? null,
         connectedBy: runtime?.connectedBy ?? null,
         accountCount: accounts.length,
@@ -337,7 +345,9 @@ export function normalizeModels(input) {
     if (!m.id || seen.has(m.id)) continue
     seen.add(m.id)
     const entry = { id: m.id }
-    for (const k of ['name', 'contextWindow', 'maxTokens', 'reasoningEfforts', 'priceCnyPerM']) if (m[k] !== undefined && m[k] !== null && m[k] !== '') entry[k] = m[k]
+    for (const k of ['name', 'contextWindow', 'maxTokens', 'reasoningEfforts', 'priceCnyPerM', 'input', 'vision']) {
+      if (m[k] !== undefined && m[k] !== null && m[k] !== '') entry[k] = m[k]
+    }
     out.push(entry)
   }
   return out
@@ -351,6 +361,8 @@ function withModelDefaults(m, channel) {
     maxTokens: m.maxTokens ?? channel.maxTokens ?? 32000,
     reasoningEfforts: m.reasoningEfforts ?? channel.reasoningEfforts ?? false,
     priceCnyPerM: m.priceCnyPerM ?? { input: 0, output: 0, cachedInput: 0 },
+    input: resolveModelInput(m),
+    vision: resolveModelInput(m).includes('image'),
   }
 }
 

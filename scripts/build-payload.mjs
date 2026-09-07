@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { PIN, defaultPrefix, locateKernel } from './kernel/locate.mjs'
 import { ALL_MARKS, missingPatches, resolveMarkFile } from './kernel/patches.mjs'
 import { findTar, readGatewayUrl } from './lib/bootstrap.mjs'
-import { digestFiles, makeBuildId, patchGatewayUrl, shouldPrune } from './lib/payload.mjs'
+import { digestFiles, makeBuildId, makeInstallerVersion, patchGatewayUrl, shouldPrune } from './lib/payload.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -128,22 +128,25 @@ const repoPatch = path.join(root, 'profile', 'cordis.patch.yml')
 fs.writeFileSync(path.join(out, 'profile', 'cordis.patch.yml'), patchGatewayUrl(fs.readFileSync(repoPatch, 'utf8'), gateway))
 
 // 8. 脚本
-for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 'scripts/kernel/pin.json', 'scripts/lib/bootstrap.mjs', 'scripts/lib/find-tar.mjs', 'scripts/lib/kernel-update.mjs', 'scripts/lib/lan-protocol.mjs', 'scripts/lib/git-head.mjs', 'scripts/lib/client-update.mjs']) {
+for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 'scripts/kernel/pin.json', 'scripts/lib/bootstrap.mjs', 'scripts/lib/find-tar.mjs', 'scripts/lib/kernel-update.mjs', 'scripts/lib/lan-protocol.mjs', 'scripts/lib/git-head.mjs', 'scripts/lib/model-input.mjs', 'scripts/lib/client-update.mjs']) {
   fs.mkdirSync(path.dirname(path.join(out, rel)), { recursive: true })
   fs.copyFileSync(path.join(root, rel), path.join(out, rel))
 }
 
 // 9. payload.json
-const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
+const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'session-image.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'model-input.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
+const now = new Date()
+const installerVersion = makeInstallerVersion({ version, now })
 const payload = {
-  buildId: makeBuildId({ version, kernelVersion: kernel.version, digest }),
+  buildId: makeBuildId({ version, kernelVersion: kernel.version, digest, now }),
   version,
-  builtAt: new Date().toISOString(),
+  installerVersion,
+  builtAt: now.toISOString(),
   node: process.version,
   kernel: { package: PIN.package, version: kernel.version, root: path.relative(stage, kernel.root).replace(/\\/g, '/') },
   gatewayUrl: readGatewayUrl(path.join(out, 'profile', 'cordis.patch.yml')),
   pruned,
 }
 fs.writeFileSync(path.join(out, 'payload.json'), JSON.stringify(payload, null, 2) + '\n')
-log(`payload.json buildId=${payload.buildId} gateway=${payload.gatewayUrl}`)
+log(`payload.json version=${payload.installerVersion} buildId=${payload.buildId} gateway=${payload.gatewayUrl}`)
 log(`完成：${out}`)

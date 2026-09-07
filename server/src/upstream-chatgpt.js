@@ -39,33 +39,78 @@ function textOf(content) {
   return content.map((p) => (typeof p === 'string' ? p : p?.text ?? p?.content ?? '')).join('')
 }
 
+function openaiImageUrl(part) {
+  if (!part || typeof part !== 'object') return ''
+  const raw = part.image_url
+  if (typeof raw === 'string') return raw
+  if (raw && typeof raw.url === 'string') return raw.url
+  if (typeof part.url === 'string') return part.url
+  return ''
+}
+
+function toCodexContent(content, role) {
+  const textType = role === 'assistant' ? 'output_text' : 'input_text'
+  if (typeof content === 'string') return content ? [{ type: textType, text: content }] : []
+  if (!Array.isArray(content)) return []
+  const parts = []
+  for (const p of content) {
+    if (typeof p === 'string') {
+      if (p) parts.push({ type: textType, text: p })
+      continue
+    }
+    if (!p || typeof p !== 'object') continue
+    if (p.type === 'image_url' || p.type === 'image' || p.image_url) {
+      const url = openaiImageUrl(p)
+      if (url && role !== 'assistant') parts.push({ type: 'input_image', image_url: url })
+      continue
+    }
+    const t = p.text ?? p.content
+    if (typeof t === 'string' && t) parts.push({ type: textType, text: t })
+  }
+  return parts
+}
+
 export function toCodexResponsesBody(openaiBody, model) {
   const instructions = []
   const input = []
   for (const m of openaiBody.messages ?? []) {
     if (!m || !m.role) continue
-    if (m.role === 'system') {
+    if (m.role === 'system' || m.role === 'developer') {
       const t = textOf(m.content)
       if (t) instructions.push(t)
       continue
     }
+    if (m.role === 'tool') {
+      input.push({ type: 'function_call_output', call_id: m.tool_call_id, output: textOf(m.content) })
+      continue
+    }
     if (m.role !== 'user' && m.role !== 'assistant') continue
-    const t = textOf(m.content)
-    if (!t) continue
-    input.push({
+    const parts = toCodexContent(m.content, m.role)
+    if (parts.length) input.push({
       type: 'message',
       role: m.role,
-      content: [{ type: m.role === 'assistant' ? 'output_text' : 'input_text', text: t }],
+      content: parts,
     })
+    if (m.role === 'assistant') {
+      for (const call of m.tool_calls ?? []) {
+        if (call.type !== 'function') continue
+        input.push({ type: 'function_call', call_id: call.id, name: call.function.name, arguments: call.function.arguments })
+      }
+    }
   }
+  const tools = (openaiBody.tools ?? []).filter((t) => t.type === 'function').map(({ function: fn }) => ({
+    type: 'function', name: fn.name, description: fn.description,
+    parameters: fn.parameters, strict: fn.strict ?? false,
+  }))
+  const choice = openaiBody.tool_choice
   const body = {
     model: model?.upstreamModel ?? openaiBody.model,
     input,
     stream: true,
     store: false,
-    parallel_tool_calls: false,
-    tool_choice: 'none',
-    tools: [],
+    parallel_tool_calls: openaiBody.parallel_tool_calls ?? false,
+    tool_choice: choice?.type === 'function' ? { type: 'function', name: choice.function.name } : choice ?? (tools.length ? 'auto' : 'none'),
+    tools,
   }
   if (instructions.length) body.instructions = instructions.join('\n\n')
   const effort = openaiBody.reasoning_effort || openaiBody.reasoning?.effort
@@ -94,13 +139,16 @@ export function usageFromCodex(usage) {
 
 export function toOpenAIFromCodex(codexJson, modelId) {
   const text = textFromCodexOutput(codexJson?.output)
+  const calls = (codexJson?.output ?? []).filter((item) => item.type === 'function_call').map((item) => ({
+    id: item.call_id, type: 'function', function: { name: item.name, arguments: item.arguments },
+  }))
   const usage = usageFromCodex(codexJson?.usage)
   return {
     id: codexJson?.id ? `chatcmpl-${codexJson.id}` : `chatcmpl-${Date.now()}`,
     object: 'chat.completion',
     created: Math.floor(Date.now() / 1000),
     model: modelId,
-    choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
+    choices: [{ index: 0, message: { role: 'assistant', content: text || (calls.length ? null : ''), ...(calls.length ? { tool_calls: calls } : {}) }, finish_reason: codexJson?.status === 'incomplete' ? 'length' : calls.length ? 'tool_calls' : 'stop' }],
     usage,
   }
 }
@@ -113,63 +161,112 @@ export function createCodexSseTranslator({ id, model, created } = {}) {
   const ts = created ?? Math.floor(Date.now() / 1000)
   let pending = ''
   let started = false
+  let completed = false
+  let ended = false
   const texts = []
+  const calls = []
+  const byItem = new Map()
+  const byOutput = new Map()
+  const byCall = new Map()
+  const chunk = (delta, finish_reason = null) => ({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [{ index: 0, delta, finish_reason }] })
+  const encode = (obj) => `data: ${JSON.stringify(obj)}\n\n`
+
+  function ensureCall(item, outputIndex, emit) {
+    let call = byCall.get(item.call_id) ?? byItem.get(item.id) ?? byOutput.get(outputIndex)
+    if (!call) {
+      if (!item.call_id || !item.name) throw new Error('Codex function call is missing its call_id or name')
+      call = { index: calls.length, id: item.call_id, type: 'function', function: { name: item.name, arguments: '' } }
+      calls.push(call)
+      emit(chunk({ tool_calls: [{ ...call, function: { ...call.function } }] }))
+    }
+    if (item.id) byItem.set(item.id, call)
+    if (item.call_id) byCall.set(item.call_id, call)
+    if (outputIndex !== undefined) byOutput.set(outputIndex, call)
+    return call
+  }
+  function appendArguments(call, delta, emit) {
+    if (!delta) return
+    call.function.arguments += delta
+    emit(chunk({ tool_calls: [{ index: call.index, function: { arguments: delta } }] }))
+  }
+  function finishArguments(call, full, emit) {
+    if (typeof full !== 'string') return
+    if (!full.startsWith(call.function.arguments)) throw new Error('Codex function call arguments disagree with streamed arguments')
+    appendArguments(call, full.slice(call.function.arguments.length), emit)
+  }
   const self = {
     usage: undefined,
-    get text() {
-      return texts.join('')
+    finishReason: undefined,
+    get text() { return texts.join('') },
+    get message() {
+      return { role: 'assistant', content: self.text || (calls.length ? null : ''), ...(calls.length ? { tool_calls: calls.map(({ index, ...call }) => ({ ...call, function: { ...call.function } })) } : {}) }
     },
-    push(chunk) {
-      pending += chunk
+    push(value) {
+      if (ended) return []
+      pending += value
       const out = []
-      const emit = (obj) => out.push(`data: ${JSON.stringify(obj)}\n\n`)
+      const emit = (obj) => out.push(encode(obj))
       if (!started) {
         started = true
-        emit({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }] })
+        emit(chunk({ role: 'assistant', content: '' }))
       }
       let idx
       while ((idx = pending.indexOf('\n')) >= 0) {
         const line = pending.slice(0, idx).replace(/\r$/, '')
         pending = pending.slice(idx + 1)
-        if (!line || line.startsWith(':')) continue
-        if (line.startsWith('event:')) continue
         if (!line.startsWith('data:')) continue
         const payload = line.slice(5).trim()
         if (!payload || payload === '[DONE]') continue
-        let obj
-        try {
-          obj = JSON.parse(payload)
-        } catch {
-          continue
-        }
+        // A complete SSE data line must contain valid JSON. Never silently drop tool calls.
+        const obj = JSON.parse(payload)
         const type = obj.type || ''
+        if (type === 'error' || type === 'response.failed') throw new Error(obj.response?.error?.message ?? obj.error?.message ?? obj.message ?? 'Codex response failed')
+        if (completed) continue
         if (type === 'response.output_text.delta') {
           const delta = typeof obj.delta === 'string' ? obj.delta : obj.delta?.text ?? obj.text ?? ''
           if (delta) {
             texts.push(delta)
-            emit({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [{ index: 0, delta: { content: delta }, finish_reason: null }] })
+            emit(chunk({ content: delta }))
           }
         }
-        if (type === 'response.completed' || type === 'response.done') {
-          const usage = usageFromCodex(obj.response?.usage ?? obj.usage)
-          if (usage) self.usage = usage
+        if ((type === 'response.output_item.added' || type === 'response.output_item.done') && obj.item?.type === 'function_call') {
+          const call = ensureCall(obj.item, obj.output_index, emit)
+          finishArguments(call, obj.item.arguments, emit)
+        }
+        if (type === 'response.function_call_arguments.delta' || type === 'response.function_call_arguments.done') {
+          const call = byItem.get(obj.item_id) ?? byOutput.get(obj.output_index)
+          if (!call) throw new Error('Codex function call arguments arrived without a function call')
+          if (type.endsWith('.delta')) appendArguments(call, obj.delta, emit)
+          else finishArguments(call, obj.arguments, emit)
+        }
+        if (type === 'response.completed' || type === 'response.done' || type === 'response.incomplete') {
+          const response = obj.response ?? obj
+          if (response.status === 'failed' || response.error) throw new Error(response.error?.message ?? 'Codex response failed')
+          self.usage = usageFromCodex(response.usage) ?? self.usage
           if (!texts.length) {
-            const fallback = textFromCodexOutput(obj.response?.output ?? obj.output)
+            const fallback = textFromCodexOutput(response.output)
             if (fallback) {
               texts.push(fallback)
-              emit({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [{ index: 0, delta: { content: fallback }, finish_reason: null }] })
+              emit(chunk({ content: fallback }))
             }
           }
-          emit({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })
+          for (const [index, item] of (response.output ?? []).entries()) {
+            if (item.type !== 'function_call') continue
+            finishArguments(ensureCall(item, index, emit), item.arguments, emit)
+          }
+          self.finishReason = type === 'response.incomplete' || response.status === 'incomplete' ? 'length' : calls.length ? 'tool_calls' : 'stop'
+          completed = true
+          emit(chunk({}, self.finishReason))
         }
       }
       return out
     },
     end() {
-      const out = []
-      if (self.usage) {
-        out.push(`data: ${JSON.stringify({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [], usage: self.usage })}\n\n`)
-      }
+      if (ended) return []
+      const out = pending.trim() ? self.push('\n') : []
+      if (!completed) throw new Error('Codex stream ended before response completion')
+      ended = true
+      if (self.usage) out.push(encode({ id: chatId, object: 'chat.completion.chunk', created: ts, model, choices: [], usage: self.usage }))
       out.push('data: [DONE]\n\n')
       return out
     },

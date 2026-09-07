@@ -16,6 +16,7 @@ const UI_SRC = [
   'plugins/desk-ui/src/client/login.jsx',
   'plugins/desk-ui/src/client/tasks.jsx',
   'plugins/desk-ui/src/client/api.js',
+  'plugins/desk-ui/src/client/version.js',
   'desktop/main.js',
   'desktop/preload.js',
 ]

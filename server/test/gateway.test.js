@@ -317,6 +317,8 @@ test('通道：管理员加入订阅 → 全员模型目录更新；凭据不外
   assert.ok(grokModel)
   assert.equal(grokModel.name, 'Grok 4.6')
   assert.deepEqual(grokModel.reasoningEfforts, ['low', 'high'])
+  assert.deepEqual(grokModel.input, ['text', 'image'])
+  assert.equal(grokModel.vision, true)
   assert.ok(!JSON.stringify(me.json).includes(secret), '公司目录不能带凭据')
   const v1 = await api('GET', '/v1/models', { token: ctx.emp.gatewayToken })
   assert.ok(v1.json.data.some((m) => m.id === 'grok-4.6-fast'))
@@ -413,7 +415,7 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.ok(html.includes('/api/admin/client'), '管理页应拉客户端目录')
   assert.ok(html.includes('data-page="org"') || html.includes('#org'), '管理页应有组织分页')
   assert.ok(html.includes('data-page="knowledge"') || html.includes('#knowledge'), '管理页应有知识分页')
-  for (const s of ['概览', '组织', '岗位', '更新', '模型', '知识', '工具']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  for (const s of ['概览', '组织', '岗位', '更新', '模型', '知识', '工具', '识图']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
   for (const id of ['overview', 'updates', 'models', 'knowledge', 'org', 'tools']) {
     assert.ok(html.includes(`data-page="${id}"`), `管理页应有 ${id} 分页`)
   }
@@ -426,6 +428,7 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
     assert.ok(html.includes(s), `管理页应有 ${s} 导入导出`)
   }
   assert.ok(html.includes('x-client-build-id'), '管理页上传安装包应带 buildId')
+  assert.ok(html.includes('data-cdel='), '管理页已存安装包应能删除')
   assert.ok(html.includes('data-edit='), '已接入通道应有编辑入口')
   assert.match(html, /form:not\(\.row\) > button/, '堆叠表单提交按钮与上一栏留间距（写入知识库不贴内容框）')
   assert.match(html, /body \{[^}]*overflow:hidden/, '桌面端侧栏固定：页面本身不滚')
@@ -573,6 +576,51 @@ test('客户端：未登录 401；无发布时 available=false；总监可读、
   assert.equal(republish.json.buildId, '0.1.0+bbb')
   const cur2 = await api('GET', '/api/client/current', { token: ctx.emp.sessionToken })
   assert.equal(cur2.json.buildId, '0.1.0+bbb')
+
+  const extractedId = '0.1.0+extract.20260907-0800.deadbeef'
+  const exe3 = Buffer.from(`MZ Valimart VMBUILD ${extractedId} ProductVersion 0.1.0-20260907.0800`, 'utf16le')
+  const sha3 = crypto.createHash('sha256').update(exe3).digest('hex')
+  const upExtract = await fetch(base + '/api/admin/client/publish', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + ctx.boss.sessionToken,
+      'content-type': 'application/octet-stream',
+      'x-client-sha256': sha3,
+      'x-client-version': '0.1.0',
+      'x-client-filename': 'valimart-harness-Setup-0.1.0-20260907.0800.exe',
+    },
+    body: exe3,
+  })
+  assert.equal(upExtract.status, 200)
+  assert.equal((await upExtract.json()).buildId, extractedId)
+
+  const typoId = '0.1.0+extract-typo.20260907-0801.cafebeef'
+  const exe4 = Buffer.from(`MZ Valimart VMBUILD ${typoId}`, 'utf16le')
+  const sha4 = crypto.createHash('sha256').update(exe4).digest('hex')
+  const upTypo = await fetch(base + '/api/admin/client/publish', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + ctx.boss.sessionToken,
+      'content-type': 'application/octet-stream',
+      'x-client-build-id': '0.1.1',
+      'x-client-sha256': sha4,
+      'x-client-filename': 'valimart-harness-Setup-0.1.0-20260907.0801.exe',
+    },
+    body: exe4,
+  })
+  assert.equal(upTypo.status, 200)
+  assert.equal((await upTypo.json()).buildId, typoId)
+
+  const empDel = await api('DELETE', `/api/admin/client/${encodeURIComponent(typoId)}`, { token: ctx.emp.sessionToken })
+  assert.equal(empDel.status, 403)
+  const dirDel = await api('DELETE', `/api/admin/client/${encodeURIComponent(typoId)}`, { token: ctx.dir.sessionToken })
+  assert.equal(dirDel.status, 403)
+  const delTypo = await api('DELETE', `/api/admin/client/${encodeURIComponent(typoId)}`, { token: ctx.boss.sessionToken })
+  assert.equal(delTypo.status, 200)
+  assert.equal(delTypo.json.removed, typoId)
+  assert.ok(!delTypo.json.stored.some((v) => v.buildId === typoId))
+  const delMiss = await api('DELETE', '/api/admin/client/0.1.0%2Bmissing', { token: ctx.boss.sessionToken })
+  assert.equal(delMiss.status, 404)
 })
 
 test('组织：岗位额度 token/金额；导入导出；员工不能管', async () => {

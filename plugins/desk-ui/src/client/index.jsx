@@ -9,6 +9,7 @@ import { AccountSection, ColleaguesSection, DesktopSection, KnowledgeSection, Pe
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
 import { makeFileChip } from './composer.jsx'
+import { SessionMarkdown } from './markdown.jsx'
 import { Logotype, PRODUCT_NAME, markMask } from './brand.jsx'
 
 /** 空会话页中央的品牌字标（填 conversation.hero.brand.mark 槽；官方标题与「预览版」徽标由样式隐藏）。 */
@@ -24,6 +25,9 @@ export const name = 'desk-ui'
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 
 export function apply(ctx) {
+  ctx.slots.inject('conversation.assistant.markdown', () => ctx.slots.register({
+    name: 'conversation.assistant.markdown',
+  }, SessionMarkdown))
   // ---- 样式 ----
   ctx.effect(() => {
     const el = document.createElement('style')

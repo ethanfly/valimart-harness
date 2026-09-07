@@ -35,6 +35,7 @@ test('客户端 payload 白名单含 git-head（desk-host 读工作区分支）'
   const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'build-payload.mjs'), 'utf8')
   assert.match(src, /scripts\/lib\/git-head\.mjs/)
   assert.match(src, /scripts\/lib\/client-update\.mjs/)
+  assert.match(src, /scripts\/lib\/model-input\.mjs/)
 })
 
 test('digestFiles：内容相同摘要相同，顺序无关', () => {

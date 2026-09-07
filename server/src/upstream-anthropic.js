@@ -49,6 +49,62 @@ function textOf(content) {
   return content.map((p) => (typeof p === 'string' ? p : p?.text ?? p?.content ?? '')).join('')
 }
 
+function parseDataUrl(url) {
+  const m = /^data:([^;,]+);base64,(.+)$/i.exec(String(url ?? ''))
+  return m ? { mediaType: m[1] || 'image/png', data: m[2] } : null
+}
+
+function openaiImageUrl(part) {
+  if (!part || typeof part !== 'object') return ''
+  const raw = part.image_url
+  if (typeof raw === 'string') return raw
+  if (raw && typeof raw.url === 'string') return raw.url
+  if (typeof part.url === 'string') return part.url
+  return ''
+}
+
+function openaiImageToAnthropic(part) {
+  const url = openaiImageUrl(part)
+  if (!url) return null
+  const parsed = parseDataUrl(url)
+  if (parsed) return { type: 'image', source: { type: 'base64', media_type: parsed.mediaType, data: parsed.data } }
+  if (/^https?:\/\//i.test(url)) return { type: 'image', source: { type: 'url', url } }
+  return null
+}
+
+function toAnthropicContent(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  const blocks = []
+  for (const p of content) {
+    if (typeof p === 'string') {
+      if (p) blocks.push({ type: 'text', text: p })
+      continue
+    }
+    if (!p || typeof p !== 'object') continue
+    if (p.type === 'image_url' || p.type === 'image' || p.image_url) {
+      const img = openaiImageToAnthropic(p)
+      if (img) blocks.push(img)
+      continue
+    }
+    const t = p.text ?? p.content
+    if (typeof t === 'string' && t) blocks.push({ type: 'text', text: t })
+  }
+  if (!blocks.length) return ''
+  if (blocks.every((b) => b.type === 'text')) return blocks.map((b) => b.text).join('')
+  return blocks
+}
+
+function asBlocks(content) {
+  if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : []
+  return Array.isArray(content) ? content : []
+}
+
+function mergeContent(a, b) {
+  if (typeof a === 'string' && typeof b === 'string') return [a, b].filter(Boolean).join('\n')
+  return [...asBlocks(a), ...asBlocks(b)]
+}
+
 /** OpenAI messages → Anthropic { system, messages }（保证 user 开头、角色交替）。 */
 export function toAnthropicMessages(openaiMessages) {
   const systemParts = []
@@ -61,12 +117,12 @@ export function toAnthropicMessages(openaiMessages) {
       continue
     }
     const role = m.role === 'assistant' ? 'assistant' : 'user'
-    raw.push({ role, content: textOf(m.content) })
+    raw.push({ role, content: toAnthropicContent(m.content) })
   }
   const merged = []
   for (const m of raw) {
     const last = merged[merged.length - 1]
-    if (last && last.role === m.role) last.content = [last.content, m.content].filter(Boolean).join('\n')
+    if (last && last.role === m.role) last.content = mergeContent(last.content, m.content)
     else merged.push({ ...m })
   }
   if (merged.length && merged[0].role !== 'user') merged.unshift({ role: 'user', content: '.' })

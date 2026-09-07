@@ -80,6 +80,38 @@ function companyGrantError(workspaceRoot, cause) {
 /** 代码补丁：{ file, mark, already?, append, edits[{ name, from, to }] } */
 export const CODE_PATCHES = [
   {
+    file: path.join('node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js'),
+    mark: 'company-assistant-markdown-slot-v1',
+    append: '\n// --- company-assistant-markdown-slot-v1 (' + SEE + ') ---\n',
+    edits: [
+      {
+        name: 'markdown-render-prop',
+        from: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMessageImages,',
+        to: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMarkdown, renderMessageImages,',
+      },
+      {
+        name: 'assistant-markdown-slot-render',
+        from: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions\n\t\t\t\t\t\t}, i));',
+        to: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(react.Fragment, { children: renderMarkdown({ text: block.text, streaming, labels, fileMentions: mentions }) }, i));',
+      },
+      {
+        name: 'assistant-node-render-slot',
+        from: 'function AssistantNodeView({ node, useTurnData,',
+        to: 'function AssistantNodeView({ node, renderSlot, useTurnData,',
+      },
+      {
+        name: 'assistant-node-markdown-fallback',
+        from: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,',
+        to: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\trenderMarkdown: (props) => renderSlot("conversation.assistant.markdown", props, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, props) }),\n\t\t\t\tblocks: data.blocks,',
+      },
+      {
+        name: 'assistant-markdown-child-slot',
+        from: 'key: "assistant-step",\n\t\t\t\tlocale: NS\n\t\t\t}, AssistantNodeView)',
+        to: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tchildren: { "conversation.assistant.markdown": { kind: "single", scope: "session" } }\n\t\t\t}, AssistantNodeView)',
+      },
+    ],
+  },
+  {
     file: path.join('node_modules', '@deepseek-ai', 'dsh-sandbox-local', 'lib', 'index.js'),
     mark: MARK,
     append: HELPERS,

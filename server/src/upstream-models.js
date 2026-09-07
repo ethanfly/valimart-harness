@@ -59,12 +59,18 @@ export function inferModelMeta(id) {
   return {}
 }
 
-export function modelsListUrl(baseUrl) {
+/** OpenAI 兼容路径：base 已带 /v1 或已是完整 path 则不叠；否则补 /v1。 */
+export function openaiCompatUrl(baseUrl, apiPath) {
   const b = String(baseUrl ?? '').replace(/\/+$/, '')
+  const p = apiPath.startsWith('/') ? apiPath : `/${apiPath}`
   if (!b) throw new HttpError(400, '缺少 baseUrl')
-  if (/\/models$/i.test(b)) return b
-  if (b.endsWith('/v1')) return `${b}/models`
-  return `${b}/v1/models`
+  if (b.toLowerCase().endsWith(p.toLowerCase())) return b
+  if (b.endsWith('/v1')) return `${b}${p}`
+  return `${b}/v1${p}`
+}
+
+export function modelsListUrl(baseUrl) {
+  return openaiCompatUrl(baseUrl, '/models')
 }
 
 export function normalizeDiscoveredModel(raw, channel) {

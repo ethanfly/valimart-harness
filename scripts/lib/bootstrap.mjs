@@ -241,7 +241,7 @@ export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = 
 export function ensureKernelDev({ prefix, dshHome, verify = false, log = noop }) {
   applyPendingKernel({ pendingDir: defaultPendingDir(), targetPrefix: prefix, skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
   let kernel = locateKernel(prefix)
-  if (!kernel || verify) {
+  if (!kernel || verify || missingPatches(kernel.root).length > 0) {
     if (!kernel) log(`${prefix} 里还没有 dsh 内核，先安装（需要网络）…`)
     const r = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'install-kernel.mjs'), '--prefix', prefix, '--dsh-home', dshHome], { stdio: 'inherit' })
     if (r.status !== 0) throw new Error('内核安装 / 校验失败')

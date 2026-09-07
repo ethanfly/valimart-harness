@@ -144,6 +144,34 @@ export function openClientCatalog(dataDir) {
     })
   }
 
+  const remove = (buildId) => {
+    const id = assertSafeBuildId(buildId)
+    const destDir = versionDir(id)
+    if (!fs.existsSync(destDir) || !readManifest(id)) throw catalogError('该版本尚未入库', 'not_found')
+    const cur = readCurrent()
+    fs.rmSync(destDir, { recursive: true, force: true })
+    if (cur?.buildId === id) {
+      const prevId = cur.previous?.buildId
+      if (prevId && prevId !== id && fs.existsSync(exeOf(prevId)) && readManifest(prevId)) {
+        const manifest = readManifest(prevId)
+        writeCurrent({
+          buildId: manifest.buildId ?? prevId,
+          version: manifest.version ?? '',
+          sha256: manifest.sha256,
+          bytes: manifest.bytes,
+          filename: manifest.filename,
+          publishedAt: new Date().toISOString(),
+          previous: null,
+        })
+      } else if (fs.existsSync(currentFile)) {
+        fs.rmSync(currentFile, { force: true })
+      }
+    } else if (cur?.previous?.buildId === id) {
+      writeCurrent({ ...cur, previous: null })
+    }
+    return { removed: id, current: readCurrent(), stored: listStored() }
+  }
+
   const downloadPath = () => {
     const cur = readCurrent()
     if (!cur?.buildId) return null
@@ -153,5 +181,5 @@ export function openClientCatalog(dataDir) {
 
   const adminView = () => ({ current: readCurrent(), stored: listStored() })
 
-  return { readCurrent, employeeView, listStored, saveArtifact, publish, rollback, downloadPath, adminView }
+  return { readCurrent, employeeView, listStored, saveArtifact, publish, rollback, remove, downloadPath, adminView }
 }

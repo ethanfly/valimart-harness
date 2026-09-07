@@ -14,14 +14,39 @@ export function assertSafeBuildId(buildId) {
   return id
 }
 
-export function readLocalBuildId(payloadDir) {
+export function readLocalPayload(payloadDir) {
   if (!payloadDir) return null
   try {
     const j = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
-    return typeof j.buildId === 'string' && j.buildId ? j.buildId : null
+    if (!j || typeof j !== 'object') return null
+    const buildId = typeof j.buildId === 'string' && j.buildId ? j.buildId : null
+    if (!buildId) return null
+    return {
+      version: typeof j.version === 'string' && j.version ? j.version : null,
+      buildId,
+      builtAt: typeof j.builtAt === 'string' ? j.builtAt : null,
+      kernelVersion: typeof j.kernel?.version === 'string' ? j.kernel.version : null,
+      installerVersion: typeof j.installerVersion === 'string' && j.installerVersion ? j.installerVersion : null,
+    }
   } catch {
     return null
   }
+}
+
+export function readLocalBuildId(payloadDir) {
+  return readLocalPayload(payloadDir)?.buildId ?? null
+}
+
+export function clientPublicInfo(payloadDir, fallbackVersion = '0.1.0') {
+  return (
+    readLocalPayload(payloadDir) ?? {
+      version: fallbackVersion,
+      buildId: 'dev',
+      builtAt: null,
+      kernelVersion: null,
+      installerVersion: null,
+    }
+  )
 }
 
 export function clientPendingPaths(dir) {
@@ -57,21 +82,58 @@ export function clearClientPending(dir) {
   fs.rmSync(dir, { recursive: true, force: true })
 }
 
-export function shouldFetchClientUpdate(current, localBuildId, pending) {
+/** 打进安装包版权串，上传时从 PE 明文扫出来。 */
+export const CLIENT_BUILD_MARK = 'VMBUILD '
+
+const BUILD_ID_RE = /\d+\.\d+\.\d+\+[A-Za-z0-9._+-]+/
+const INSTALLER_VER_RE = /\d+\.\d+\.\d+-\d{8}\.\d{4}/
+
+export function extractClientMetaFromInstaller(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 8) return null
+  const head = buf.subarray(0, Math.min(buf.length, 8 * 1024 * 1024))
+  const text = `${head.toString('utf16le')}\n${head.toString('latin1')}`
+  const marked = text.match(/VMBUILD ([^\s\0]+)/)
+  const buildId = marked?.[1] || text.match(BUILD_ID_RE)?.[0] || null
+  const installerVersion = text.match(INSTALLER_VER_RE)?.[0] || null
+  if (!buildId && !installerVersion) return null
+  return { buildId, installerVersion }
+}
+
+export function resolvePublishedBuildId({ headerBuildId, extracted } = {}) {
+  const extractedId = typeof extracted?.buildId === 'string' ? extracted.buildId.trim() : ''
+  if (extractedId) return extractedId
+  const header = String(headerBuildId ?? '').trim()
+  if (header) return header
+  const ver = typeof extracted?.installerVersion === 'string' ? extracted.installerVersion.trim() : ''
+  return ver
+}
+
+export function sameInstalledClient(remote, local = {}) {
+  if (!remote) return false
+  if (local.buildId && remote.buildId === local.buildId) return true
+  const ver = local.installerVersion
+  return Boolean(ver && typeof remote.filename === 'string' && remote.filename.includes(ver))
+}
+
+export function shouldFetchClientUpdate(current, localBuildId, pending, local = {}) {
   if (!current?.available || !current.buildId || !current.sha256) return { fetch: false, reason: 'unavailable' }
-  if (localBuildId && current.buildId === localBuildId) return { fetch: false, reason: 'same-build' }
+  if (sameInstalledClient(current, { buildId: localBuildId, installerVersion: local.installerVersion })) {
+    return { fetch: false, reason: 'same-build' }
+  }
   if (pending?.sha256 === current.sha256 && pending.buildId === current.buildId) return { fetch: false, reason: 'already-pending' }
   return { fetch: true, reason: 'newer' }
 }
 
 export function silentInstallArgs() {
-  return ['/S']
+  return ['/S', '--force-run']
 }
 
-export function shouldApplyClientUpdate(pending, { packaged, exeExists, sha, localBuildId } = {}) {
+export function shouldApplyClientUpdate(pending, { packaged, exeExists, sha, localBuildId, localInstallerVersion } = {}) {
   if (!packaged) return { apply: false, reason: 'dev' }
   if (!pending?.buildId || !pending.sha256) return { apply: false, reason: 'no-pending' }
-  if (localBuildId && localBuildId === pending.buildId) return { apply: false, reason: 'already-current' }
+  if (sameInstalledClient(pending, { buildId: localBuildId, installerVersion: localInstallerVersion })) {
+    return { apply: false, reason: 'already-current' }
+  }
   if (!exeExists) return { apply: false, reason: 'no-exe' }
   if (sha && sha !== pending.sha256) return { apply: false, reason: 'hash-mismatch' }
   return { apply: true, args: silentInstallArgs() }
@@ -82,7 +144,8 @@ export function defaultClientPendingDir(appDir) {
 }
 
 /**
- * 安装版启动时：hash 核对通过则拉起 Setup.exe /S，由调用方随后退出进程。
+ * 安装版启动时：hash 核对通过则拉起 Setup.exe /S --force-run，由调用方随后退出进程。
+ * 安装器完成文件替换后启动新版，不能让旧进程提前 app.relaunch()。
  * spawn / hashFile 注入，方便单测且桌面主进程不必再复制判定。
  */
 export function applyPendingClientUpdate({ pendingDir, payloadDir, packaged, hashFile, spawn, afterSpawn } = {}) {
@@ -92,8 +155,14 @@ export function applyPendingClientUpdate({ pendingDir, payloadDir, packaged, has
   const paths = clientPendingPaths(pendingDir)
   const exeExists = Boolean(pendingDir) && fs.existsSync(paths.exe)
   const sha = exeExists ? hashFile(paths.exe) : ''
-  const localBuildId = readLocalBuildId(payloadDir)
-  const decision = shouldApplyClientUpdate(pending, { packaged, exeExists, sha, localBuildId })
+  const local = readLocalPayload(payloadDir)
+  const decision = shouldApplyClientUpdate(pending, {
+    packaged,
+    exeExists,
+    sha,
+    localBuildId: local?.buildId,
+    localInstallerVersion: local?.installerVersion,
+  })
   if (!decision.apply) {
     if (pendingDir && (decision.reason === 'already-current' || decision.reason === 'hash-mismatch')) {
       clearClientPending(pendingDir)

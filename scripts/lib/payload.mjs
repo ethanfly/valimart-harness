@@ -23,11 +23,20 @@ export function patchGatewayUrl(yamlText, url) {
   return yamlText.replace(/gatewayUrl:\s*'[^']*'/, `gatewayUrl: '${clean}'`)
 }
 
+/** 例：20260904-0102（UTC）。buildId 与 installerVersion 共用，避免两次 Date 对不齐。 */
+export function buildStamp(now = new Date()) {
+  const iso = now.toISOString()
+  return `${iso.slice(0, 10).replace(/-/g, '')}-${iso.slice(11, 16).replace(':', '')}`
+}
+
 /** 例：0.1.0+0.1.1-rc.2.20260904-0102.abcdef01 */
 export function makeBuildId({ version, kernelVersion, digest, now = new Date() }) {
-  const iso = now.toISOString() // 2026-09-04T01:02:03.000Z
-  const ts = `${iso.slice(0, 10).replace(/-/g, '')}-${iso.slice(11, 16).replace(':', '')}`
-  return `${version}+${kernelVersion}.${ts}.${digest.slice(0, 8)}`
+  return `${version}+${kernelVersion}.${buildStamp(now)}.${digest.slice(0, 8)}`
+}
+
+/** 安装包 / 界面用的版本号：营销版本 + 构建时间。例：0.1.0-20260907.0652 */
+export function makeInstallerVersion({ version, now = new Date() }) {
+  return `${version}-${buildStamp(now).replace('-', '.')}`
 }
 
 /** 若干文件内容的 sha1（按文件名排序后逐个喂进去，顺序无关）。 */

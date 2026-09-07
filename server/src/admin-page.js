@@ -137,6 +137,8 @@ export function renderAdminHtml({ companyName }) {
   .model-tag.model-row .mono { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .model-tag button { height:22px; padding:0 6px; border:none; background:transparent; color:var(--muted); }
   .model-ctx { width:96px !important; height:26px !important; flex:0 0 96px; }
+  .model-vision { display:inline-flex; align-items:center; gap:4px; flex:0 0 auto; color:var(--muted); font-size:12px; user-select:none; white-space:nowrap; }
+  .model-vision input { width:auto !important; height:auto !important; margin:0; }
   .dialog h3 { margin:0 0 4px; font-size:16px; }
   .field { display:flex; flex-direction:column; gap:4px; margin-top:12px; font-size:13px; }
   .field label { color:var(--muted); font-size:12px; }
@@ -199,26 +201,41 @@ export function renderAdminHtml({ companyName }) {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const parseModelIds = (raw) => String(raw || '').split(/[,\\n，]/).map((s) => s.trim()).filter(Boolean);
   const ctxOf = (m) => (m && m.contextWindow != null && m.contextWindow !== '' ? String(m.contextWindow) : '');
+  const inferVision = (id) => {
+    const s = String(id || '');
+    if (!s || /imagine-image|imagine-video|dall-e|gpt-image|flux|qwen-image|image-generation|video-generation|text-to-video/i.test(s) || /^mock[-_]?/i.test(s)) return false;
+    return true;
+  };
+  const visionOf = (m) => {
+    if (m == null) return false;
+    if (typeof m === 'string') return inferVision(m);
+    if (m.vision === true || m.vision === false) return m.vision;
+    if (Array.isArray(m.input)) return m.input.indexOf('image') >= 0;
+    return inferVision(m.id);
+  };
   const catalogToEntries = (models, prev) => {
     const map = new Map((prev || []).map((m) => [m.id, m]));
     return (models || []).map((m) => {
       const id = typeof m === 'string' ? m : (m && m.id);
       if (!id) return null;
-      const listed = typeof m === 'string' ? '' : ctxOf(m);
-      const kept = map.get(id) ? ctxOf(map.get(id)) : '';
-      return { id: id, contextWindow: kept || listed };
+      const listed = typeof m === 'string' ? { id: m } : m;
+      const kept = map.get(id);
+      return { id: id, contextWindow: (kept ? ctxOf(kept) : '') || ctxOf(listed), vision: visionOf(kept || listed) };
     }).filter(Boolean);
   };
   const parseModelEntries = (raw, prev) => catalogToEntries(parseModelIds(raw), prev);
   const modelsPayload = (entries) => (entries || []).map((m) => {
+    const row = { id: m.id, vision: m.vision === true };
     const n = Number(m.contextWindow);
-    return Number.isFinite(n) && n > 0 ? { id: m.id, contextWindow: n } : { id: m.id };
+    if (Number.isFinite(n) && n > 0) row.contextWindow = n;
+    return row;
   });
   const renderModelRows = (box, entries, onChange) => {
     box.innerHTML = entries.map((m, i) =>
       '<span class="model-tag model-row">' +
         '<span class="mono">' + esc(m.id) + '</span>' +
         '<input class="model-ctx" data-ctx-i="' + i + '" value="' + esc(m.contextWindow || '') + '" placeholder="上下文" title="该模型的上下文长度" />' +
+        '<label class="model-vision" title="该模型是否支持图片识别"><input type="checkbox" data-vision-i="' + i + '"' + (m.vision ? ' checked' : '') + ' />识图</label>' +
         '<button type="button" data-drop="' + esc(m.id) + '" title="去掉">×</button>' +
       '</span>'
     ).join('') || '<span class="muted">至少留一个模型</span>';
@@ -229,6 +246,12 @@ export function renderAdminHtml({ companyName }) {
       inp.addEventListener('input', () => {
         const i = Number(inp.dataset.ctxI);
         if (entries[i]) entries[i].contextWindow = inp.value;
+      });
+    });
+    box.querySelectorAll('[data-vision-i]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        const i = Number(inp.dataset.visionI);
+        if (entries[i]) entries[i].vision = inp.checked;
       });
     });
   };
@@ -426,14 +449,14 @@ export function renderAdminHtml({ companyName }) {
 
       <section id="client">
         <h2>客户端</h2>
-        <p class="desc">上传 npm run dist:client 打出的 Setup.exe，发布后员工机登录会后台下载，下次启动静默覆盖安装。buildId 必须填 payload.json 的值（安装包文件名只有 0.1.0，不够区分构建）。\${isAdmin ? '' : '（总监只读）'}</p>
+        <p class="desc">上传 npm run dist:client 打出的 Setup.exe，发布后员工机登录会后台下载，下次启动静默覆盖安装。安装包文件名带构建时间；buildId 从安装包自动读取，不必手填。\${isAdmin ? '' : '（总监只读）'}</p>
         <div class="kv">
           <div><span>当前</span>\${client && client.current && client.current.buildId ? esc(client.current.buildId) : '尚未发布'}</div>
         </div>
         \${isAdmin ? '<div class="row" style="margin:14px 0 10px"><button id="cRollback">回滚到上一版</button></div>' : ''}
         \${isAdmin ? \`<form id="cUpload" class="row" style="margin:0 0 12px;align-items:flex-end;flex-wrap:wrap">
           <div class="field"><label>安装包</label><input type="file" name="exe" accept=".exe" required /></div>
-          <div class="field"><label>buildId</label><input name="buildId" placeholder="payload.json 的 buildId" required /></div>
+          <div id="cMeta" class="muted">buildId 将从安装包自动读取</div>
           <button class="primary" type="submit">上传并发布</button>
         </form>\` : ''}
         <p class="desc" style="margin-top:8px">已存版本</p>
@@ -442,7 +465,7 @@ export function renderAdminHtml({ companyName }) {
             <td class="mono">\${esc(v.buildId)}</td>
             <td class="mono muted">\${esc((v.sha256 || '').slice(0, 12))}</td>
             <td>\${fmtBytes(v.bytes || 0)}</td>
-            <td style="text-align:right">\${isAdmin ? '<button data-cpub="' + esc(v.buildId) + '">发布</button>' : ''}</td>
+            <td style="text-align:right">\${isAdmin ? '<button data-cpub="' + esc(v.buildId) + '">发布</button> <button data-cdel="' + esc(v.buildId) + '">删除</button>' : ''}</td>
           </tr>\`).join('')}
         </tbody></table>\` : '<div class="empty">还没有入库的客户端安装包</div>'}
       </section>
@@ -490,8 +513,8 @@ export function renderAdminHtml({ companyName }) {
       <section>
         <h2>模型目录</h2>
         <p class="desc">当前对全员分发的模型（客户端模型菜单按厂商分组显示）。</p>
-        \${status.models.length ? \`<table><thead><tr><th>模型</th><th>厂商</th><th>上下文</th><th>推理档位</th><th>价格 ¥/M（输入 / 输出）</th></tr></thead><tbody>
-          \${status.models.map((m) => \`<tr><td>\${esc(m.name)} <span class="mono muted">\${esc(m.id)}</span></td><td>\${esc(m.providerLabel)}</td><td>\${(m.contextWindow / 1000).toFixed(0)}K</td><td>\${m.reasoningEfforts ? esc(Array.isArray(m.reasoningEfforts) ? m.reasoningEfforts.join(' / ') : Object.keys(m.reasoningEfforts).join(' / ')) : '—'}</td><td>\${m.priceCnyPerM.input} / \${m.priceCnyPerM.output}</td></tr>\`).join('')}
+        \${status.models.length ? \`<table><thead><tr><th>模型</th><th>厂商</th><th>上下文</th><th>识图</th><th>推理档位</th><th>价格 ¥/M（输入 / 输出）</th></tr></thead><tbody>
+          \${status.models.map((m) => \`<tr><td>\${esc(m.name)} <span class="mono muted">\${esc(m.id)}</span></td><td>\${esc(m.providerLabel)}</td><td>\${(m.contextWindow / 1000).toFixed(0)}K</td><td>\${m.vision ? '支持' : '—'}</td><td>\${m.reasoningEfforts ? esc(Array.isArray(m.reasoningEfforts) ? m.reasoningEfforts.join(' / ') : Object.keys(m.reasoningEfforts).join(' / ')) : '—'}</td><td>\${m.priceCnyPerM.input} / \${m.priceCnyPerM.output}</td></tr>\`).join('')}
         </tbody></table>\` : '<div class="empty">还没有可用模型：接入一个通道，或在 config.json / 环境变量里配置上游密钥。</div>'}
       </section>
       </div>
@@ -607,32 +630,55 @@ export function renderAdminHtml({ companyName }) {
       if (!confirm('发布 ' + b.dataset.cpub + ' 为当前客户端？员工下次启动后覆盖安装。')) return;
       try { await api('POST', '/api/admin/client/publish', { buildId: b.dataset.cpub }); toast('已发布 ' + b.dataset.cpub); renderMain(); } catch (err) { toast(err.message, true); }
     }));
+    document.querySelectorAll('[data-cdel]').forEach((b) => b.addEventListener('click', async () => {
+      const id = b.dataset.cdel;
+      const current = client && client.current && client.current.buildId === id;
+      if (!confirm(current ? ('删除当前发布 ' + id + '？会回退到上一版，没有上一版则员工将没有可下载的安装包。') : ('删除安装包 ' + id + '？'))) return;
+      try { await api('DELETE', '/api/admin/client/' + encodeURIComponent(id)); toast('已删除 ' + id); renderMain(); } catch (err) { toast(err.message, true); }
+    }));
     const cRollback = $('#cRollback');
     if (cRollback) cRollback.addEventListener('click', async () => {
       if (!confirm('回滚客户端到上一版？')) return;
       try { const r = await api('POST', '/api/admin/client/rollback'); toast('已回滚到 ' + (r.buildId || '上一版')); renderMain(); } catch (err) { toast(err.message, true); }
     });
+    const readInstallerMeta = (file) => file.slice(0, 8 * 1024 * 1024).arrayBuffer().then((ab) => {
+      const u16 = new TextDecoder('utf-16le').decode(ab);
+      const latin = new TextDecoder('latin1').decode(ab);
+      const text = u16 + '\\n' + latin;
+      const mark = /VMBUILD ([^\\s\\0]+)/.exec(text);
+      const plus = /(\\d+\\.\\d+\\.\\d+\\+[A-Za-z0-9._+-]+)/.exec(text);
+      const inst = /(\\d+\\.\\d+\\.\\d+-\\d{8}\\.\\d{4})/.exec(text);
+      return { buildId: (mark && mark[1]) || (plus && plus[1]) || '', installerVersion: (inst && inst[1]) || '' };
+    });
     const cUpload = $('#cUpload');
+    const cMeta = $('#cMeta');
+    const cExe = cUpload && cUpload.querySelector('input[name=exe]');
+    if (cExe) cExe.addEventListener('change', async () => {
+      const file = cExe.files && cExe.files[0];
+      if (!file || !cMeta) return;
+      try {
+        const meta = await readInstallerMeta(file);
+        cMeta.textContent = meta.buildId ? ('将发布 ' + meta.buildId) : (meta.installerVersion ? ('将发布 ' + meta.installerVersion) : '安装包里读不到 buildId，请用新打的包');
+      } catch { cMeta.textContent = 'buildId 将从安装包自动读取'; }
+    });
     if (cUpload) cUpload.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(cUpload);
       const file = fd.get('exe');
       if (!file || !file.size) return toast('请选择 Setup.exe', true);
-      const buildId = String(fd.get('buildId') || '').trim();
-      if (!buildId) return toast('请填写 payload.json 的 buildId', true);
+      toast('正在读取安装包…');
+      const meta = await readInstallerMeta(file).catch(() => ({ buildId: '', installerVersion: '' }));
+      const buildId = meta.buildId || meta.installerVersion;
       toast('正在上传 ' + (file.size / 1048576).toFixed(1) + ' MB…');
       try {
-        const r = await fetch('/api/admin/client/publish', {
-          method: 'POST',
-          headers: {
-            authorization: 'Bearer ' + token,
-            'content-type': 'application/octet-stream',
-            'x-client-build-id': buildId,
-            'x-client-version': '0.1.0',
-            'x-client-filename': file.name,
-          },
-          body: file,
-        });
+        const headers = {
+          authorization: 'Bearer ' + token,
+          'content-type': 'application/octet-stream',
+          'x-client-version': '0.1.0',
+          'x-client-filename': file.name,
+        };
+        if (buildId) headers['x-client-build-id'] = buildId;
+        const r = await fetch('/api/admin/client/publish', { method: 'POST', headers, body: file });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + r.status));
         toast('已发布 ' + (j.buildId || buildId));
@@ -785,7 +831,7 @@ export function renderAdminHtml({ companyName }) {
       <form id="ef">
         \${c.custom ? '<div class="field"><label>名称</label><input name="label" value="' + esc(c.label) + '" /></div>' : ''}
         <div class="field" id="modelsField"><label>模型 id</label><div class="row"><input name="models" style="flex:1" value="\${esc((c.models || []).join(', '))}" /><button type="button" id="discover">拉取列表</button></div></div>
-        <div class="field" id="modelPickField"><label>已填入的模型（每行可改上下文，点 × 去掉）</label><div class="model-pick" id="modelPick"></div></div>
+        <div class="field" id="modelPickField"><label>已填入的模型（每行可改上下文、识图，点 × 去掉）</label><div class="model-pick" id="modelPick"></div></div>
         <div class="field"><label>Base URL（可选）</label><input name="baseUrl" value="\${esc(c.baseUrl || '')}" /></div>
         <div class="field"><label>默认上下文（未单独填的模型）</label><input name="contextWindow" value="\${esc(uniq('contextWindow'))}" placeholder="例如 200000" /></div>
         <div class="field"><label>思考强度</label><input name="reasoningEfforts" value="\${esc(uniq('reasoningEfforts', true))}" placeholder="low,medium,high" /></div>
@@ -812,7 +858,7 @@ export function renderAdminHtml({ companyName }) {
       modelsIn.value = pickedModels.map((m) => m.id).join(', ');
       render();
     };
-    paintPicker(details.length ? details.map((m) => (uniq('contextWindow') ? { id: m.id } : m)) : (c.models || []));
+    paintPicker(details.length ? details.map((m) => ({ id: m.id, contextWindow: uniq('contextWindow') ? '' : m.contextWindow, vision: m.vision })) : (c.models || []));
     wrap.querySelector('#discover').addEventListener('click', async () => {
       try {
         const r = await api('POST', '/api/channels/' + encodeURIComponent(c.id) + '/discover-models', { baseUrl: wrap.querySelector('input[name=baseUrl]').value || undefined });
@@ -870,7 +916,7 @@ export function renderAdminHtml({ companyName }) {
         <div id="oauthBox"></div>
         <div class="field" id="credField"><label id="credLabel">\${isSub ? '订阅凭据（访问令牌）' : 'API key'}</label><input name="credential" type="password" autocomplete="off" /></div>
         <div class="field" id="modelsField"><label>模型 id（可留空自动拉取）</label><div class="row"><input name="models" style="flex:1" /><button type="button" id="discover">拉取列表</button></div></div>
-        <div class="field" id="modelPickField" style="display:none"><label>已拉取的模型（每行可改上下文，点 × 去掉）</label><div class="model-pick" id="modelPick"></div></div>
+        <div class="field" id="modelPickField" style="display:none"><label>已拉取的模型（每行可改上下文、识图，点 × 去掉）</label><div class="model-pick" id="modelPick"></div></div>
         <div class="field"><label>Base URL（可选，留空用默认）</label><input name="baseUrl" /></div>
         <div class="field"><label>默认上下文（未单独填的模型）</label><input name="contextWindow" placeholder="自动 / 例如 200000" /></div>
         <div class="field"><label>思考强度</label><input name="reasoningEfforts" placeholder="low,medium,high" /></div>
