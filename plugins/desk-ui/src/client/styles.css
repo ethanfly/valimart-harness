@@ -122,6 +122,34 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
 .dk-winbtn:hover { background: var(--dk-hover); color: var(--dk-text); }
 .dk-winbtn.close:hover { background: #c42b1c; color: #fff; }
 .dk-winbtn:focus-visible { outline: 2px solid var(--dk-accent); outline-offset: -2px; }
+.dk-sidebar-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.dk-col-sidebar [role="treeitem"][aria-expanded] span:has(> .dk-git-branch) {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.dk-git-branch {
+  flex: none;
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dk-mono);
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--dk-accent-soft);
+  color: var(--dk-accent);
+  margin-right: 4px;
+  vertical-align: middle;
+}
 .dk-col-sidebar {
   flex: none;
   height: 100%;
@@ -395,9 +423,18 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
 .dk-table td.num, .dk-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .dk-table td.nowrap, .dk-table th.nowrap { white-space: nowrap; }
 /* 设置面板里放的是公司表格（同事 / 人员 / 订阅通道），比内核默认的 800px 面板再宽一点，操作列不用横向滚动 */
-[role='dialog']:has(.dk-settings) { width: min(960px, calc(100vw - 48px)) !important; }
+[role='dialog']:has(.dk-settings) { width: min(1080px, calc(100vw - 48px)) !important; }
 /* 宽表（人员 / 同事）放在卡片里横向滚动，操作列不被裁掉 */
 .dk-table-wrap { overflow-x: auto; }
+.dk-table.dk-channels { table-layout: fixed; min-width: 720px; }
+.dk-table.dk-channels th, .dk-table.dk-channels td { vertical-align: top; }
+.dk-table.dk-channels th:nth-child(1), .dk-table.dk-channels td:nth-child(1) { width: 18%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-table.dk-channels th:nth-child(2), .dk-table.dk-channels td:nth-child(2) { width: 52px; white-space: nowrap; }
+.dk-table.dk-channels th:nth-child(3), .dk-table.dk-channels td:nth-child(3) { width: 108px; white-space: nowrap; }
+.dk-table.dk-channels th.num, .dk-table.dk-channels td.num { width: 210px; }
+.dk-ch-models { display: flex; flex-wrap: wrap; gap: 4px; max-height: 76px; overflow: auto; }
+.dk-ch-models .dk-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-ch-actions { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 6px; }
 .dk-table.dk-people td { padding: 6px 6px; }
 .dk-table.dk-people td .dk-btn.sm { padding: 2px 7px; }
 .dk-table.dk-people td .dk-btn.sm + .dk-btn.sm { margin-left: 4px; }
@@ -579,7 +616,7 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
   padding: 26px 28px;
   color: var(--dk-text);
 }
-.dk-dialog.wide { width: 620px; }
+.dk-dialog.wide { width: 680px; }
 .dk-dialog.setup { width: 480px; }
 .dk-setup-steps { display: flex; gap: 6px; margin: 2px 0 16px; }
 .dk-setup-steps span {
@@ -593,6 +630,12 @@ html.dk-desk-electron .dk-col-sidebar { -webkit-app-region: no-drag; }
 .dk-setup-steps span.on { color: var(--dk-text); border-bottom-color: var(--dk-text); font-weight: 600; }
 .dk-dialog h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
 .dk-dialog .sub { color: var(--dk-text-3); font-size: 12.5px; margin-bottom: 18px; }
+.dk-model-pick { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; padding: 2px 0; }
+.dk-model-tag { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 6px 4px 10px; border-radius: 6px; background: var(--dk-bg-2); font-size: 12px; line-height: 20px; }
+.dk-model-tag .dk-mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dk-model-tag .dk-input { width: 96px; flex: 0 0 96px; }
+.dk-model-tag-x { height: 22px; padding: 0 6px; border: none; background: transparent; color: var(--dk-text-3); cursor: pointer; font: inherit; }
+.dk-model-tag-x:hover { color: var(--dk-text); }
 .dk-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .dk-field label { font-size: 12px; color: var(--dk-text-2); }
 .dk-field .hint { font-size: 11px; color: var(--dk-text-3); }

@@ -1,8 +1,10 @@
 /**
  * 用量账本与周额度。
  * - 每次模型请求记一条流水（按人、按模型、按上游），费用按本地价目表估算（不是上游账单）。
- * - 周额度：以 quota.anchor 为锚点，每 7 天刷新一次；按角色可覆盖默认额度。
+ * - 周额度：以 quota.anchor 为锚点，每 7 天刷新一次；个人覆盖 → 岗位 → 角色 → 公司默认。
+ * - 岗位额度可以是金额（cny）或本周 token 总量（tokens）。
  */
+import { resolveWeeklyQuota } from './org.js'
 
 const WEEK_MS = 7 * 86400_000
 
@@ -42,13 +44,23 @@ export class Ledger {
     return this.db.usage.readAll().filter((e) => Date.parse(e.ts) >= sinceMs && filter(e))
   }
 
-  weeklyLimitCny(user) {
+  resolveQuota(user) {
     const company = this.db.companySettings()
-    const byRole = { ...(this.cfg.quota?.byRole ?? {}), ...(company.quotaByRole ?? {}) }
-    const perUser = this.db.userSettings(user.id).weeklyQuotaCny
-    if (typeof perUser === 'number') return perUser
-    if (typeof byRole[user.role] === 'number') return byRole[user.role]
-    return company.weeklyQuotaCny ?? this.cfg.quota?.weeklyCny ?? 200
+    const positionId = user.positionId
+    const positions = Array.isArray(company.positions) ? company.positions : []
+    const position = positionId ? positions.find((p) => p.id === positionId) : null
+    return resolveWeeklyQuota({
+      user,
+      userSettings: this.db.userSettings(user.id),
+      position,
+      company,
+      cfg: this.cfg,
+    })
+  }
+
+  weeklyLimitCny(user) {
+    const q = this.resolveQuota(user)
+    return q.kind === 'cny' ? q.limit : 0
   }
 
   quotaAnchor() {
@@ -59,16 +71,23 @@ export class Ledger {
   quotaView(user, providers) {
     const win = weekWindow(this.quotaAnchor())
     const entries = this.entriesSince(win.start, (e) => e.userId === user.id)
-    const limit = this.weeklyLimitCny(user)
+    const q = this.resolveQuota(user)
+    const tokenUsedAll = entries.reduce((s, e) => s + (e.promptTokens ?? 0) + (e.completionTokens ?? 0), 0)
     const out = []
     for (const p of providers) {
-      const used = entries.filter((e) => e.provider === p.id).reduce((s, e) => s + (e.costCny ?? 0), 0)
+      const usedCny = entries.filter((e) => e.provider === p.id).reduce((s, e) => s + (e.costCny ?? 0), 0)
+      const used = q.kind === 'tokens' ? tokenUsedAll : usedCny
+      const limit = q.limit
       const usedPct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
       out.push({
         provider: p.id,
         label: p.label ?? p.id,
-        usedCny: round4(used),
-        limitCny: limit,
+        kind: q.kind,
+        source: q.source,
+        usedCny: round4(usedCny),
+        limitCny: q.kind === 'cny' ? limit : 0,
+        usedTokens: tokenUsedAll,
+        limitTokens: q.kind === 'tokens' ? limit : 0,
         usedPct: round1(usedPct),
         remainingPct: round1(Math.max(0, 100 - usedPct)),
         refreshAt: win.refreshAt,
@@ -77,13 +96,17 @@ export class Ledger {
     return out
   }
 
-  /** 是否超过本周额度（按上游）。 */
+  /** 是否超过本周额度。金额按上游计；token 总量跨上游合计。 */
   exceeded(user, providerId) {
     const win = weekWindow(this.quotaAnchor())
-    const limit = this.weeklyLimitCny(user)
-    if (!(limit > 0)) return false
+    const q = this.resolveQuota(user)
+    if (!(q.limit > 0)) return false
+    if (q.kind === 'tokens') {
+      const used = this.entriesSince(win.start, (e) => e.userId === user.id).reduce((s, e) => s + (e.promptTokens ?? 0) + (e.completionTokens ?? 0), 0)
+      return used >= q.limit
+    }
     const used = this.entriesSince(win.start, (e) => e.userId === user.id && e.provider === providerId).reduce((s, e) => s + (e.costCny ?? 0), 0)
-    return used >= limit
+    return used >= q.limit
   }
 
   /** 近 N 天公司账本（全员）。 */

@@ -47,6 +47,17 @@ function Pct({ used, limit }) {
   )
 }
 
+function quotaUseText(quota) {
+  if (!quota) return '—'
+  if (quota.kind === 'tokens') return `${quota.usedTokens ?? 0} / ${quota.limitTokens ?? quota.limit ?? 0} tokens`
+  return `${fmtCny(quota.usedCny)} / ${fmtCny(quota.limitCny)}`
+}
+
+function quotaPctProps(quota) {
+  if (quota?.kind === 'tokens') return { used: quota.usedTokens ?? 0, limit: quota.limitTokens ?? 0 }
+  return { used: quota?.usedCny ?? 0, limit: quota?.limitCny ?? 0 }
+}
+
 /* ---------------- 账号 ---------------- */
 export function AccountSection({ close }) {
   const desk = useStoreValue(deskStore, (s) => s.desk)
@@ -109,9 +120,9 @@ export function AccountSection({ close }) {
           {quotas.map((quota) => (
             <div key={quota.provider} style={{ marginBottom: 8 }}>
               <div className="dk-small">
-                <b>{quota.label}</b> 本周已用 {fmtCny(quota.usedCny)} / {fmtCny(quota.limitCny)}（{quota.usedPct}%），还剩 {quota.remainingPct}%；{fmtDateTime(quota.refreshAt)} 刷新
+                <b>{quota.label}</b> 本周已用 {quotaUseText(quota)}（{quota.usedPct}%），还剩 {quota.remainingPct}%；{fmtDateTime(quota.refreshAt)} 刷新
               </div>
-              <Pct used={quota.usedCny} limit={quota.limitCny} />
+              <Pct {...quotaPctProps(quota)} />
             </div>
           ))}
         </div>
@@ -165,7 +176,7 @@ export function ColleaguesSection() {
       <div className="lead">
         {quotas.map((quota) => (
           <div key={quota.provider}>
-            <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{fmtCny(quota.usedCny)} / {fmtCny(quota.limitCny)}），{fmtDateTime(quota.refreshAt)} 刷新。
+            <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{quotaUseText(quota)}），{fmtDateTime(quota.refreshAt)} 刷新。
           </div>
         ))}
         <div>
@@ -175,7 +186,7 @@ export function ColleaguesSection() {
           近 7 天公司成本 <b>{fmtCny(ledger7d.totalCny)}</b>（{ledger7d.requests} 次请求，本地价目表估值，不是 {primary?.label ?? '供应商'} 账单）。
         </div>
       </div>
-      {primary && <Pct used={primary.usedCny} limit={primary.limitCny} />}
+      {primary && <Pct {...quotaPctProps(primary)} />}
       <ChannelTable channels={channels} canEdit={!!canEditChannels} onChanged={reload} />
       <div className="dk-card dk-table-wrap">
         <table className="dk-table">
@@ -200,7 +211,7 @@ export function ColleaguesSection() {
                 <td className="nowrap">{u.department || '—'}</td>
                 <td><span className={`dk-badge ${u.disabled ? 'disabled' : u.online ? 'online' : 'offline'}`}>{u.disabled ? '已停用' : u.online ? '在线' : '离线'}</span></td>
                 <td className="dk-small dk-dim nowrap">{u.lastLoginAt ? fmtTime(u.lastLoginAt) : '从未'}</td>
-                <td className="num">{fmtCny(u.weeklyQuotaCny)}</td>
+                <td className="num">{u.quota?.kind === 'tokens' ? `${u.quota.limit} tokens` : fmtCny(u.weeklyQuotaCny)}</td>
                 <td className="num">{fmtCny(u.spend7dCny)}</td>
               </tr>
             ))}
@@ -281,7 +292,8 @@ function ChannelTable({ channels, canEdit, onChanged }) {
           </div>
         )}
       </div>
-      <table className="dk-table">
+      <div className="dk-table-wrap">
+      <table className="dk-table dk-channels">
         <thead>
           <tr>
             <th>通道</th>
@@ -294,25 +306,32 @@ function ChannelTable({ channels, canEdit, onChanged }) {
         <tbody>
           {channels.map((c) => (
             <tr key={c.id}>
-              <td>{c.label}</td>
+              <td title={c.label}>{c.label}</td>
               <td className="dk-mono dk-small">{c.kindLabel}</td>
               <td>
                 <span className={`dk-badge ${c.connected ? 'online' : 'offline'}`}>{c.statusLabel}</span>
               </td>
-              <td className="dk-small dk-dim">
-                {c.connected ? (
+              <td>
+                {c.connected && c.models.length ? (
                   <>
-                    {c.models.join(', ') || '—'}
+                    <div className="dk-ch-models" title={c.models.join(', ')}>
+                      {c.models.map((id) => (
+                        <span key={id} className="dk-chip">{id}</span>
+                      ))}
+                    </div>
                     {c.accountCount > 1 ? <div className="dk-xs dk-muted">{c.accountCount} 个账号轮换</div> : null}
                   </>
                 ) : (
-                  <span className="dk-muted">{c.hint}</span>
+                  <span className="dk-muted">{c.hint || '—'}</span>
                 )}
               </td>
               {canEdit && (
                 <td className="num">
                   {c.connected && c.source === 'runtime' ? (
-                    <div className="dk-row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                    <div className="dk-ch-actions">
+                      <button className="dk-btn sm" onClick={() => setDialog({ channel: c, edit: true })}>
+                        编辑
+                      </button>
                       <button className="dk-btn sm" onClick={() => setDialog({ channel: c, addAccount: true })}>
                         再登录
                       </button>
@@ -333,22 +352,95 @@ function ChannelTable({ channels, canEdit, onChanged }) {
           ))}
         </tbody>
       </table>
+      </div>
       {dialog?.kind === 'custom' && <CustomEndpointDialog onClose={() => setDialog(null)} onDone={onChanged} />}
       {dialog && dialog.kind !== 'custom' && <ConnectChannelDialog channels={channels} initial={dialog} onClose={() => setDialog(null)} onDone={onChanged} />}
     </div>
   )
 }
 
+function ctxText(v) {
+  return v != null && v !== '' ? String(v) : ''
+}
+
+function sharedModelField(details, key) {
+  const vals = [...new Set((details || []).map((d) => {
+    const v = d?.[key]
+    if (v == null || v === '' || v === false) return ''
+    return Array.isArray(v) ? v.join(',') : String(v)
+  }).filter(Boolean))]
+  return vals.length === 1 ? vals[0] : ''
+}
+
+function modelEntriesFrom(list, prev = []) {
+  const prevById = new Map(prev.map((m) => [m.id, m]))
+  return (list || []).map((m) => {
+    const id = typeof m === 'string' ? m : m?.id
+    if (!id) return null
+    const fromList = typeof m === 'object' && m ? ctxText(m.contextWindow) : ''
+    return { id, contextWindow: fromList || prevById.get(id)?.contextWindow || '' }
+  }).filter(Boolean)
+}
+
+function parseModelEntries(raw, prev = []) {
+  return modelEntriesFrom(String(raw || '').split(/[,\n，]/).map((s) => s.trim()).filter(Boolean), prev)
+}
+
+function modelsPayload(entries) {
+  return entries.map((m) => {
+    const n = Number(m.contextWindow)
+    return Number.isFinite(n) && n > 0 ? { id: m.id, contextWindow: n } : { id: m.id }
+  })
+}
+
+function entriesFromChannel(ch) {
+  if (!ch) return []
+  if (ch.modelDetails?.length) {
+    const shared = sharedModelField(ch.modelDetails, 'contextWindow')
+    return ch.modelDetails.map((m) => ({ id: m.id, contextWindow: shared ? '' : ctxText(m.contextWindow) }))
+  }
+  return (ch.models || []).map((id) => ({ id, contextWindow: '' }))
+}
+
+function ModelPickList({ models, onRemove, onContext }) {
+  if (!models.length) return <span className="hint">至少留一个模型</span>
+  return (
+    <div className="dk-model-pick">
+      {models.map((m) => (
+        <span key={m.id} className="dk-model-tag">
+          <span className="dk-mono">{m.id}</span>
+          <input
+            className="dk-input sm"
+            value={m.contextWindow}
+            onChange={(e) => onContext(m.id, e.target.value)}
+            placeholder="上下文"
+            title="该模型的上下文长度"
+          />
+          <button type="button" className="dk-model-tag-x" onClick={() => onRemove(m.id)} title="去掉">×</button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
+  const isEdit = !!initial.edit
   const candidates = channels.filter((c) => (initial.channel ? c.id === initial.channel.id : c.kind === initial.kind && (initial.addAccount || !c.connected)))
   const [channelId, setChannelId] = useState(initial.channel?.id ?? candidates[0]?.id ?? '')
   const channel = channels.find((c) => c.id === channelId)
+  const [label, setLabel] = useState(channel?.label ?? '')
   const [credential, setCredential] = useState('')
   const [baseUrl, setBaseUrl] = useState(channel?.baseUrl ?? '')
-  const [models, setModels] = useState(channel?.hint ?? '')
-  const [contextWindow, setContextWindow] = useState(channel?.contextWindow ? String(channel.contextWindow) : '')
-  const [maxTokens, setMaxTokens] = useState(channel?.maxTokens ? String(channel.maxTokens) : '')
-  const [reasoning, setReasoning] = useState(Array.isArray(channel?.reasoningEfforts) ? channel.reasoningEfforts.join(',') : '')
+  const [models, setModels] = useState(isEdit && channel?.models?.length ? channel.models.join(', ') : (channel?.hint ?? ''))
+  const [contextWindow, setContextWindow] = useState(
+    (isEdit && sharedModelField(channel?.modelDetails, 'contextWindow')) || (channel?.contextWindow ? String(channel.contextWindow) : ''),
+  )
+  const [maxTokens, setMaxTokens] = useState(
+    (isEdit && sharedModelField(channel?.modelDetails, 'maxTokens')) || (channel?.maxTokens ? String(channel.maxTokens) : ''),
+  )
+  const [reasoning, setReasoning] = useState(
+    (isEdit && sharedModelField(channel?.modelDetails, 'reasoningEfforts')) || (Array.isArray(channel?.reasoningEfforts) ? channel.reasoningEfforts.join(',') : ''),
+  )
   const [busy, setBusy] = useState(false)
   const [oauthNote, setOauthNote] = useState('')
   const [showPaste, setShowPaste] = useState(false)
@@ -357,13 +449,28 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
   const [pasteCode, setPasteCode] = useState('')
   const [needPasteCode, setNeedPasteCode] = useState(false)
   const [oauthOpenUrl, setOauthOpenUrl] = useState('')
+  const [pickModels, setPickModels] = useState(isEdit ? entriesFromChannel(channel) : [])
+  const [catalogReady, setCatalogReady] = useState(!!(isEdit && channel?.models?.length))
   const pollRef = useRef(null)
   useEffect(() => {
+    setLabel(channel?.label ?? '')
     setBaseUrl(channel?.baseUrl ?? '')
-    setModels(channel?.hint ?? '')
-    setContextWindow(channel?.contextWindow ? String(channel.contextWindow) : '')
-    setMaxTokens(channel?.maxTokens ? String(channel.maxTokens) : '')
-    setReasoning(Array.isArray(channel?.reasoningEfforts) ? channel.reasoningEfforts.join(',') : '')
+    if (isEdit && channel) {
+      const entries = entriesFromChannel(channel)
+      setModels(entries.map((m) => m.id).join(', '))
+      setPickModels(entries)
+      setCatalogReady(entries.length > 0)
+      setContextWindow(sharedModelField(channel.modelDetails, 'contextWindow') || (channel.contextWindow ? String(channel.contextWindow) : ''))
+      setMaxTokens(sharedModelField(channel.modelDetails, 'maxTokens') || (channel.maxTokens ? String(channel.maxTokens) : ''))
+      setReasoning(sharedModelField(channel.modelDetails, 'reasoningEfforts') || (Array.isArray(channel.reasoningEfforts) ? channel.reasoningEfforts.join(',') : ''))
+    } else {
+      setModels(channel?.hint ?? '')
+      setPickModels([])
+      setCatalogReady(false)
+      setContextWindow(channel?.contextWindow ? String(channel.contextWindow) : '')
+      setMaxTokens(channel?.maxTokens ? String(channel.maxTokens) : '')
+      setReasoning(Array.isArray(channel?.reasoningEfforts) ? channel.reasoningEfforts.join(',') : '')
+    }
     setOauthNote('')
     setOauthState('')
     setDeviceCode('')
@@ -378,6 +485,16 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
   useEffect(() => {
     setShowPaste(!(isSub && oauth?.available && oauth?.configured))
   }, [channelId, isSub, oauth?.available, oauth?.configured])
+  const applyCatalog = (list) => {
+    let next = []
+    setPickModels((cur) => {
+      next = modelEntriesFrom(list, cur)
+      return next
+    })
+    setCatalogReady(next.length > 0)
+    setModels(next.map((m) => m.id).join(', '))
+    return next.map((m) => m.id)
+  }
   const afterConnect = async (label, modelList) => {
     toast(`已接入 ${label}：${(modelList || []).join(', ')}`, 'success')
     await api.gw.get('/auth/me')
@@ -394,8 +511,35 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
     if (!channel) return
     setBusy(true)
     try {
-      const r = await api.gw.post(`/channels/${channel.id}/connect`, { credential, baseUrl, models, ...extras() })
+      const entries = pickModels.length ? pickModels : parseModelEntries(models)
+      const r = await api.gw.post(`/channels/${channel.id}/connect`, { credential, baseUrl, models: modelsPayload(entries), ...extras() })
       await afterConnect(r.channel.label, r.channel.models)
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const saveEdit = async () => {
+    if (!channel) return
+    const entries = pickModels.length ? pickModels : parseModelEntries(models)
+    if (!entries.length) {
+      toast('请至少填写或留下一个模型 id', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      const r = await api.gw.patch(`/channels/${channel.id}`, {
+        models: modelsPayload(entries),
+        baseUrl: baseUrl || undefined,
+        label: channel.custom ? label : undefined,
+        ...extras(),
+      })
+      toast(`已更新 ${r.channel.label}：${(r.channel.models || []).join(', ')}`, 'success')
+      await api.gw.get('/auth/me')
+      await refreshDeskState()
+      onDone?.()
+      onClose()
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -406,8 +550,8 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
     if (!channel) return
     setBusy(true)
     try {
-      const r = await api.gw.post(`/channels/${channel.id}/discover-models`, { credential, baseUrl })
-      setModels((r.models || []).map((m) => m.id).join(', '))
+      const r = await api.gw.post(`/channels/${channel.id}/discover-models`, { credential, baseUrl, state: oauthState || undefined })
+      applyCatalog(r.models || [])
       const first = r.models?.[0]
       if (first?.contextWindow && !contextWindow) setContextWindow(String(first.contextWindow))
       if (first?.maxTokens && !maxTokens) setMaxTokens(String(first.maxTokens))
@@ -431,6 +575,13 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
       }
       try {
         const st = await api.gw.get(`/channels/${channelId}/oauth/status?state=${encodeURIComponent(state)}`)
+        if (st.status === 'authorized') {
+          clearInterval(pollRef.current)
+          const ids = applyCatalog(st.models || [])
+          setOauthNote(`已登录，已拉取 ${ids.length} 个模型。点 × 去掉不需要的，再点接入。`)
+          setBusy(false)
+          return
+        }
         if (st.status === 'success') {
           clearInterval(pollRef.current)
           await afterConnect(st.channel.label, st.channel.models)
@@ -501,9 +652,33 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
     setBusy(true)
     try {
       const st = await api.gw.post(`/channels/${channel.id}/oauth/complete`, { state: oauthState, code: pasteCode })
-      if (st.status === 'success') await afterConnect(st.channel.label, st.channel.models)
+      if (st.status === 'authorized') {
+        const ids = applyCatalog(st.models || [])
+        setOauthNote(`已登录，已拉取 ${ids.length} 个模型。点 × 去掉不需要的，再点接入。`)
+        setBusy(false)
+      } else if (st.status === 'success') await afterConnect(st.channel.label, st.channel.models)
       else {
         setOauthNote(st.error || '授权失败')
+        setBusy(false)
+      }
+    } catch (err) {
+      setOauthNote(err.message)
+      setBusy(false)
+    }
+  }
+  const commitOAuth = async () => {
+    if (!channel || !oauthState) return
+    const entries = pickModels.length ? pickModels : parseModelEntries(models)
+    if (!entries.length) {
+      toast('请至少填写或留下一个模型 id', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      const st = await api.gw.post(`/channels/${channel.id}/oauth/commit`, { state: oauthState, models: modelsPayload(entries), ...extras() })
+      if (st.status === 'success') await afterConnect(st.channel.label, st.channel.models)
+      else {
+        setOauthNote(st.error || '接入失败')
         setBusy(false)
       }
     } catch (err) {
@@ -514,26 +689,33 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
   const subHint = !isSub
     ? '用 API key 接入一个模型供应商：key 只存在网关服务器上。'
     : canOAuth
-      ? '用官方 OAuth 登录订阅账号，令牌只保存在服务端；员工不接触凭据。'
+      ? '用官方 OAuth 登录订阅账号；登录后会自动拉取模型列表，你可以去掉不需要的再接入。令牌只保存在服务端。'
       : oauth?.available
         ? `该通道支持官方 OAuth，但网关还没配置应用。${oauth.reason || ''}`
         : (oauth?.reason || '该平台无官方 OAuth，仍需粘贴令牌')
   return (
     <div className="dk-overlay" onClick={onClose}>
-      <div className="dk-dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>{initial.addAccount ? `再登录 ${channel?.label ?? ''}` : isSub ? '加入订阅' : '加入模型'}</h2>
-        <div className="sub">{initial.addAccount ? '同一订阅再挂一个账号；额度用完后自动切到下一个。' : subHint}</div>
-        <div className="dk-field">
-          <label>通道</label>
-          <select className="dk-select" value={channelId} onChange={(e) => setChannelId(e.target.value)} disabled={!!initial.channel}>
-            {candidates.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}（{c.kindLabel}）
-              </option>
-            ))}
-          </select>
-        </div>
-        {isSub && canOAuth && (
+      <div className={`dk-dialog${pickModels.length ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()}>
+        <h2>{isEdit ? `编辑 ${channel?.label ?? ''}` : initial.addAccount ? `再登录 ${channel?.label ?? ''}` : isSub ? '加入订阅' : '加入模型'}</h2>
+        <div className="sub">{isEdit ? '改模型列表和上下文，不必重新登录。凭据保持不变。' : initial.addAccount ? '同一订阅再挂一个账号；额度用完后自动切到下一个。' : subHint}</div>
+        {isEdit && channel?.custom ? (
+          <div className="dk-field">
+            <label>名称</label>
+            <input className="dk-input" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+        ) : (
+          <div className="dk-field">
+            <label>通道</label>
+            <select className="dk-select" value={channelId} onChange={(e) => setChannelId(e.target.value)} disabled={!!initial.channel}>
+              {candidates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}（{c.kindLabel}）
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {!isEdit && isSub && canOAuth && (
           <div className="dk-field">
             <button className="dk-btn primary block" type="button" disabled={busy} onClick={startOAuth}>
               {busy ? '请稍候…' : '登录账号'}
@@ -554,15 +736,15 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
             {oauth?.flow === 'authorization_code' && oauth?.callbackUrl && <span className="hint">开发者后台登记 callback：{oauth.callbackUrl}</span>}
           </div>
         )}
-        {isSub && oauth?.available && !oauth?.configured && oauth?.callbackUrl && (
+        {!isEdit && isSub && oauth?.available && !oauth?.configured && oauth?.callbackUrl && (
           <p className="dk-xs dk-muted" style={{ margin: '0 0 10px' }}>开发者后台登记 callback：{oauth.callbackUrl}</p>
         )}
-        {isSub && canOAuth && (
+        {!isEdit && isSub && canOAuth && (
           <button className="dk-btn sm ghost" type="button" onClick={() => setShowPaste((v) => !v)} style={{ marginBottom: 8 }}>
             {showPaste ? '收起手动粘贴' : '高级：手动粘贴'}
           </button>
         )}
-        {(!isSub || showPaste || !canOAuth) && (
+        {!isEdit && (!isSub || showPaste || !canOAuth) && (
           <div className="dk-field">
             <label>{isSub ? '订阅凭据（订阅账号的访问令牌）' : 'API key'}</label>
             <input className="dk-input" type="password" autoFocus={!canOAuth} value={credential} onChange={(e) => setCredential(e.target.value)} placeholder={isSub ? '粘贴订阅账号的 access token' : 'sk-…'} />
@@ -575,13 +757,37 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
         <div className="dk-field">
           <label>模型 id（逗号分隔，可留空自动拉取）</label>
           <div className="dk-row" style={{ gap: 8 }}>
-            <input className="dk-input" value={models} onChange={(e) => setModels(e.target.value)} placeholder={channel?.hint || '留空则自动发现'} style={{ flex: 1 }} />
+            <input
+              className="dk-input"
+              value={models}
+              onChange={(e) => {
+                const value = e.target.value
+                setModels(value)
+                setPickModels((cur) => parseModelEntries(value, cur))
+              }}
+              placeholder={channel?.hint || '留空则自动发现'}
+              style={{ flex: 1 }}
+            />
             <button className="dk-btn" type="button" disabled={busy || !channel} onClick={discover}>拉取列表</button>
           </div>
         </div>
+        {pickModels.length > 0 && (
+          <div className="dk-field">
+            <label>已填入 {pickModels.length} 个模型（每行可改上下文，点 × 去掉）</label>
+            <ModelPickList
+              models={pickModels}
+              onRemove={(id) => setPickModels((cur) => {
+                const next = cur.filter((x) => x.id !== id)
+                setModels(next.map((m) => m.id).join(', '))
+                return next
+              })}
+              onContext={(id, value) => setPickModels((cur) => cur.map((x) => (x.id === id ? { ...x, contextWindow: value } : x)))}
+            />
+          </div>
+        )}
         <div className="dk-form-grid">
           <div className="dk-field">
-            <label>上下文窗口</label>
+            <label>默认上下文（未单独填的模型）</label>
             <input className="dk-input" value={contextWindow} onChange={(e) => setContextWindow(e.target.value)} placeholder="自动 / 例如 200000" />
           </div>
           <div className="dk-field">
@@ -597,11 +803,19 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
           <button className="dk-btn" onClick={onClose}>
             取消
           </button>
-          {(!isSub || showPaste || !canOAuth) && (
+          {isEdit ? (
+            <button className="dk-btn primary" disabled={busy || !channel} onClick={saveEdit}>
+              保存
+            </button>
+          ) : catalogReady && canOAuth && oauthState ? (
+            <button className="dk-btn primary" disabled={busy || !pickModels.length || !channel} onClick={commitOAuth}>
+              接入这些模型
+            </button>
+          ) : (!isSub || showPaste || !canOAuth) ? (
             <button className="dk-btn primary" disabled={busy || !credential.trim() || !channel} onClick={submit}>
               {initial.addAccount ? '添加账号' : isSub ? '接入订阅' : '接入模型'}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -647,7 +861,7 @@ function CustomEndpointDialog({ onClose, onDone }) {
         <div className="dk-field"><label>API key</label><input className="dk-input" type="password" value={credential} onChange={(e) => setCredential(e.target.value)} /></div>
         <div className="dk-field"><label>模型 id（可留空自动拉取）</label><input className="dk-input" value={models} onChange={(e) => setModels(e.target.value)} placeholder="gpt-4o, …" /></div>
         <div className="dk-form-grid">
-          <div className="dk-field"><label>上下文窗口</label><input className="dk-input" value={contextWindow} onChange={(e) => setContextWindow(e.target.value)} /></div>
+          <div className="dk-field"><label>默认上下文（未单独填的模型）</label><input className="dk-input" value={contextWindow} onChange={(e) => setContextWindow(e.target.value)} /></div>
           <div className="dk-field"><label>最长输出</label><input className="dk-input" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} /></div>
           <div className="dk-field"><label>思考强度</label><input className="dk-input" value={reasoning} onChange={(e) => setReasoning(e.target.value)} /></div>
         </div>
@@ -1067,7 +1281,7 @@ export function SubscriptionSection() {
         </div>
         {quotas.map((quota) => (
           <div key={quota.provider}>
-            <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{fmtCny(quota.usedCny)} / {fmtCny(quota.limitCny)}），{fmtDateTime(quota.refreshAt)} 刷新。
+            <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{quotaUseText(quota)}），{fmtDateTime(quota.refreshAt)} 刷新。
           </div>
         ))}
         <div>

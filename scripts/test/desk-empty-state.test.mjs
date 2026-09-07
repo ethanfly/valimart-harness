@@ -47,6 +47,28 @@ test('任务正文 textarea 绑定 onBlur 静默保存', () => {
   assert.match(tasks, /<textarea[\s\S]*onBlur=\{onBlur\}/)
 })
 
+test('安装版主进程会在启动时尝试应用已下载的客户端更新', () => {
+  const main = fs.readFileSync(path.join(repo, 'desktop/main.js'), 'utf8')
+  assert.match(main, /maybeApplyPendingClient/)
+  assert.match(main, /applyPendingClientUpdate/)
+  assert.match(main, /DESK_PAYLOAD_DIR/)
+  const host = fs.readFileSync(path.join(repo, 'plugins/desk-host/lib/index.js'), 'utf8')
+  assert.match(host, /scheduleClientUpdate/)
+})
+
+test('登录下拉按网关实例列出，不把每个 IP 当成一台', () => {
+  const login = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/login.jsx'), 'utf8')
+  assert.doesNotMatch(login, /gateways\.flatMap/)
+  assert.match(login, /gateways\.map/)
+})
+
+test('侧栏项目行展示 git 分支', () => {
+  const sidebar = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/sidebar.jsx'), 'utf8')
+  const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8')
+  assert.match(sidebar, /WorkspaceGitSync|applyGitBranchBadges/)
+  assert.match(css, /\.dk-git-branch/)
+})
+
 test('表单控件默认高度与按钮对齐', () => {
   const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8').replace(/\s+/g, ' ')
   assert.match(css, /\.dk-input:not\(textarea\), \.dk-select \{[^}]*height: 30px/)

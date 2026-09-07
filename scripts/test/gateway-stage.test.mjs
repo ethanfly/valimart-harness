@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyInstallGuards, isPackagedGateway, toProductionConfig } from '../../server/src/config.js'
-import { assertGatewayStageClean, copyServerSrc, writeStagedGatewayConfig } from '../lib/gateway-stage.mjs'
+import { assertGatewayStageClean, copyServerSrc, stageGatewayApp, writeStagedGatewayConfig } from '../lib/gateway-stage.mjs'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -66,4 +66,20 @@ test('writeStagedGatewayConfig + assertGatewayStageClean：不拷 data、不带�
   assert.ok(!fs.existsSync(path.join(stage, 'server', 'data')))
   fs.mkdirSync(path.join(stage, 'server', 'data'))
   assert.throws(() => assertGatewayStageClean(stage), /data/)
+})
+
+test('stageGatewayApp：含客户端目录与共用库', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-gw-client-'))
+  const stage = path.join(dir, 'stage')
+  stageGatewayApp(repo, stage, { version: '0.0.0-test' })
+  assert.ok(fs.existsSync(path.join(stage, 'server', 'src', 'client-catalog.js')))
+  assert.ok(fs.existsSync(path.join(stage, 'scripts', 'lib', 'client-update.mjs')))
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('网关安装器：默认目录是新产品名，并改写旧版 THE DIVA Gateway', () => {
+  const nsi = fs.readFileSync(path.join(repo, 'installer', 'gateway.nsi'), 'utf8')
+  assert.match(nsi, /!define PRODUCT "valimart harness Gateway"/)
+  assert.match(nsi, /InstallDir "\$PROGRAMFILES64\\\${PRODUCT}"/)
+  assert.ok(nsi.includes('${WordReplace} $INSTDIR "THE DIVA Gateway"'), '旧目录名必须被改写成 PRODUCT')
 })

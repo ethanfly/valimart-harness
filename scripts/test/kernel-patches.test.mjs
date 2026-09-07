@@ -72,6 +72,21 @@ function patchNamed(mark) {
   return CODE_PATCHES.find((p) => p.mark === mark)
 }
 
+const SESSION_EVENTAT =
+  '\teventAt(seq) {\n' +
+  '\t\treturn this.log[seq];\n' +
+  '\t}\n' +
+  '\t/**\n' +
+  '\t* Materialize an immutable snapshot of a half-open event sequence range.\n'
+
+test('session.events：0.1.2 补兼容 getter，旧预设 scanEvents 能读 length', () => {
+  const patch = patchNamed('company-session-events-alias-v1')
+  assert.ok(patch, '缺少 company-session-events-alias-v1 补丁')
+  const out = applyEdit(SESSION_EVENTAT, patch.edits[0], 'dsh-session')
+  assert.match(out, /get events\(\) \{\n\t\treturn this\.snapshotEvents\(\);\n\t\}/)
+  assert.equal(out.includes('return this.log[seq];'), true)
+})
+
 test('goal resume：0.1.1-rc.2 cache.activation 打成 no-op', () => {
   const out = applyEdit(GOAL_RC11, patchNamed('company-goal-resume-armed-v1').edits[0], 'dsh-goal')
   assert.match(out, /return view/)

@@ -57,6 +57,20 @@ test('discoverUpstreamModels：失败回退内置目录', async () => {
   assert.ok(fallbackModelsFor({ id: 'chatgpt' }).length > 0)
 })
 
+test('mergeDiscoveredModels：单模型上下文优先于通道默认', () => {
+  const merged = mergeDiscoveredModels(
+    [
+      { id: 'custom-mini', contextWindow: 32000 },
+      { id: 'custom-large' },
+    ],
+    [{ id: 'custom-large', contextWindow: 180000 }],
+    { contextWindow: 64000 },
+    { contextWindow: 200000 },
+  )
+  assert.equal(merged.find((m) => m.id === 'custom-mini').contextWindow, 32000)
+  assert.equal(merged.find((m) => m.id === 'custom-large').contextWindow, 64000)
+})
+
 test('isUpstreamQuotaExhausted：额度用尽才切号，普通 429 不切', () => {
   assert.equal(isUpstreamQuotaExhausted(402, ''), true)
   assert.equal(isUpstreamQuotaExhausted(429, '{"error":{"code":"insufficient_quota"}}'), true)

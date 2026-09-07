@@ -9,6 +9,7 @@ import { ROLES, ROLE_LABELS, publicUser, verifyPassword, hashPassword } from './
 import { TASK_STATUS } from './tasks.js'
 import { MEMORY_LAYERS } from './drive.js'
 import { openKernelCatalog } from './kernel-catalog.js'
+import { openClientCatalog } from './client-catalog.js'
 import { KernelPatchError } from '../../scripts/kernel/patches.mjs'
 import { assertPublishedOnNpm, prepareKernelTarball } from '../../scripts/lib/kernel-prepare.mjs'
 import { hasNpm } from '../../scripts/lib/npm-cli.mjs'
@@ -17,6 +18,9 @@ import { registerOAuthSubscribe, decorateChannels } from './oauth-subscribe.js'
 import { normalizeModels } from './channels.js'
 import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
 import { workspacePluginCatalog } from './dsh-plugins.js'
+import { openOrg } from './org.js'
+import { exportBundle, importBundle } from './bundle.js'
+import { AGENT_TOOLS } from './agent-tools.js'
 
 /** 客户端内核锁定版本（scripts/kernel/pin.json）：KERNEL_LABEL 给 /api/status，pinVersion 给 bundled 回退。 */
 const KERNEL_PIN = (() => {
@@ -43,6 +47,8 @@ export function registerApi(router, ctx) {
       fetchNpmVersions: ctx.fetchNpmVersions,
       npmRegistry: cfg.kernel?.npmRegistry,
     })
+  const clients = ctx.clients ?? openClientCatalog(cfg.dataDir)
+  const org = ctx.org ?? openOrg(db)
   const fetchNpm = ctx.fetchNpmVersions ?? fetchNpmVersions
   const npmRegistry = resolveNpmRegistry(cfg.kernel?.npmRegistry)
 
@@ -225,7 +231,10 @@ export function registerApi(router, ctx) {
     const ledger7 = ledger.companyLedger(7)
     const users = db
       .listUsers()
-      .map((u) => ({ ...publicUser(u), online: isOnline(u), spend7dCny: ledger7.byUser[u.id] ?? 0, weeklyQuotaCny: ledger.weeklyLimitCny(u) }))
+      .map((u) => {
+        const q = ledger.resolveQuota(u)
+        return { ...publicUser(u), online: isOnline(u), spend7dCny: ledger7.byUser[u.id] ?? 0, weeklyQuotaCny: q.kind === 'cny' ? q.limit : 0, quota: q }
+      })
       .sort((a, b) => a.username.localeCompare(b.username))
     sendJson(res, 200, {
       quota: ledger.quotaView(user, providers()),
@@ -290,12 +299,18 @@ export function registerApi(router, ctx) {
     const channel = channels.find(req.params.id)
     const body = await readJson(req)
     const stored = channels.store.load().items[req.params.id]
-    const credential = String(body.credential ?? stored?.credential ?? '').trim()
+    const state = String(body.state ?? '')
+    const session = state && oauth?.sessions?.get(state)
+    if (session) {
+      if (session.userId !== user.id) throw new HttpError(403, '不是你发起的授权', 'forbidden')
+      if (session.channelId !== req.params.id) throw new HttpError(400, '通道与授权会话不一致', 'oauth_channel_mismatch')
+    }
+    const credential = String(body.credential ?? session?.pending?.access ?? stored?.credential ?? '').trim()
     const r = await discoverUpstreamModels({
-      baseUrl: String(body.baseUrl ?? '').trim() || stored?.baseUrl || channel.baseUrl,
+      baseUrl: String(body.baseUrl ?? '').trim() || session?.pending?.baseUrl || stored?.baseUrl || channel.baseUrl,
       credential,
-      api: body.api || stored?.api || channel.api,
-      authStyle: body.authStyle || stored?.authStyle,
+      api: body.api || session?.pending?.api || stored?.api || channel.api,
+      authStyle: body.authStyle || session?.pending?.authStyle || stored?.authStyle,
       channel,
       fetchImpl: fetchModels,
     })
@@ -311,6 +326,41 @@ export function registerApi(router, ctx) {
     const { models: resolved } = await resolveConnectModels(channelDef, body, body.credential)
     const channel = channels.connect(req.params.id, { ...body, models: resolved }, user)
     console.log(`[gateway] ${user.username} 接入通道 ${channel.label}（${channel.kindLabel}），模型 ${channel.models.join(', ')}`)
+    sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
+  })
+
+  router.patch('/api/channels/:id', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!channels) throw new HttpError(500, '通道模块未启用')
+    const body = await readJson(req)
+    const stored = channels.store.load().items[req.params.id]
+    if (!stored) throw new HttpError(409, '该通道尚未接入或由配置文件接入，无法在界面编辑', 'channel_not_runtime')
+    const channelDef = channels.find(req.params.id)
+    const list = body.models !== undefined ? normalizeModels(body.models) : normalizeModels(stored.models)
+    if (list.length === 0) throw new HttpError(400, '至少保留一个模型 id')
+    const contextWindow = Number.isFinite(Number(body.contextWindow)) && Number(body.contextWindow) > 0 ? Number(body.contextWindow) : undefined
+    const maxTokens = Number.isFinite(Number(body.maxTokens)) && Number(body.maxTokens) > 0 ? Number(body.maxTokens) : undefined
+    const reasoningEfforts = Array.isArray(body.reasoningEfforts)
+      ? body.reasoningEfforts
+      : typeof body.reasoningEfforts === 'string' && body.reasoningEfforts.trim()
+        ? body.reasoningEfforts.split(/[,\s/]+/).filter(Boolean)
+        : undefined
+    const discovered = await discoverUpstreamModels({
+      baseUrl: String(body.baseUrl ?? '').trim() || stored.baseUrl || channelDef.baseUrl,
+      credential: stored.credential,
+      api: body.api || stored.api || channelDef.api,
+      authStyle: body.authStyle || stored.authStyle,
+      channel: channelDef,
+      fetchImpl: fetchModels,
+    }).catch((err) => ({ models: [], source: 'error', reason: err.message }))
+    const resolved = mergeDiscoveredModels(list, discovered.models, {
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(reasoningEfforts !== undefined ? { reasoningEfforts } : {}),
+    }, channelDef)
+    const channel = channels.update(req.params.id, { ...body, models: resolved })
+    console.log(`[gateway] ${user.username} 编辑通道 ${channel.label}，模型 ${channel.models.join(', ')}`)
     sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
   })
 
@@ -333,11 +383,23 @@ export function registerApi(router, ctx) {
     for (const u of db.listUsers()) {
       const dep = u.department || '未分组'
       if (!groups.has(dep)) groups.set(dep, [])
-      groups.get(dep).push({ ...publicUser(u), online: isOnline(u), gatewayTokenActive: !!db.activeGatewayToken(u.id) })
+      const q = ledger.resolveQuota(u)
+      const s = db.userSettings(u.id)
+      groups.get(dep).push({
+        ...publicUser(u),
+        online: isOnline(u),
+        gatewayTokenActive: !!db.activeGatewayToken(u.id),
+        quota: q,
+        weeklyQuotaCny: s.weeklyQuotaCny ?? null,
+        weeklyQuotaTokens: s.weeklyQuotaTokens ?? null,
+        quotaKind: s.quotaKind ?? null,
+      })
     }
     return {
       departments: [...groups.entries()].map(([name, users]) => ({ name, users: users.sort((a, b) => a.username.localeCompare(b.username)) })).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN')),
       roles: ROLES.map((r) => ({ id: r, label: ROLE_LABELS[r] })),
+      positions: org.listPositions(),
+      departmentCatalog: org.listDepartments(),
     }
   }
   router.get('/api/personnel', async (req, res) => {
@@ -349,9 +411,10 @@ export function registerApi(router, ctx) {
     const { user } = auth(req)
     requireAdmin(user)
     const body = await readJson(req)
+    if (body.positionId && !org.getPosition(body.positionId)) throw new HttpError(404, '岗位不存在', 'not_found')
     let created
     try {
-      created = db.createUser({ username: String(body.username ?? '').trim(), password: body.password, displayName: body.displayName, role: body.role ?? 'employee', department: body.department })
+      created = db.createUser({ username: String(body.username ?? '').trim(), password: body.password, displayName: body.displayName, role: body.role ?? 'employee', department: body.department, positionId: body.positionId })
     } catch (err) {
       throw new HttpError(400, err.message)
     }
@@ -372,6 +435,10 @@ export function registerApi(router, ctx) {
       patch.role = body.role
     }
     if (body.department !== undefined) patch.department = String(body.department).trim() || '未分组'
+    if (body.positionId !== undefined) {
+      if (body.positionId && !org.getPosition(body.positionId)) throw new HttpError(404, '岗位不存在', 'not_found')
+      patch.positionId = body.positionId || null
+    }
     if (body.displayName !== undefined) patch.displayName = String(body.displayName).trim() || target.username
     if (body.disabled !== undefined) {
       if (target.seed && body.disabled) throw new HttpError(400, '种子管理员不能被停用', 'seed_protected')
@@ -382,12 +449,22 @@ export function registerApi(router, ctx) {
         presence.leave(target.id)
       }
     }
+    const settingsPatch = {}
     if (body.weeklyQuotaCny !== undefined) {
-      // 校验数字：NaN/Infinity 会让 weeklyLimitCny 变成 NaN，被 exceeded() 当成无限额度（设错一个数 = 该员工永久免限额）
       const rawQuota = body.weeklyQuotaCny === null ? null : Number(body.weeklyQuotaCny)
       if (rawQuota !== null && (!Number.isFinite(rawQuota) || rawQuota < 0)) throw new HttpError(400, '周额度必须是 ≥0 的数字（0 = 不限额）')
-      db.updateUserSettings(target.id, { weeklyQuotaCny: rawQuota ?? undefined })
+      settingsPatch.weeklyQuotaCny = rawQuota ?? undefined
     }
+    if (body.weeklyQuotaTokens !== undefined) {
+      const raw = body.weeklyQuotaTokens === null ? null : Number(body.weeklyQuotaTokens)
+      if (raw !== null && (!Number.isFinite(raw) || raw < 0 || !Number.isInteger(raw))) throw new HttpError(400, 'token 额度必须是 ≥0 的整数（0 = 不限额）')
+      settingsPatch.weeklyQuotaTokens = raw ?? undefined
+    }
+    if (body.quotaKind !== undefined) {
+      if (body.quotaKind !== null && body.quotaKind !== 'cny' && body.quotaKind !== 'tokens') throw new HttpError(400, '额度类型只能是 cny 或 tokens')
+      settingsPatch.quotaKind = body.quotaKind || undefined
+    }
+    if (Object.keys(settingsPatch).length) db.updateUserSettings(target.id, settingsPatch)
     const updated = db.updateUser(target.id, patch)
     sendJson(res, 200, { user: publicUser(updated), ...personnelView() })
   })
@@ -411,6 +488,98 @@ export function registerApi(router, ctx) {
     db.updateUser(target.id, { passwordSalt: salt, passwordHash: hash })
     sendJson(res, 200, { ok: true })
   })
+
+  const throwOrg = (err) => {
+    if (err instanceof HttpError) throw err
+    throw new HttpError(err.code === 'not_found' ? 404 : err.code === 'conflict' ? 409 : 400, err.message, err.code ?? 'error')
+  }
+  router.get('/api/org', async (req, res) => {
+    const { user } = auth(req)
+    if (user.role === 'employee') throw new HttpError(403, '组织管理仅总监/管理员可见', 'forbidden')
+    sendJson(res, 200, { ...org.adminView(), canEdit: user.role === 'admin' })
+  })
+  router.post('/api/org/positions', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 201, { position: org.createPosition(await readJson(req)), ...org.adminView() })
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+  router.patch('/api/org/positions/:id', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 200, { position: org.updatePosition(req.params.id, await readJson(req)), ...org.adminView() })
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+  router.delete('/api/org/positions/:id', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 200, { ...org.deletePosition(req.params.id), ...org.adminView() })
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+  router.post('/api/org/departments', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 201, { department: org.createDepartment(await readJson(req)), ...org.adminView() })
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+  router.post('/api/org/departments/rename', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const body = await readJson(req)
+    try {
+      sendJson(res, 200, { department: org.renameDepartment(body.from, body.to), ...org.adminView() })
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+  router.post('/api/org/departments/delete', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const body = await readJson(req)
+    try {
+      sendJson(res, 200, { ...org.deleteDepartment(body.name), ...org.adminView() })
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+  router.get('/api/admin/export', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const url = parseUrl(req)
+    const bundle = exportBundle({
+      db,
+      drive,
+      knowledge,
+      org,
+      user,
+      kinds: url.searchParams.get('kinds'),
+      tools: AGENT_TOOLS,
+    })
+    sendJson(res, 200, bundle)
+  })
+  router.post('/api/admin/import', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const body = await readJson(req)
+    try {
+      sendJson(res, 200, importBundle({ db, drive, org, user, bundle: body.bundle ?? body, kinds: body.kinds }))
+    } catch (err) {
+      throwOrg(err)
+    }
+  })
+
   router.get('/api/people', async (req, res) => {
     // 任务派发/审核人选择用的精简名单（全员可见：账号、姓名、角色、部门、在线）
     auth(req)
@@ -692,6 +861,75 @@ export function registerApi(router, ctx) {
       throw new HttpError(500, err.message, err.code ?? 'prepare_failed')
     } finally {
       fs.rmSync(stage, { recursive: true, force: true })
+    }
+  })
+
+  // ---------- 客户端安装包目录 ----------
+  router.get('/api/client/current', async (req, res) => {
+    auth(req)
+    sendJson(res, 200, clients.employeeView())
+  })
+  router.get('/api/client/download', async (req, res) => {
+    auth(req)
+    const file = clients.downloadPath()
+    if (!file) throw new HttpError(404, '没有已发布的客户端安装包', 'not_found')
+    const st = fs.statSync(file)
+    res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': st.size })
+    await new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(file)
+      stream.on('error', reject)
+      res.on('error', reject)
+      res.on('finish', resolve)
+      stream.pipe(res)
+    })
+  })
+  router.get('/api/admin/client', async (req, res) => {
+    const { user } = auth(req)
+    if (user.role === 'employee') throw new HttpError(403, '客户端管理仅总监/管理员可见', 'forbidden')
+    sendJson(res, 200, clients.adminView())
+  })
+  router.post('/api/admin/client/publish', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const ct = String(req.headers['content-type'] ?? '')
+    try {
+      if (ct.includes('application/octet-stream')) {
+        const buildId = String(req.headers['x-client-build-id'] ?? '').trim()
+        if (!buildId) throw new HttpError(400, '缺少 x-client-build-id', 'bad_request')
+        const expectedSha = String(req.headers['x-client-sha256'] ?? '').trim()
+        const version = String(req.headers['x-client-version'] ?? '').trim()
+        const filename = String(req.headers['x-client-filename'] ?? '').trim()
+        const buf = await readBody(req, 512 * 1024 * 1024)
+        if (!buf.length) throw new HttpError(400, '空的客户端安装包', 'bad_request')
+        const tmpExe = path.join(os.tmpdir(), `diva-client-upload-${process.pid}-${Date.now()}.exe`)
+        fs.writeFileSync(tmpExe, buf)
+        try {
+          clients.saveArtifact({
+            buildId,
+            exePath: tmpExe,
+            manifest: { sha256: expectedSha || undefined, version, filename: filename || 'valimart-harness-Setup.exe', bytes: buf.length },
+          })
+        } finally {
+          fs.rmSync(tmpExe, { force: true })
+        }
+        sendJson(res, 200, clients.publish(buildId))
+        return
+      }
+      const body = await readJson(req)
+      const buildId = String(body.buildId ?? '').trim()
+      if (!buildId) throw new HttpError(400, '缺少 buildId', 'bad_request')
+      sendJson(res, 200, clients.publish(buildId))
+    } catch (err) {
+      throwCatalog(err)
+    }
+  })
+  router.post('/api/admin/client/rollback', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    try {
+      sendJson(res, 200, clients.rollback())
+    } catch (err) {
+      throwCatalog(err)
     }
   })
 

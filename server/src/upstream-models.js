@@ -153,8 +153,8 @@ export function mergeDiscoveredModels(manual, discovered, input = {}, channel) {
   const byId = new Map((discovered ?? []).map((m) => [m.id, m]))
   return (manual ?? []).map((m) => {
     const extra = byId.get(m.id) ?? inferModelMeta(m.id)
-    const contextWindow = input.contextWindow ?? m.contextWindow ?? extra.contextWindow ?? channel?.contextWindow
-    const maxTokens = input.maxTokens ?? m.maxTokens ?? extra.maxTokens ?? channel?.maxTokens
+    const contextWindow = m.contextWindow ?? input.contextWindow ?? extra.contextWindow ?? channel?.contextWindow
+    const maxTokens = m.maxTokens ?? input.maxTokens ?? extra.maxTokens ?? channel?.maxTokens
     const reasoningEfforts = input.reasoningEfforts ?? m.reasoningEfforts ?? extra.reasoningEfforts ?? channel?.reasoningEfforts
     return {
       ...extra,

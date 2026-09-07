@@ -13,6 +13,8 @@ import {
   pickGatewayUrl,
   httpProbeTargets,
   parseHealthHello,
+  mergeGateways,
+  pickBestUrl,
 } from '../lib/lan-protocol.mjs'
 
 test('decodeLanMessage：只认本产品 hello/here', () => {
@@ -68,7 +70,15 @@ test('pickGatewayUrl：上次地址仍在列表里则沿用', () => {
   assert.equal(picked, 'http://192.168.1.9:8790')
 })
 
-test('pickGatewayUrl：上次是回环且发现了局域网则改用局域网', () => {
+test('pickGatewayUrl：本机与局域网同时在时优先本机', () => {
+  const picked = pickGatewayUrl({
+    found: [{ urls: ['http://192.168.1.8:8790', 'http://127.0.0.1:8790'], name: 'Acme' }],
+    lastUrl: 'http://192.168.1.8:8790',
+  })
+  assert.equal(picked, 'http://127.0.0.1:8790')
+})
+
+test('pickGatewayUrl：没有本机时才用局域网', () => {
   const picked = pickGatewayUrl({
     found: [{ urls: ['http://192.168.1.8:8790', 'http://ethanfly:8790'], name: 'Acme' }],
     lastUrl: 'http://127.0.0.1:8790',
@@ -101,4 +111,54 @@ test('parseHealthHello：只认本产品 /health', () => {
     { url: 'http://192.168.1.8:8790', name: 'Acme', needsSetup: false, publicUrl: 'http://gw:8790', source: 'http' },
   )
   assert.equal(parseHealthHello({ ok: true, name: 'x' }, 'http://1.1.1.1:8790'), null)
+})
+
+test('parseHealthHello：带上 instanceId', () => {
+  const g = parseHealthHello(
+    { ok: true, product: LAN_PRODUCT, name: 'Acme', instanceId: 'gw-1', needsSetup: false, publicUrl: 'http://gw:8790' },
+    'http://192.168.1.8:8790',
+  )
+  assert.equal(g.instanceId, 'gw-1')
+})
+
+test('mergeGateways：同一 instanceId 的多个 IP 收成一台', () => {
+  const merged = mergeGateways([
+    { instanceId: 'gw-1', name: 'Acme', urls: ['http://192.168.1.8:8790'] },
+    { instanceId: 'gw-1', name: 'Acme', urls: ['http://172.28.80.1:8790'] },
+    { instanceId: 'gw-1', name: 'Acme', urls: ['http://10.8.0.5:8790'] },
+  ])
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].instanceId, 'gw-1')
+  assert.deepEqual(merged[0].urls, ['http://192.168.1.8:8790', 'http://172.28.80.1:8790', 'http://10.8.0.5:8790'])
+})
+
+test('mergeGateways：没有 instanceId 时按公司名+端口合并', () => {
+  const merged = mergeGateways([
+    { name: 'Acme', urls: ['http://192.168.1.8:8790'] },
+    { name: 'Acme', urls: ['http://172.28.80.1:8790'] },
+  ])
+  assert.equal(merged.length, 1)
+})
+
+test('mergeGateways：不同 instanceId 即使同名也分开', () => {
+  const merged = mergeGateways([
+    { instanceId: 'a', name: 'Acme', urls: ['http://192.168.1.8:8790'] },
+    { instanceId: 'b', name: 'Acme', urls: ['http://192.168.1.9:8790'] },
+  ])
+  assert.equal(merged.length, 2)
+})
+
+test('pickBestUrl：优先本机，其次上次地址，再同网段', () => {
+  assert.equal(
+    pickBestUrl(['http://192.168.1.8:8790', 'http://127.0.0.1:8790'], { lastUrl: 'http://192.168.1.8:8790', lanIps: ['192.168.1.20'] }),
+    'http://127.0.0.1:8790',
+  )
+  assert.equal(
+    pickBestUrl(['http://172.28.80.1:8790', 'http://192.168.1.8:8790'], { lastUrl: 'http://192.168.1.8:8790', lanIps: ['192.168.1.20'] }),
+    'http://192.168.1.8:8790',
+  )
+  assert.equal(
+    pickBestUrl(['http://172.28.80.1:8790', 'http://192.168.1.8:8790'], { lanIps: ['192.168.1.20'] }),
+    'http://192.168.1.8:8790',
+  )
 })

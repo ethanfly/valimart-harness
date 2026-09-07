@@ -487,6 +487,26 @@ export const CODE_PATCHES = [
       },
     ],
   },
+  {
+    // 0.1.2 去掉了 Session.events，社区预设（梁神 tool-bootstrap）仍读 session.events.length，
+    // 第一轮 assemble 就 TypeError → UI 显示 UNKNOWN。别名回 snapshotEvents()。
+    file: path.join('node_modules', '@deepseek-ai', 'dsh-session', 'lib', 'index.js'),
+    mark: 'company-session-events-alias-v1',
+    append: '\n// --- company-session-events-alias-v1 (' + SEE + ') ---\n',
+    edits: [
+      {
+        name: 'session-events-getter',
+        from: '\teventAt(seq) {\n' + '\t\treturn this.log[seq];\n' + '\t}\n',
+        to:
+          '\teventAt(seq) {\n' +
+          '\t\treturn this.log[seq];\n' +
+          '\t}\n' +
+          '\tget events() {\n' +
+          '\t\treturn this.snapshotEvents();\n' +
+          '\t}\n',
+      },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------------------------

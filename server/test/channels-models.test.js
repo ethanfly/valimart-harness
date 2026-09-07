@@ -99,6 +99,79 @@ test('自定义端点 + 自动拉模型 + 上下文/思考强度', async () => {
   assert.deepEqual(model.reasoningEfforts, ['low', 'high'])
 })
 
+test('已接入通道可编辑模型与上下文，不改凭据', async () => {
+  const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
+  const token = login.json.sessionToken
+  const list = await api('GET', '/api/channels', { token })
+  const custom = list.json.channels.find((c) => c.custom && c.connected)
+  assert.ok(custom, '应先有一条已接入的自定义通道')
+  const credBefore = gw.channels.store.load().items[custom.id].credential
+
+  const edited = await api('PATCH', `/api/channels/${custom.id}`, {
+    token,
+    body: { models: 'custom-mini, custom-large', contextWindow: 64000 },
+  })
+  assert.equal(edited.status, 200, edited.json.error?.message)
+  assert.ok(edited.json.channel.models.includes('custom-mini'))
+  assert.ok(edited.json.channel.models.includes('custom-large'))
+  const detail = edited.json.channel.modelDetails.find((m) => m.id === 'custom-mini')
+  assert.equal(detail?.contextWindow, 64000)
+  assert.equal(gw.channels.store.load().items[custom.id].credential, credBefore)
+
+  const me = await api('GET', '/api/auth/me', { token })
+  const model = me.json.company.models.find((m) => m.id === 'custom-mini')
+  assert.ok(model)
+  assert.equal(model.contextWindow, 64000)
+
+  const empty = await api('PATCH', `/api/channels/${custom.id}`, { token, body: { models: '' } })
+  assert.equal(empty.status, 400)
+
+  const missing = await api('PATCH', '/api/channels/acme', { token, body: { models: 'acme-fast' } })
+  assert.equal(missing.status, 409)
+
+  const created = await api('POST', '/api/personnel/users', {
+    token,
+    body: { username: 'ch-edit-emp', password: 'emp123456', displayName: '编辑探针', role: 'employee', department: '测试' },
+  })
+  assert.equal(created.status, 201, created.json.error?.message)
+  const emp = await api('POST', '/api/auth/login', { body: { username: 'ch-edit-emp', password: 'emp123456', device: 'test' } })
+  const forbidden = await api('PATCH', `/api/channels/${custom.id}`, {
+    token: emp.json.sessionToken,
+    body: { models: 'custom-large' },
+  })
+  assert.equal(forbidden.status, 403)
+})
+
+test('每个模型可单独设上下文，未填的用通道默认', async () => {
+  const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
+  const token = login.json.sessionToken
+  const list = await api('GET', '/api/channels', { token })
+  const custom = list.json.channels.find((c) => c.custom && c.connected)
+  assert.ok(custom, '应先有一条已接入的自定义通道')
+  const credBefore = gw.channels.store.load().items[custom.id].credential
+
+  const edited = await api('PATCH', `/api/channels/${custom.id}`, {
+    token,
+    body: {
+      models: [
+        { id: 'custom-mini', contextWindow: 32000 },
+        { id: 'custom-large' },
+      ],
+      contextWindow: 64000,
+    },
+  })
+  assert.equal(edited.status, 200, edited.json.error?.message)
+  const mini = edited.json.channel.modelDetails.find((m) => m.id === 'custom-mini')
+  const large = edited.json.channel.modelDetails.find((m) => m.id === 'custom-large')
+  assert.equal(mini?.contextWindow, 32000)
+  assert.equal(large?.contextWindow, 64000)
+  assert.equal(gw.channels.store.load().items[custom.id].credential, credBefore)
+
+  const me = await api('GET', '/api/auth/me', { token })
+  assert.equal(me.json.company.models.find((m) => m.id === 'custom-mini')?.contextWindow, 32000)
+  assert.equal(me.json.company.models.find((m) => m.id === 'custom-large')?.contextWindow, 64000)
+})
+
 test('同一通道多账号：额度用尽切到下一个', async () => {
   const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
   const token = login.json.sessionToken

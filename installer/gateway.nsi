@@ -6,6 +6,8 @@ Unicode True
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!include "WordFunc.nsh"
+!insertmacro WordReplace
 
 !ifndef VERSION
   !error "需要 /DVERSION=x.y.z"
@@ -45,7 +47,7 @@ Var BackupNote
 
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "安装 ${PRODUCT} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "将安装 valimart harness 公司网关，并注册为 Windows 服务（${SERVICE}），随系统自动启动。$\r$\n$\r$\n不需要预装 Node.js。安装后员工打开客户端，登录页会自动寻找局域网里的网关。"
+!define MUI_WELCOMEPAGE_TEXT "将安装 valimart harness 公司网关，并注册为 Windows 服务（${SERVICE}），随系统自动启动。$\r$\n$\r$\n不需要预装 Node.js。安装后员工打开客户端，登录页会先找本机网关，没有再找局域网。"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -69,6 +71,9 @@ Function .onInit
     MessageBox MB_OK|MB_ICONSTOP "需要 64 位 Windows。" /SD IDOK
     Abort
   ${EndIf}
+  ; 同一卸载项还记着旧目录「THE DIVA Gateway」：向导默认改成新产品名（盘符/父目录保留）
+  ${WordReplace} $INSTDIR "THE DIVA Gateway" "${PRODUCT}" "+" $0
+  StrCpy $INSTDIR $0
   ReadEnvStr $0 COMPUTERNAME
   StrCpy $PublicUrl "http://$0:${PORT}"
   ReadEnvStr $ProgramDataDir ProgramData

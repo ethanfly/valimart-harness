@@ -3,7 +3,7 @@
  *
  *   node server/src/index.js            # 读取 server/config.json (+ config.local.json)
  *
- * 职责：公司账号登录 → 按人签发网关令牌（吊销即时生效）→ /v1 模型代理（真实密钥不出服务端）
+ * 职责：公司账号登录 → 按人签发网关令牌（吊销即时生效）→ /v1 模型代理（chat + 生图；真实密钥不出服务端）
  *      → 按人记账/周额度 → 任务卡与四格验收 → 公司盘（共享经验 / 个人记忆 / 任务收件箱）。
  */
 import http from 'node:http'
@@ -22,6 +22,7 @@ import { registerApi } from './api.js'
 import { registerAdminPage } from './admin-page.js'
 import { createLanBeacon, shouldStartLanBeacon } from './lan-beacon.js'
 import { LAN_PRODUCT } from '../../scripts/lib/lan-protocol.mjs'
+import { loadInstanceId } from './instance-id.js'
 import { createRouter, parseUrl, sendError, sendJson, HttpError } from './http.js'
 
 const startedAt = Date.now()
@@ -30,6 +31,7 @@ export function createGateway(overrides = {}) {
   const { fetchReleases, kernels, fetchNpmVersions, prepareInstaller, fetchModels, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
+  const instanceId = loadInstanceId(cfg.dataDir)
   const ledger = new Ledger(db, cfg)
   const tasksRef = { current: undefined }
   const drive = new Drive(db.driveRoot, (taskId) => tasksRef.current?.get(taskId))
@@ -81,6 +83,9 @@ export function createGateway(overrides = {}) {
   registerAdminPage(router, { cfg })
   router.get('/v1/models', (req, res) => proxy.handleModels(req, res))
   router.post('/v1/chat/completions', (req, res) => proxy.handleChat(req, res))
+  router.post('/v1/images/generations', (req, res) => proxy.handleImages(req, res, 'generations'))
+  router.post('/v1/images/edits', (req, res) => proxy.handleImages(req, res, 'edits'))
+  router.post('/v1/videos/generations', (req, res) => proxy.handleVideos(req, res))
   router.get('/health', (_req, res) => {
     const addr = server.address()
     sendJson(res, 200, {
@@ -90,6 +95,7 @@ export function createGateway(overrides = {}) {
       port: addr?.port ?? cfg.port,
       publicUrl: cfg.publicUrl,
       needsSetup: db.listUsers().length === 0,
+      instanceId,
       time: new Date().toISOString(),
     })
   })
@@ -142,6 +148,7 @@ export function createGateway(overrides = {}) {
               publicUrl: cfg.publicUrl,
               companyName: () => db.companySettings().name ?? cfg.company?.name,
               needsSetup: () => db.listUsers().length === 0,
+              instanceId,
               udpPort: cfg.lanDiscoverPort ?? undefined,
               log: console.log,
             })

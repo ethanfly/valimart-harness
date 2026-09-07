@@ -47,6 +47,8 @@ test('/health 带 product，供客户端 HTTP 兜底识别', async () => {
   assert.equal(j.name, '信标公司')
   assert.equal(typeof j.port, 'number')
   assert.equal(j.needsSetup, true)
+  assert.equal(typeof j.instanceId, 'string')
+  assert.ok(j.instanceId.length >= 8)
 })
 
 test('UDP hello 收到 here，urls 含局域网或主机名', async () => {
@@ -65,4 +67,6 @@ test('UDP hello 收到 here，urls 含局域网或主机名', async () => {
   assert.equal(got[0].name, '信标公司')
   assert.ok(Array.isArray(got[0].urls) && got[0].urls.length >= 1)
   assert.ok(got[0].urls.every((u) => !u.includes('0.0.0.0')))
+  assert.equal(typeof got[0].instanceId, 'string')
+  assert.ok(got[0].instanceId.length >= 8)
 })

@@ -409,12 +409,39 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.equal(page.status, 200)
   assert.match(page.headers.get('content-type'), /text\/html/)
   const html = await page.text()
-  for (const s of ['valimart harness', 'harness', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '试打补丁', '回滚到上一版', '初始设置']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  for (const s of ['valimart harness', 'harness', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '客户端', '试打补丁', '回滚到上一版', '初始设置', '上传并发布']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  assert.ok(html.includes('/api/admin/client'), '管理页应拉客户端目录')
+  assert.ok(html.includes('data-page="org"') || html.includes('#org'), '管理页应有组织分页')
+  assert.ok(html.includes('data-page="knowledge"') || html.includes('#knowledge'), '管理页应有知识分页')
+  for (const s of ['概览', '组织', '岗位', '更新', '模型', '知识', '工具']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  for (const id of ['overview', 'updates', 'models', 'knowledge', 'org', 'tools']) {
+    assert.ok(html.includes(`data-page="${id}"`), `管理页应有 ${id} 分页`)
+  }
+  assert.ok(html.includes('id="nav"'), '管理页应有侧栏菜单')
+  assert.ok(html.includes('class="fold"'), '知识/工具合集应折叠')
+  assert.ok(html.includes('data-export='), '管理页应有导出')
+  assert.ok(html.includes('data-import='), '管理页应有导入')
+  assert.ok(html.includes('data-posset='), '人员应能派岗位')
+  for (const s of ["['knowledge', '知识库']", "['skills', '技能']", "['personnel', '人员']", "['positions', '岗位']", "['departments', '部门']", "impexp('tools', '工具目录')"]) {
+    assert.ok(html.includes(s), `管理页应有 ${s} 导入导出`)
+  }
+  assert.ok(html.includes('x-client-build-id'), '管理页上传安装包应带 buildId')
+  assert.ok(html.includes('data-edit='), '已接入通道应有编辑入口')
+  assert.match(html, /form:not\(\.row\) > button/, '堆叠表单提交按钮与上一栏留间距（写入知识库不贴内容框）')
+  assert.match(html, /#channels table/, '通道表单独定列宽，避免模型把短列挤成竖排')
+  assert.match(html, /\.ch-models/, '通道模型用标签折行，不把整行撑乱')
   assert.ok(html.includes('/admin/brand/valimart-mark.png'), 'favicon 仍用花标')
   assert.ok(html.includes('class="word"'), '管理页 logo 用完整字标蒙版（图里已含花标）')
   assert.ok(!html.includes('class="mark"'), '字标图已含花标，不要再并一枚 mark')
   assert.ok(!html.includes('<small>harness</small>'), '管理页不应把 harness 当 logo 文字')
-  assert.match(html, /let status, channels, collections, kernel, plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
+  assert.match(html, /let status, channels, collections, kernel, client, plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
+  for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    try {
+      new Function(m[1])
+    } catch (err) {
+      assert.fail(`管理页 inline script 语法错误: ${err.message}`)
+    }
+  }
   const mark = await fetch(base + '/admin/brand/valimart-mark.png')
   assert.equal(mark.status, 200)
   assert.match(mark.headers.get('content-type'), /image\/png/)
@@ -468,6 +495,116 @@ test('周额度：并发两笔只放行一笔，第二笔 429', async () => {
   assert.deepEqual(statuses, [200, 429])
   const denied = a.status === 429 ? a : b
   assert.equal(denied.json.error.code, 'quota_exceeded')
+})
+
+test('客户端：未登录 401；无发布时 available=false；总监可读、员工不能管、管理员发布/回滚', async () => {
+  const no = await api('GET', '/api/client/current')
+  assert.equal(no.status, 401)
+  const empty = await api('GET', '/api/client/current', { token: ctx.boss.sessionToken })
+  assert.equal(empty.status, 200)
+  assert.equal(empty.json.available, false)
+  const miss = await api('GET', '/api/client/download', { token: ctx.boss.sessionToken })
+  assert.equal(miss.status, 404)
+
+  const empGet = await api('GET', '/api/admin/client', { token: ctx.emp.sessionToken })
+  assert.equal(empGet.status, 403)
+  const dirGet = await api('GET', '/api/admin/client', { token: ctx.dir.sessionToken })
+  assert.equal(dirGet.status, 200)
+  assert.ok(Array.isArray(dirGet.json.stored))
+  const dirPub = await api('POST', '/api/admin/client/publish', { token: ctx.dir.sessionToken, body: { buildId: 'nope' } })
+  assert.equal(dirPub.status, 403)
+
+  const empPub = await api('POST', '/api/admin/client/publish', { token: ctx.emp.sessionToken, body: { buildId: 'nope' } })
+  assert.equal(empPub.status, 403)
+
+  const exe = Buffer.from('FAKE-CLIENT-A')
+  const sha = crypto.createHash('sha256').update(exe).digest('hex')
+  const up = await fetch(base + '/api/admin/client/publish', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + ctx.boss.sessionToken,
+      'content-type': 'application/octet-stream',
+      'x-client-build-id': '0.1.0+aaa',
+      'x-client-sha256': sha,
+      'x-client-version': '0.1.0',
+      'x-client-filename': 'valimart-harness-Setup-0.1.0.exe',
+    },
+    body: exe,
+  })
+  assert.equal(up.status, 200)
+  const published = await up.json()
+  assert.equal(published.buildId, '0.1.0+aaa')
+
+  const cur = await api('GET', '/api/client/current', { token: ctx.emp.sessionToken })
+  assert.equal(cur.json.available, true)
+  assert.equal(cur.json.buildId, '0.1.0+aaa')
+  assert.equal(cur.json.sha256, sha)
+
+  const bin = await fetch(base + '/api/client/download', { headers: { authorization: 'Bearer ' + ctx.emp.sessionToken } })
+  assert.equal(bin.status, 200)
+  assert.equal(Buffer.from(await bin.arrayBuffer()).toString(), 'FAKE-CLIENT-A')
+
+  const exe2 = Buffer.from('FAKE-CLIENT-B')
+  const sha2 = crypto.createHash('sha256').update(exe2).digest('hex')
+  await fetch(base + '/api/admin/client/publish', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + ctx.boss.sessionToken,
+      'content-type': 'application/octet-stream',
+      'x-client-build-id': '0.1.0+bbb',
+      'x-client-sha256': sha2,
+      'x-client-version': '0.1.0',
+      'x-client-filename': 'valimart-harness-Setup-0.1.0.exe',
+    },
+    body: exe2,
+  })
+  const after = await api('GET', '/api/client/current', { token: ctx.boss.sessionToken })
+  assert.equal(after.json.buildId, '0.1.0+bbb')
+
+  const rb = await api('POST', '/api/admin/client/rollback', { token: ctx.boss.sessionToken })
+  assert.equal(rb.status, 200)
+  assert.equal(rb.json.buildId, '0.1.0+aaa')
+  const stored = await api('GET', '/api/admin/client', { token: ctx.boss.sessionToken })
+  assert.equal(stored.json.stored.length, 2)
+  const republish = await api('POST', '/api/admin/client/publish', { token: ctx.boss.sessionToken, body: { buildId: '0.1.0+bbb' } })
+  assert.equal(republish.status, 200)
+  assert.equal(republish.json.buildId, '0.1.0+bbb')
+  const cur2 = await api('GET', '/api/client/current', { token: ctx.emp.sessionToken })
+  assert.equal(cur2.json.buildId, '0.1.0+bbb')
+})
+
+test('组织：岗位额度 token/金额；导入导出；员工不能管', async () => {
+  const emp = await api('GET', '/api/org', { token: ctx.emp.sessionToken })
+  assert.equal(emp.status, 403)
+  const created = await api('POST', '/api/org/positions', { token: ctx.boss.sessionToken, body: { name: '设计师', quotaKind: 'tokens', weeklyQuotaTokens: 5000 } })
+  assert.equal(created.status, 201)
+  assert.equal(created.json.position.quotaKind, 'tokens')
+  const listed = await api('GET', '/api/org', { token: ctx.dir.sessionToken })
+  assert.equal(listed.status, 200)
+  assert.ok(listed.json.positions.some((p) => p.name === '设计师'))
+  const assign = await api('PATCH', `/api/personnel/users/${ctx.emp.user.id}`, { token: ctx.boss.sessionToken, body: { positionId: created.json.position.id } })
+  assert.equal(assign.status, 200)
+  assert.equal(assign.json.user.positionId, created.json.position.id)
+  const empRow = assign.json.departments.flatMap((d) => d.users).find((u) => u.id === ctx.emp.user.id)
+  assert.equal(empRow.quota.kind, 'tokens')
+  assert.equal(empRow.quota.source, 'position')
+  assert.equal(empRow.quota.limit, 5000)
+  const patched = await api('PATCH', `/api/org/positions/${created.json.position.id}`, { token: ctx.boss.sessionToken, body: { quotaKind: 'cny', weeklyQuotaCny: 40 } })
+  assert.equal(patched.status, 200)
+  assert.equal(patched.json.position.quotaKind, 'cny')
+  const exp = await api('GET', '/api/admin/export?kinds=positions,departments,personnel,tools,knowledge,skills', { token: ctx.boss.sessionToken })
+  assert.equal(exp.status, 200)
+  assert.equal(exp.json.kind, 'valimart-harness-org')
+  assert.ok(exp.json.positions.some((p) => p.name === '设计师'))
+  assert.ok(Array.isArray(exp.json.tools))
+  assert.ok(Array.isArray(exp.json.knowledge))
+  assert.ok(Array.isArray(exp.json.skills))
+  const empExp = await api('GET', '/api/admin/export', { token: ctx.emp.sessionToken })
+  assert.equal(empExp.status, 403)
+  const knImp = await api('POST', '/api/admin/import', { token: ctx.boss.sessionToken, body: { bundle: exp.json, kinds: ['knowledge', 'skills'] } })
+  assert.equal(knImp.status, 200)
+  const del = await api('DELETE', `/api/org/positions/${created.json.position.id}`, { token: ctx.boss.sessionToken })
+  assert.equal(del.status, 200)
 })
 
 test('内核：总监可 GET 管理视图；员工 GET 403；总监不能 publish', async () => {

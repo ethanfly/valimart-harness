@@ -20,8 +20,11 @@ import { GatewayClient, GatewayError } from './gateway-client.js'
 import { DriveMirror } from './drive-mirror.js'
 import { ProducedIndex } from './produced.js'
 import { fetchKernelUpdate, readLocalKernelVersion, resolvePendingDir } from './kernel-update.js'
+import { fetchClientUpdate, resolveClientPendingDir, resolvePayloadDir } from './client-update.js'
+import { readLocalBuildId } from '../../../scripts/lib/client-update.mjs'
 import { discoverGateways } from './lan-discover.js'
 import { portFromUrl } from '../../../scripts/lib/lan-protocol.mjs'
+import { gitBranchesForWorkspaces } from '../../../scripts/lib/git-head.mjs'
 
 export const name = 'desk-host'
 export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry']
@@ -219,6 +222,20 @@ export function apply(ctx, config) {
     }).catch((err) => log(`内核更新失败: ${err.message}`))
   }
 
+  function scheduleClientUpdate() {
+    const localBuildId = readLocalBuildId(resolvePayloadDir())
+    if (!localBuildId) {
+      log('客户端更新: skip no-local-build')
+      return
+    }
+    fetchClientUpdate({
+      gateway,
+      pendingDir: resolveClientPendingDir(),
+      localBuildId,
+      log: (msg) => log(`客户端更新: ${msg}`),
+    }).catch((err) => log(`客户端更新失败: ${err.message}`))
+  }
+
   // ---------- 登录 / 登出 / 心跳 ----------
   async function login({ gatewayUrl, username, password }) {
     const url = (gatewayUrl || state.data.gatewayUrl || config.gatewayUrl).replace(/\/+$/, '')
@@ -236,6 +253,7 @@ export function apply(ctx, config) {
     }
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
     scheduleKernelUpdate()
+    scheduleClientUpdate()
     return state.publicView()
   }
 
@@ -255,6 +273,7 @@ export function apply(ctx, config) {
     }
     log(`初始设置完成，已登录 ${result.user.username}`)
     scheduleKernelUpdate()
+    scheduleClientUpdate()
     return state.publicView()
   }
 
@@ -339,6 +358,7 @@ export function apply(ctx, config) {
         state.save()
         syncAll().catch((err) => log(`公司盘同步失败: ${err.message}`))
         scheduleKernelUpdate()
+        scheduleClientUpdate()
       } catch (err) {
         if (err instanceof GatewayError && (err.status === 401 || err.status === 403)) state.clearLogin('登录已失效，请重新登录')
         else log(`启动校验失败（网关可能未启动）: ${err.message}`)
@@ -681,6 +701,9 @@ export function apply(ctx, config) {
               return json(res, 403, { error: { message: '跨源请求被拒绝', code: 'bad_origin' } })
             }
             if (method === 'GET' && rel === '/state') return json(res, 200, state.publicView())
+            if (method === 'GET' && rel === '/workspace-git') {
+              return json(res, 200, { items: gitBranchesForWorkspaces(ctx.workspaceRegistry?.list?.() ?? []) })
+            }
             if (method === 'GET' && rel === '/discover') {
               const want = url.searchParams.get('gatewayUrl')
               const last = (want || state.data.gatewayUrl || config.gatewayUrl || '').replace(/\/+$/, '')

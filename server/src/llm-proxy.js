@@ -1,5 +1,5 @@
 /**
- * 模型网关：OpenAI Chat Completions 兼容端点（/v1/models、/v1/chat/completions）。
+ * 模型网关：OpenAI 兼容端点（/v1/models、/v1/chat/completions、/v1/images/*、/v1/videos/generations）。
  * - 员工端只持有按人签发的网关令牌，上游真实密钥仅在服务端内存中。
  * - 每次请求：校验令牌（吊销即时生效）→ 周额度检查 → 转发上游 → 按人记账。
  */
@@ -78,6 +78,202 @@ export class LlmProxy {
       if (upstream.kind === 'mock') return this.mockChat(user, model, body, res, upstream)
       return this.proxyChat(user, model, body, res, upstream)
     })
+  }
+
+  findDefaultImageModel() {
+    const list = this.catalog()
+    return (
+      list.find((m) => m.id === GROK_DEFAULT_IMAGE_MODEL) ??
+      list.find((m) => /imagine-image|dall-e|gpt-image|flux|qwen-image|image-generation/i.test(m.id)) ??
+      list.find((m) => /image/i.test(m.id) && !/vision|video/i.test(m.id))
+    )
+  }
+
+  findDefaultVideoModel() {
+    const list = this.catalog()
+    return (
+      list.find((m) => m.id === GROK_DEFAULT_VIDEO_MODEL) ??
+      list.find((m) => /imagine-video|video-generation|text-to-video/i.test(m.id)) ??
+      list.find((m) => /video/i.test(m.id) && !/vision/i.test(m.id))
+    )
+  }
+
+  /**
+   * OpenAI 兼容生图 / 修图。kind = generations | edits。
+   * 上游走 /images/generations 或 /images/edits（xAI Grok Imagine、OpenAI 兼容通道）。
+   */
+  async handleImages(req, res, kind = 'generations') {
+    const { user } = this.authenticate(req)
+    const raw = await readBody(req)
+    let body
+    try {
+      body = JSON.parse(raw.toString('utf8'))
+    } catch {
+      throw new HttpError(400, 'invalid JSON body')
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, '请求体必须是 JSON 对象', 'invalid_body')
+    if (!String(body.prompt ?? '').trim()) throw new HttpError(400, '缺少 prompt', 'missing_prompt')
+    if (kind === 'edits' && body.image == null && body.image_url == null && !Array.isArray(body.images)) {
+      throw new HttpError(400, '编辑图片需要 image、image_url 或 images', 'missing_image')
+    }
+    let model
+    if (body.model) {
+      model = this.findModel(body.model)
+      if (!model) throw new HttpError(404, '模型 ' + body.model + ' 不在公司目录里', 'model_not_found')
+    } else {
+      model = this.findDefaultImageModel()
+      if (!model) throw new HttpError(404, '公司目录里没有生图模型', 'model_not_found')
+    }
+    const upstream = this.cfg.upstreams[model.provider]
+    const path = kind === 'edits' ? '/images/edits' : '/images/generations'
+    return this.withProviderLock(user.id + ':' + model.provider, () => {
+      if (this.ledger.exceeded(user, model.provider)) {
+        throw new HttpError(429, '本周 ' + model.providerLabel + ' 额度已用完，刷新时间 ' + (this.ledger.quotaView(user, [{ id: model.provider }])[0]?.refreshAt ?? ''), 'quota_exceeded')
+      }
+      if (upstream.kind === 'mock') return this.mockImages(user, model, body, res, kind)
+      return this.proxyMedia(user, model, body, res, upstream, path, 'images')
+    })
+  }
+
+  /**
+   * OpenAI 兼容视频生成。上游走 /videos/generations（xAI Grok Imagine Video）。
+   * 默认模型 grok-imagine-video-1.5。
+   */
+  async handleVideos(req, res) {
+    const { user } = this.authenticate(req)
+    const raw = await readBody(req)
+    let body
+    try {
+      body = JSON.parse(raw.toString('utf8'))
+    } catch {
+      throw new HttpError(400, 'invalid JSON body')
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, '请求体必须是 JSON 对象', 'invalid_body')
+    if (!String(body.prompt ?? '').trim()) throw new HttpError(400, '缺少 prompt', 'missing_prompt')
+    let model
+    if (body.model) {
+      model = this.findModel(body.model)
+      if (!model) throw new HttpError(404, '模型 ' + body.model + ' 不在公司目录里', 'model_not_found')
+    } else {
+      model = this.findDefaultVideoModel()
+      if (!model) throw new HttpError(404, '公司目录里没有视频生成模型', 'model_not_found')
+    }
+    const upstream = this.cfg.upstreams[model.provider]
+    return this.withProviderLock(user.id + ':' + model.provider, () => {
+      if (this.ledger.exceeded(user, model.provider)) {
+        throw new HttpError(429, '本周 ' + model.providerLabel + ' 额度已用完，刷新时间 ' + (this.ledger.quotaView(user, [{ id: model.provider }])[0]?.refreshAt ?? ''), 'quota_exceeded')
+      }
+      if (upstream.kind === 'mock') return this.mockVideos(user, model, body, res)
+      return this.proxyMedia(user, model, body, res, upstream, '/videos/generations', 'videos')
+    })
+  }
+
+  async mockImages(user, model, body, res, kind) {
+    const started = Date.now()
+    const n = Math.max(1, Math.min(4, Number(body.n) || 1))
+    const usage = { prompt_tokens: Math.ceil(String(body.prompt).length / 4), completion_tokens: n * 1000, total_tokens: 0 }
+    usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
+    this.ledger.record({
+      userId: user.id,
+      username: user.username,
+      provider: model.provider,
+      model: model.id,
+      stream: false,
+      status: 'ok',
+      tag: kind === 'edits' ? 'images-edits' : 'images-generations',
+      latencyMs: Date.now() - started,
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+      cachedTokens: 0,
+      costCny: estimateCostCny(model, usage),
+    })
+    sendJson(res, 200, {
+      created: Math.floor(Date.now() / 1000),
+      data: Array.from({ length: n }, () => ({ b64_json: MOCK_PNG_B64, revised_prompt: body.prompt })),
+      usage,
+    })
+  }
+
+  async mockVideos(user, model, body, res) {
+    const started = Date.now()
+    const usage = { prompt_tokens: Math.ceil(String(body.prompt).length / 4), completion_tokens: 4000, total_tokens: 0 }
+    usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
+    this.ledger.record({
+      userId: user.id,
+      username: user.username,
+      provider: model.provider,
+      model: model.id,
+      stream: false,
+      status: 'ok',
+      tag: 'videos-generations',
+      latencyMs: Date.now() - started,
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+      cachedTokens: 0,
+      costCny: estimateCostCny(model, usage),
+    })
+    sendJson(res, 200, {
+      created: Math.floor(Date.now() / 1000),
+      data: [{ url: 'https://example.invalid/mock.mp4', revised_prompt: body.prompt }],
+      usage,
+    })
+  }
+
+  async proxyMedia(user, model, body, res, upstream, apiPath, kind) {
+    const started = Date.now()
+    const tag = apiPath.includes('edits') ? 'images-edits' : kind === 'videos' ? 'videos-generations' : 'images-generations'
+    const finish = (usage, status, extra = {}) => {
+      this.ledger.record({
+        userId: user.id,
+        username: user.username,
+        provider: model.provider,
+        model: model.id,
+        stream: false,
+        status,
+        tag,
+        latencyMs: Date.now() - started,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        cachedTokens: usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        costCny: estimateCostCny(model, usage),
+        ...extra,
+      })
+    }
+    const ac = new AbortController()
+    const onResClose = () => {
+      if (!res.writableEnded) ac.abort()
+    }
+    res.on('close', onResClose)
+    let upstreamRes
+    try {
+      upstreamRes = await this.fetchUpstream(upstream, body, model, { stream: false, signal: ac.signal, path: apiPath })
+    } catch (err) {
+      if (ac.signal.aborted) return
+      finish(undefined, 'upstream_unreachable')
+      throw new HttpError(502, '上游 ' + model.providerLabel + ' 不可达：' + err.message, 'upstream_unreachable')
+    }
+    const text = await upstreamRes.text()
+    if (!upstreamRes.ok) {
+      finish(undefined, 'upstream_' + upstreamRes.status)
+      res.writeHead(upstreamRes.status, { 'content-type': upstreamRes.headers.get('content-type') ?? 'application/json' })
+      res.end(text)
+      return
+    }
+    let usage
+    try {
+      const json = JSON.parse(text)
+      usage = json.usage
+      if (!usage && Array.isArray(json.data)) {
+        const n = json.data.length || 1
+        usage = { prompt_tokens: Math.ceil(String(body.prompt).length / 4), completion_tokens: n * 1000, total_tokens: 0 }
+        usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
+      }
+    } catch {
+      /* 原样回传 */
+    }
+    finish(usage, 'ok')
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(text)
   }
 
   /** (userId:provider) → 排队链 的简单先到先服务门闩。 */
@@ -293,7 +489,20 @@ export class LlmProxy {
     return last
   }
 
-  sendUpstream(upstream, body, model, { stream, signal }) {
+  sendUpstream(upstream, body, model, { stream, signal, path: apiPath } = {}) {
+    if (apiPath && apiPath !== '/chat/completions') {
+      if (usesChatgptCodex(upstream) || usesAnthropicMessages(upstream)) {
+        throw new HttpError(400, '该上游不支持媒体接口（仅 OpenAI 兼容通道，如 Grok / xAI）', 'media_unsupported')
+      }
+      const forward = mediaForwardBody(body, model, apiPath)
+      const p = apiPath.startsWith('/') ? apiPath : '/' + apiPath
+      return fetch(`${upstream.baseUrl.replace(/\/+$/, '')}${p}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: 'application/json' },
+        body: JSON.stringify(forward),
+        signal,
+      })
+    }
     if (usesChatgptCodex(upstream)) {
       const forward = toCodexResponsesBody({ ...body, stream: true }, model)
       return fetch(chatgptResponsesUrl(upstream.baseUrl), {
@@ -495,4 +704,31 @@ export class LlmProxy {
     finish(usage, 'ok')
     res.end()
   }
+}
+
+/** Grok 默认生图模型。请求未带 model 时优先用它。 */
+const GROK_DEFAULT_IMAGE_MODEL = 'grok-imagine-image-2.0'
+
+/** Grok 默认视频生成模型。请求未带 model 时优先用它。 */
+const GROK_DEFAULT_VIDEO_MODEL = 'grok-imagine-video-1.5'
+
+/** 1×1 PNG（mock 生图用）。 */
+const MOCK_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+function mediaForwardBody(body, model, apiPath) {
+  const forward = { ...body, model: model.upstreamModel ?? model.id }
+  delete forward.stream
+  delete forward.stream_options
+  delete forward.messages
+  delete forward.max_tokens
+  delete forward.thinking
+  const video = typeof apiPath === 'string' && apiPath.includes('/videos')
+  if (video) {
+    if (forward.duration == null) forward.duration = 6
+    if (forward.aspect_ratio == null) forward.aspect_ratio = '16:9'
+    return forward
+  }
+  if (forward.n == null) forward.n = 1
+  if (!forward.response_format) forward.response_format = 'b64_json'
+  return forward
 }

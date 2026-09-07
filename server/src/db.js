@@ -51,7 +51,7 @@ export class Db {
     const n = String(username ?? '').trim().toLowerCase()
     return this.listUsers().find((u) => u.username.toLowerCase() === n)
   }
-  createUser({ username, password, displayName, role, department, seed = false }) {
+  createUser({ username, password, displayName, role, department, positionId = null, seed = false }) {
     if (!/^[a-zA-Z0-9_.-]{2,32}$/.test(username)) throw new Error('账号只能包含字母、数字、._-，长度 2-32')
     // 用户名会拼进 _office/<用户名>/… 本机路径：禁掉 . 开头/结尾与连续 .. （既是遍历风险也让格子路径塌陷）
     if (/(^\.|\.$|\.\.)/.test(username)) throw new Error('账号不能以点开头或结尾，也不能含连续两点')
@@ -65,6 +65,7 @@ export class Db {
       displayName: displayName || username,
       role,
       department: department || '未分组',
+      positionId: positionId || null,
       disabled: false,
       seed,
       passwordSalt: salt,
@@ -234,6 +235,7 @@ export function publicUser(u) {
     role: u.role,
     roleLabel: ROLE_LABELS[u.role] ?? u.role,
     department: u.department,
+    positionId: u.positionId ?? null,
     disabled: !!u.disabled,
     seed: !!u.seed,
     createdAt: u.createdAt,

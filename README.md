@@ -37,7 +37,7 @@ company-desk/
 ├─ installer/              # 网关安装包（§2.5）：gateway.nsi、gateway/init.mjs + TheDivaGateway.xml.tpl（WinSW 服务定义）、pins.json
 └─ scripts/
    ├─ kernel/
-   │  ├─ pin.json          # 内核锁定版本（@deepseek-ai/dsh@0.1.1-rc.2）
+   │  ├─ pin.json          # 内核锁定版本（@deepseek-ai/dsh@0.1.2-rc.1）
    │  ├─ patches.mjs       # 内置的公司内核补丁集（锚点式编辑，幂等；锚点对不上即失败）
    │  └─ locate.mjs        # 找内核前缀 / 兼容 Windows 与 POSIX 的 npm 目录布局
    ├─ lib/bootstrap.mjs    # 启动编排库：开发模式（launch / setup-profile）与安装版（Electron 主进程调用）共用
@@ -170,8 +170,7 @@ npm run dist                   # 两个都出
   `~/.company-desk/logs/desktop.log`（5 MB 滚动保留 3 份，含 bootstrap 与内核输出）、`~/.dsh/profiles/desk-app`；
   登录态 / 公司盘镜像 / 会话仍在 `~/.dsh/desk`、`~/.dsh/sessions`。安装目录运行期只读。
 - 排障：F12 开 DevTools、F5 重载；启动失败弹「valimart harness 无法启动」对话框，可直接打开日志目录。
-- 升级：直接装新版本（一键安装器会先卸旧的）；首次启动发现 `buildId` 变了会重新解压内核（`~/.company-desk/app` 里本程序建的条目整体换新，`~/.dsh/profiles/desk-app` 随之刷新，`~/.dsh/desk`、`~/.dsh/sessions` 不动；
-  这条升级路径有单测，安装器层面的覆盖安装本机还没单独试过）。
+- 升级：公司网关发布新 Setup 后，已装客户端登录会后台下载，下次启动静默覆盖安装（见 §2.5 客户端更新）；也可以继续手动装新版本（一键安装器会先卸旧的）。首次启动发现 `buildId` 变了会重新解压内核（`~/.company-desk/app` 里本程序建的条目整体换新，`~/.dsh/profiles/desk-app` 随之刷新，`~/.dsh/desk`、`~/.dsh/sessions` 不动）。
   卸载（「设置 → 应用」，或 `"%LOCALAPPDATA%\Programs\valimart-harness\Uninstall valimart harness.exe" /S`）不删 `~/.company-desk` 与 `~/.dsh`。
 - 开发机上安装版与 `npm run dev` 并存：安装版用 profile `desk-app` + `~/.company-desk/app/kernel`，开发版用 `desk` + `~/.company-desk/kernel`；
   登录态、公司盘镜像、会话（`~/.dsh/desk`、`~/.dsh/sessions`）共用，两边看到的是同一个登录账号。
@@ -262,7 +261,7 @@ schtasks /Create /TN "valimart harness Gateway Backup" /SC DAILY /ST 02:30 /RU S
 
 ### 内核更新（公司门禁）
 
-员工机不直连 GitHub / npm。管理员在网关侧发现、试打补丁、发布；已登录员工**下次启动**才切换。壳（Electron 安装包）没有自动更新。
+员工机不直连 GitHub / npm。管理员在网关侧发现、试打补丁、发布；已登录员工**下次启动**才切换。Electron 壳走另一条通道：管理员把 `dist:client` 打出的 Setup.exe 发布到网关，员工机登录后后台下载，再下次启动时静默 `/S` 覆盖安装。
 
 ```powershell
 npm run kernel:discover                                    # 列比当前 / pin 新的 GitHub Release（tag dsh-v*）
@@ -272,7 +271,20 @@ npm run kernel:publish -- --gateway http://127.0.0.1:8790 --user boss --password
 
 管理页 `/admin` 的「内核」一节：当前版本（无发布则显示随包保底 pin）、已存列表、发现列表、`discoverError`；管理员可「试打补丁 / 发布 / 回滚」，总监只读。
 
-**不要**把 `scripts/kernel/pin.json` 升到 `0.1.2` / `0.1.2-rc.1`，除非对该版本跑过 `kernel:prepare` 并且 16 处补丁全过。本轮默认不升。
+`scripts/kernel/pin.json` 当前锁定 `@deepseek-ai/dsh@0.1.2-rc.1`（2026-09-07 已对该版本跑过 `kernel:prepare`，公司补丁通过）。换更新版本前必须再跑一次 prepare。
+
+### 客户端更新（整包 Setup.exe）
+
+营销版本号一直是 `0.1.0`，用 `build/payload/payload.json` 的 **buildId** 区分构建。管理员把安装包存进网关 `data/clients/<buildId>/`，发布 `current.json`；员工机登录 / 开机校验时拉 `/api/client/current`，不同 buildId 就后台下载到 `~/.company-desk/app/client-next/`，下次启动 Electron 主进程在进内核之前 spawn Setup `/S` 后退出（`runAfterFinish: true` 会再打开新进程）。开发模式（`npm run client`）不下载、不安装。
+
+旧安装包里没有这段更新器：同事须先**手动装一版带更新器的客户端**，之后才走网关自动更新。内核 tar 与客户端 Setup 是两条通道，互不替代。
+
+```powershell
+npm run dist:client
+npm run client:publish -- --gateway http://127.0.0.1:8790 --user boss --password <管理员密码> --from dist/valimart-harness-Setup-0.1.0.exe
+```
+
+`client:publish` 默认读 `build/payload/payload.json` 的 buildId；也可 `--build-id`。管理页 `/admin` 的「客户端」一节：当前 buildId、已存列表、上传并发布、把已入库版本再发布、回滚；总监只读。上传时必须手填 payload.json 的 buildId（文件名只有 `0.1.0`，不能当版本号）。
 
 ## 3. 启动
 

@@ -120,6 +120,19 @@ function pkce() {
   return { verifier, challenge }
 }
 
+function positiveInt(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+function publicModels(session) {
+  if (session.status !== 'authorized') return undefined
+  return (session.discoveredModels ?? []).map((m) => ({
+    id: m.id,
+    ...(m.name ? { name: m.name } : {}),
+  }))
+}
+
 function publicStatus(session) {
   return {
     status: session.status,
@@ -128,6 +141,7 @@ function publicStatus(session) {
     flow: session.flow ?? null,
     userCode: session.userCode ?? null,
     verificationUri: session.verificationUri ?? null,
+    models: publicModels(session),
   }
 }
 
@@ -137,7 +151,7 @@ function renderCallbackPage(ok, message) {
 <html lang="zh-CN"><head><meta charset="utf-8" /><title>订阅授权</title>
 <style>body{font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:32px;color:#1c1c1c}</style>
 </head><body>
-<p>${ok ? '已接入。可以关闭此窗口。' : text}</p>
+<p>${text || (ok ? '已登录。请回到原窗口选择要接入的模型。' : '授权失败')}</p>
 <script>try{if(window.opener)window.opener.postMessage({type:'desk-oauth-subscribe',ok:${ok ? 'true' : 'false'}},window.location.origin)}catch(e){}</script>
 </body></html>`
 }
@@ -358,17 +372,16 @@ export class OAuthSubscribe {
     if (!code) throw new HttpError(400, '缺少授权码', 'oauth_no_code')
     const provider = resolveProviderConfig(s.channelId, this.cfg)
     const tokens = await this.exchange(provider, code, s)
-    await this.connectTokens(s, provider, tokens)
+    await this.authorizeTokens(s, provider, tokens)
     return s
   }
 
-  async connectTokens(s, provider, tokens) {
+  async authorizeTokens(s, provider, tokens) {
     const access = tokens.access_token
     if (!access) throw new HttpError(502, '令牌端点未返回 access_token', 'oauth_no_token')
     const expiresIn = Number(tokens.expires_in)
     const channelDef = this.channels.find(s.channelId)
     const baseUrl = resolveConnectBaseUrl(s.baseUrl, provider, channelDef.baseUrl)
-    let models = normalizeModels(s.models)
     const discovered = await discoverUpstreamModels({
       baseUrl,
       credential: access,
@@ -377,34 +390,78 @@ export class OAuthSubscribe {
       channel: channelDef,
       fetchImpl: this.fetchImpl,
     }).catch((err) => ({ models: [], source: 'error', reason: err.message }))
-    if (models.length === 0) models = discovered.models
-    models = mergeDiscoveredModels(models, discovered.models, s, channelDef)
-    if (models.length === 0) throw new HttpError(400, '未能自动发现模型，请手动填写模型 id', 'models_required')
-    const channel = this.channels.connect(
-      s.channelId,
-      {
-        credential: access,
-        models,
-        contextWindow: s.contextWindow,
-        maxTokens: s.maxTokens,
-        reasoningEfforts: s.reasoningEfforts,
-        baseUrl,
-        refreshToken: tokens.refresh_token,
-        oauthProvider: s.channelId,
-        authStyle: provider.authStyle,
-        tokenExpiresAt: Number.isFinite(expiresIn) ? new Date(Date.now() + expiresIn * 1000).toISOString() : undefined,
-        api: provider.upstreamApi,
-        chatgptAccountId: accountIdFromToken(tokens.id_token || access),
-      },
-      { id: s.userId, username: s.username },
-    )
+    let catalog = discovered.models ?? []
+    if (catalog.length === 0) catalog = normalizeModels(s.models)
+    if (catalog.length === 0) catalog = normalizeModels(channelDef.hint)
+    if (catalog.length === 0) {
+      s.status = 'error'
+      s.error = '未能自动发现模型，请手动填写模型 id'
+      throw new HttpError(400, s.error, 'models_required')
+    }
+    s.pending = {
+      access,
+      refreshToken: tokens.refresh_token,
+      expiresIn,
+      baseUrl,
+      authStyle: provider.authStyle,
+      api: provider.upstreamApi,
+      oauthProvider: s.channelId,
+      chatgptAccountId: accountIdFromToken(tokens.id_token || access),
+    }
+    s.discoveredModels = catalog
     s.verifier = undefined
     s.deviceAuthId = undefined
     s.deviceCode = undefined
+    s.status = 'authorized'
+    s.channel = { id: channelDef.id, label: channelDef.label, connected: false, models: catalog.map((m) => m.id) }
+    console.log(`[gateway] OAuth 已登录 ${channelDef.label}，待选模型 ${catalog.length} 个 state=${s.state.slice(0, 6)}…`)
+    return s
+  }
+
+  async commit(channelId, user, input = {}) {
+    const state = String(input.state ?? '')
+    const s = this.sessions.get(state)
+    if (!s) throw new HttpError(400, '无效或过期的 state', 'oauth_bad_state')
+    if (s.userId !== user.id) throw new HttpError(403, '不是你发起的授权', 'forbidden')
+    if (s.channelId !== channelId) throw new HttpError(400, '通道与授权会话不一致', 'oauth_channel_mismatch')
+    if (s.status !== 'authorized' || !s.pending) throw new HttpError(400, '请先完成登录再选择模型', 'oauth_not_authorized')
+    if (Date.now() - s.createdAt > SESSION_TTL_MS) {
+      s.status = 'error'
+      s.error = '授权已过期'
+      throw new HttpError(400, '授权已过期', 'oauth_expired')
+    }
+    const selected = normalizeModels(input.models)
+    if (selected.length === 0) throw new HttpError(400, '请至少选择一个模型', 'models_required')
+    const channelDef = this.channels.find(s.channelId)
+    const contextWindow = positiveInt(input.contextWindow) ?? s.contextWindow
+    const maxTokens = positiveInt(input.maxTokens) ?? s.maxTokens
+    const reasoningEfforts = input.reasoningEfforts ?? s.reasoningEfforts
+    const overrides = { ...s, contextWindow, maxTokens, reasoningEfforts }
+    const models = mergeDiscoveredModels(selected, s.discoveredModels, overrides, channelDef)
+    const p = s.pending
+    const channel = this.channels.connect(
+      s.channelId,
+      {
+        credential: p.access,
+        models,
+        contextWindow,
+        maxTokens,
+        reasoningEfforts,
+        baseUrl: p.baseUrl,
+        refreshToken: p.refreshToken,
+        oauthProvider: p.oauthProvider,
+        authStyle: p.authStyle,
+        tokenExpiresAt: Number.isFinite(p.expiresIn) ? new Date(Date.now() + p.expiresIn * 1000).toISOString() : undefined,
+        api: p.api,
+        chatgptAccountId: p.chatgptAccountId,
+      },
+      { id: s.userId, username: s.username },
+    )
+    s.pending = undefined
     s.status = 'success'
     s.channel = { id: channel.id, label: channel.label, connected: channel.connected, models: channel.models }
     console.log(`[gateway] OAuth 接入 ${channel.label} state=${s.state.slice(0, 6)}…`)
-    return channel
+    return publicStatus(s)
   }
 
   async pollDeviceOnce(s) {
@@ -430,7 +487,7 @@ export class OAuthSubscribe {
     if (data.code_verifier) s.verifier = data.code_verifier
     s.redirectUri = provider.deviceRedirectUri || s.redirectUri
     const tokens = await this.exchange(provider, code, s)
-    await this.connectTokens(s, provider, tokens)
+    await this.authorizeTokens(s, provider, tokens)
   }
 
   async pollDeviceRfc(s, provider) {
@@ -454,7 +511,7 @@ export class OAuthSubscribe {
       throw new HttpError(400, String(data.error_description || err || `设备码轮询失败 HTTP ${res.status}`), 'oauth_denied')
     }
     if (!data.access_token) throw new HttpError(502, '令牌端点未返回 access_token', 'oauth_no_token')
-    await this.connectTokens(s, provider, data)
+    await this.authorizeTokens(s, provider, data)
   }
 
   async ensureFresh(channelId, { force = false, accountId } = {}) {
@@ -576,6 +633,13 @@ export function registerOAuthSubscribe(router, { cfg, channels, auth, requireAdm
     sendJson(res, 200, await svc.complete(req.params.id, user, body))
   })
 
+  router.post('/api/channels/:id/oauth/commit', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const body = await readJson(req)
+    sendJson(res, 200, await svc.commit(req.params.id, user, body))
+  })
+
   router.get(CALLBACK_PATH, async (req, res) => {
     const q = parseUrl(req).searchParams
     try {
@@ -585,7 +649,7 @@ export function registerOAuthSubscribe(router, { cfg, channels, auth, requireAdm
         error: q.get('error'),
         error_description: q.get('error_description'),
       })
-      const html = renderCallbackPage(true, `已接入 ${session.channel.label}`)
+      const html = renderCallbackPage(true, `已登录 ${session.channel?.label || ''}。请回到原窗口选择要接入的模型。`)
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(html)
     } catch (err) {

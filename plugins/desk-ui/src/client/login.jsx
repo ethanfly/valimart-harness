@@ -35,13 +35,13 @@ export function LoginOverlay() {
 
   const runDiscover = async ({ overwrite = !urlTouched } = {}) => {
     setDiscovering(true)
-    setDiscoverNote('正在寻找局域网网关…')
+    setDiscoverNote('正在寻找本机网关，没有再找局域网…')
     try {
       const r = await api.discover(gatewayUrl)
       const list = r.gateways ?? []
       setGateways(list)
       if (overwrite && r.picked) setGatewayUrl(r.picked)
-      if (!list.length) setDiscoverNote('没有在局域网找到网关，请填写地址或点「重新寻找」')
+      if (!list.length) setDiscoverNote('本机和局域网都没找到网关，请填写地址或点「重新寻找」')
       else if (list.length === 1) setDiscoverNote(`已找到 ${list[0].name || r.picked}`)
       else setDiscoverNote(`找到 ${list.length} 台网关，可在下方选择`)
     } catch (err) {
@@ -161,7 +161,7 @@ export function LoginOverlay() {
               className="dk-input"
               value={gatewayUrl}
               onChange={(e) => { setUrlTouched(true); setGatewayUrl(e.target.value) }}
-              placeholder="正在寻找局域网…"
+              placeholder="正在寻找本机网关…"
             />
             <button className="dk-btn" type="button" disabled={discovering} onClick={() => runDiscover({ overwrite: true })}>
               {discovering ? '寻找中' : '重新寻找'}
@@ -174,9 +174,15 @@ export function LoginOverlay() {
               onChange={(e) => { setUrlTouched(true); setGatewayUrl(e.target.value) }}
               style={{ marginTop: 6 }}
             >
-              {gateways.flatMap((g) => (g.urls ?? []).map((u) => (
-                <option key={u} value={u}>{g.name ? `${g.name} · ${u}` : u}</option>
-              )))}
+              {gateways.map((g) => {
+                const url = (g.urls ?? [])[0]
+                if (!url) return null
+                return (
+                  <option key={g.instanceId || url} value={url}>
+                    {g.name ? `${g.name} · ${url}` : url}
+                  </option>
+                )
+              })}
             </select>
           )}
           {discoverNote && <span className="hint">{discoverNote}</span>}
@@ -217,7 +223,7 @@ export function LoginOverlay() {
         <div className="dk-xs dk-muted" style={{ marginTop: 14, lineHeight: 1.6 }}>
           {needsSetup
             ? '没有演示账号。引导只在库里还没有任何用户时出现；完成后即可用刚设置的管理员登录。'
-            : '打开登录页会自动寻找局域网里的公司网关。登录后本机只保存你个人的网关令牌；模型密钥保存在公司服务器，不会下发到本机。'}
+            : '打开登录页会先找本机是否已有网关服务，没有再找局域网。登录后本机只保存你个人的网关令牌；模型密钥保存在公司服务器，不会下发到本机。'}
         </div>
       </form>
     </div>

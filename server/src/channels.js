@@ -67,7 +67,7 @@ export class Channels {
       id: upstreamId,
       kind: 'openai-compatible',
       api,
-      label: existing?.label ?? channel.label,
+      label: channel.custom ? channel.label : existing?.label ?? channel.label,
       baseUrl,
       resolvedKey: credential,
       authStyle: primary.authStyle ?? item.authStyle ?? existing?.authStyle,
@@ -206,6 +206,30 @@ export class Channels {
       d.custom = (d.custom ?? []).filter((c) => c.id !== id)
     })
     return { ok: true, id }
+  }
+
+  /** 改已接入通道的模型/上下文，不碰凭据。配置文件接入的通道不能在这里改。 */
+  update(id, input = {}) {
+    const existing = this.store.load().items[id]
+    if (!existing) throw new HttpError(409, '该通道尚未接入或由配置文件接入，无法在界面编辑', 'channel_not_runtime')
+    const channel = this.find(id)
+    const models = input.models !== undefined ? normalizeModels(input.models) : normalizeModels(existing.models)
+    if (models.length === 0) throw new HttpError(400, '至少保留一个模型 id')
+    const nextBase = input.baseUrl !== undefined ? String(input.baseUrl).trim() || channel.baseUrl : existing.baseUrl || channel.baseUrl
+    if (nextBase && !/^https?:\/\//.test(nextBase)) throw new HttpError(400, 'baseUrl 必须是 http(s) 地址')
+    if (channel.custom && (input.label !== undefined || input.baseUrl !== undefined)) {
+      const label = input.label !== undefined ? String(input.label).trim() : channel.label
+      if (!label) throw new HttpError(400, '请填写端点名称')
+      this.store.update((d) => {
+        d.custom = (d.custom ?? []).map((c) => (c.id === id ? { ...c, label, baseUrl: nextBase || c.baseUrl } : c))
+      })
+    }
+    const item = persistItem({ ...existing, models, baseUrl: nextBase }, accountsOf(existing))
+    this.store.update((d) => {
+      d.items[id] = item
+    })
+    this.applyOne(this.find(id), item)
+    return this.view().find((c) => c.id === id)
   }
 
   /** 续期后只改令牌字段，不碰模型列表。 */

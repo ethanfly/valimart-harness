@@ -4,20 +4,57 @@
  *  - 任务 Tab：任务列表（按状态/更新时间）、搜索、新建任务；点击进入任务模式。
  * 底部：sidebar.footer.action 列表槽 + sidebar.settings（设置按钮）+ 当前登录人。
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { deskStore, useStoreValue } from './store.js'
 import { layoutActions, layoutStore } from './layout.jsx'
-import { fmtTime } from './api.js'
+import { api, fmtTime, loadTasks } from './api.js'
+import { applyGitBranchBadges } from './workspace-git.js'
 import { BrandMark, Logotype, PRODUCT_NAME } from './brand.jsx'
 import { IconPanel, IconPlus, IconSearch, IconChat, IconTask, IconRefresh } from './icons.jsx'
 import { NewTaskDialog } from './tasks.jsx'
 import { STATUS_LABEL } from './tasks.jsx'
-import { loadTasks } from './api.js'
+
+function WorkspaceGitSync({ rootRef }) {
+  const loggedIn = useStoreValue(deskStore, (s) => s.desk?.loggedIn)
+  useEffect(() => {
+    const root = () => rootRef.current
+    let items = []
+    let timer = 0
+    const paint = () => {
+      const el = root()
+      if (el) applyGitBranchBadges(el, items)
+    }
+    const refresh = async () => {
+      try {
+        const r = await api.workspaceGit()
+        items = r.items ?? []
+        paint()
+      } catch {
+        /* 未登录或 host 未就绪时侧栏仍可用 */
+      }
+    }
+    refresh()
+    const id = setInterval(refresh, 8000)
+    const mo = new MutationObserver(() => {
+      clearTimeout(timer)
+      timer = setTimeout(paint, 40)
+    })
+    const el = root()
+    if (el) mo.observe(el, { childList: true, subtree: true })
+    return () => {
+      clearInterval(id)
+      clearTimeout(timer)
+      mo.disconnect()
+    }
+  }, [rootRef, loggedIn])
+  return null
+}
 
 export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar }) {
   const tab = useStoreValue(deskStore, (s) => s.sidebarTab ?? 'sessions')
   const desk = useStoreValue(deskStore, (s) => s.desk)
   const tasks = useStoreValue(deskStore, (s) => s.tasks)
+  const rootRef = useRef(null)
   const wide = !collapsed
   const openTasks = tasks.filter((t) => t.status !== 'approved' && t.status !== 'rejected').length
 
@@ -29,7 +66,8 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
 
   if (!wide) {
     return (
-      <div className="dk-rail">
+      <div ref={rootRef} className="dk-rail">
+        <WorkspaceGitSync rootRef={rootRef} />
         <button className="dk-iconbtn" title="展开侧边栏" onClick={toggleSidebar} style={{ marginBottom: 4 }}>
           <IconPanel />
         </button>
@@ -62,7 +100,8 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
   }
 
   return (
-    <>
+    <div ref={rootRef} className="dk-sidebar-root">
+      <WorkspaceGitSync rootRef={rootRef} />
       <div className="dk-brand">
         <Logotype tagline={desk?.company?.name && desk.company.name.toLowerCase() !== PRODUCT_NAME ? desk.company.name : undefined} />
         <div className="dk-row" style={{ gap: 2 }}>
@@ -110,7 +149,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
           </div>
         )}
       </div>
-    </>
+    </div>
   )
 }
 

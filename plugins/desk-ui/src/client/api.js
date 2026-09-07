@@ -44,6 +44,7 @@ export const api = {
   state: () => call('GET', '/state'),
   login: (payload) => call('POST', '/login', payload),
   discover: (gatewayUrl) => call('GET', `/discover?gatewayUrl=${encodeURIComponent(gatewayUrl ?? '')}`),
+  workspaceGit: () => call('GET', '/workspace-git'),
   probeSetup: (gatewayUrl) => call('GET', `/setup?gatewayUrl=${encodeURIComponent(gatewayUrl ?? '')}`),
   completeSetup: (payload) => call('POST', '/setup', payload),
   logout: () => call('POST', '/logout', {}),

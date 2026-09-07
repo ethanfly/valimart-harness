@@ -119,10 +119,40 @@ export function profileNeedsSetup({ profileDir, patchFile }) {
 }
 
 /**
+ * 同事机第一次装没有官方 dsh，`~/.dsh/profiles/node_modules/@deepseek-ai` 不存在。
+ * 0.1.2 的 `--dump-default-config` 也不会创建它（heal 只在真正 boot 时跑）。
+ * 从内核前缀里的 `@deepseek-ai` 包物化：每个子包一条 junction，外加 `dsh` → kernel.root。
+ */
+export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
+  const flatDir = path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+  const populated = () => {
+    try {
+      return fs.existsSync(flatDir) && fs.readdirSync(flatDir).length > 0
+    } catch {
+      return false
+    }
+  }
+  if (populated()) return flatDir
+  const kernelRoot = kernel?.root
+  const nested = kernelRoot ? path.join(kernelRoot, 'node_modules', '@deepseek-ai') : ''
+  if (kernelRoot && fs.existsSync(nested)) {
+    fs.mkdirSync(flatDir, { recursive: true })
+    for (const name of fs.readdirSync(nested)) {
+      linkJunction(path.join(flatDir, name), path.join(nested, name))
+    }
+    if (!fs.existsSync(path.join(flatDir, 'dsh'))) linkJunction(path.join(flatDir, 'dsh'), kernelRoot)
+    log(`物化扁平回退目录 → ${flatDir}`)
+    return flatDir
+  }
+  if (fs.existsSync(flatDir)) return flatDir
+  throw new Error(`缺少 dsh 扁平回退目录 ${flatDir}，且内核没有 node_modules/@deepseek-ai 可物化。`)
+}
+
+/**
  * 安装 / 刷新一个 dsh profile：
  *   <dshHome>/profiles/<profileName>/{package.json, pnpm-workspace.yaml, cordis.patch.yml, node_modules/@company-desk/*}
  * 并让 <root>/node_modules/@deepseek-ai 指向 dsh 的扁平回退目录（插件靠它解析 dsh 内置包）。
- * selfHeal=true 时先跑一次 `dsh --dump-default-config` 让 dsh 创建回退目录（需要真内核）。
+ * 扁平回退目录优先从内核物化；selfHeal=true 时再跑一次 `dsh --dump-default-config`（0.1.2 起不会创建该目录）。
  */
 export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFile, kernel, nodeExe = process.execPath, selfHeal = true, log = noop }) {
   const profileDir = path.join(dshHome, 'profiles', profileName)
@@ -146,15 +176,14 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
     log(`@company-desk/${name} ${r}`)
   }
 
-  const flatDir = path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
-  if (selfHeal) {
+  const flatDir = ensureFlatFallback({ kernel, dshHome, log })
+  if (selfHeal && kernel?.bin && fs.existsSync(kernel.bin)) {
     try {
       execFileSync(nodeExe, [kernel.bin, '--profile', profileName, '--dump-default-config'], { stdio: 'ignore', env: { ...process.env, DSH_HOME: dshHome } })
     } catch (err) {
       log(`dsh 自检未通过（继续）：${err.message}`)
     }
   }
-  if (!fs.existsSync(flatDir)) throw new Error(`缺少 dsh 扁平回退目录 ${flatDir}，请先成功启动一次 dsh。`)
   const r = linkJunction(path.join(root, 'node_modules', '@deepseek-ai'), flatDir)
   log(`node_modules/@deepseek-ai → ${flatDir} (${r})`)
   fs.mkdirSync(path.join(dshHome, 'desk'), { recursive: true })

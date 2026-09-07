@@ -89,8 +89,7 @@ export function advertisedUrls({ httpPort, publicUrl, hostname, lanIps }) {
   return urls
 }
 
-export function pickGatewayUrl({ found, lastUrl } = {}) {
-  const last = normalizeUrl(lastUrl)
+export function pickGatewayUrl({ found, lastUrl, lanIps } = {}) {
   const unique = []
   for (const g of found ?? []) {
     for (const u of g.urls ?? (g.url ? [g.url] : [])) {
@@ -98,12 +97,7 @@ export function pickGatewayUrl({ found, lastUrl } = {}) {
       if (n && !unique.includes(n)) unique.push(n)
     }
   }
-  if (last && unique.includes(last)) {
-    const lastLoop = isLoopbackHost(new URL(last).hostname)
-    const hasLan = unique.some((u) => !isLoopbackHost(new URL(u).hostname))
-    if (!(lastLoop && hasLan)) return last
-  }
-  return unique.find((u) => !isLoopbackHost(new URL(u).hostname)) || unique[0] || last || ''
+  return pickBestUrl(unique, { lastUrl, lanIps })
 }
 
 export function httpProbeTargets({ lastUrl, defaultPort = 8790, hostname, lanIps, scanSubnet = false } = {}) {
@@ -130,13 +124,70 @@ export function parseHealthHello(json, originUrl) {
   if (!json || json.ok !== true || json.product !== LAN_PRODUCT) return null
   const url = normalizeUrl(originUrl)
   if (!url) return null
-  return {
+  const out = {
     url,
     name: json.name ?? json.companyName ?? '',
     needsSetup: !!json.needsSetup,
     publicUrl: json.publicUrl ?? url,
     source: 'http',
   }
+  if (json.instanceId) out.instanceId = String(json.instanceId)
+  return out
+}
+
+export function sameLanSubnet(url, lanIps) {
+  try {
+    const host = new URL(url).hostname
+    const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host)
+    if (!m) return false
+    const prefix = `${m[1]}.${m[2]}.${m[3]}.`
+    return (lanIps ?? []).some((ip) => String(ip).startsWith(prefix))
+  } catch {
+    return false
+  }
+}
+
+export function gatewayIdentity(g) {
+  const id = String(g?.instanceId ?? '').trim()
+  if (id) return `id:${id}`
+  const urls = (g?.urls ?? (g?.url ? [g.url] : [])).map(normalizeUrl).filter(Boolean)
+  const name = String(g?.name ?? '').trim()
+  const port = urls[0] ? portFromUrl(urls[0], 8790) : 8790
+  if (name) return `name:${name}|${port}`
+  return urls.slice().sort().join('|')
+}
+
+export function mergeGateways(list) {
+  const byKey = new Map()
+  for (const g of list ?? []) {
+    const urls = (g.urls ?? (g.url ? [g.url] : [])).map(normalizeUrl).filter(Boolean)
+    if (!urls.length) continue
+    const key = gatewayIdentity({ ...g, urls })
+    const cur = byKey.get(key)
+    if (!cur) {
+      byKey.set(key, { ...g, urls: [...new Set(urls)] })
+      continue
+    }
+    for (const u of urls) if (!cur.urls.includes(u)) cur.urls.push(u)
+    if (!cur.instanceId && g.instanceId) cur.instanceId = g.instanceId
+    if (!cur.name && g.name) cur.name = g.name
+  }
+  return [...byKey.values()]
+}
+
+export function pickBestUrl(urls, { lastUrl, lanIps } = {}) {
+  const unique = []
+  for (const u of urls ?? []) {
+    const n = normalizeUrl(u)
+    if (n && !unique.includes(n)) unique.push(n)
+  }
+  const last = normalizeUrl(lastUrl)
+  const local = unique.find((u) => isLoopbackHost(new URL(u).hostname))
+  if (local) return local
+  if (last && unique.includes(last)) return last
+  const same = unique.find((u) => sameLanSubnet(u, lanIps))
+  if (same) return same
+  return unique[0] || last || ''
 }
 
 export function portFromUrl(u, fallback = 8790) {

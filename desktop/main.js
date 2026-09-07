@@ -14,6 +14,7 @@ const fs = require('node:fs')
 const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 const { createDshWebUrlWatcher, hasLaunchToken, resolveDshWebUrl, sameWebOrigin } = require('./dsh-web-url.cjs')
 const { closePromptToResponse, readDesktopPrefs, writeDesktopPrefs, resolveCloseChoice } = require('./prefs.cjs')
 
@@ -232,7 +233,7 @@ function runBootstrap() {
 function startKernel(ready, port) {
   const child = spawn(nodeExe, [ready.kernelBin, '--profile', ready.profileName, '--no-open', '--port', String(port)], {
     cwd: appDir,
-    env: { ...process.env, DSH_HOME: dshHome, DESK_APP_DIR: appDir },
+    env: { ...process.env, DSH_HOME: dshHome, DESK_APP_DIR: appDir, DESK_PAYLOAD_DIR: payloadDir },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
@@ -524,9 +525,50 @@ async function openMainWindow(url, { attach = false } = {}) {
   log.write('app', `就绪 ${url}`)
 }
 
+async function loadClientUpdateMod() {
+  const packaged = path.join(payloadDir, 'scripts', 'lib', 'client-update.mjs')
+  const fallback = path.join(__dirname, '..', 'scripts', 'lib', 'client-update.mjs')
+  const file = fs.existsSync(packaged) ? packaged : fallback
+  return import(pathToFileURL(file).href)
+}
+
+async function loadHashMod() {
+  const packaged = path.join(payloadDir, 'scripts', 'lib', 'kernel-update.mjs')
+  const fallback = path.join(__dirname, '..', 'scripts', 'lib', 'kernel-update.mjs')
+  const file = fs.existsSync(packaged) ? packaged : fallback
+  return import(pathToFileURL(file).href)
+}
+
+async function maybeApplyPendingClient() {
+  if (!app.isPackaged) return false
+  try {
+    const mod = await loadClientUpdateMod()
+    const { hashFile } = await loadHashMod()
+    const result = mod.applyPendingClientUpdate({
+      pendingDir: path.join(appDir, 'client-next'),
+      payloadDir,
+      packaged: true,
+      hashFile,
+      spawn,
+      afterSpawn: ({ buildId }) => {
+        log.write('app', `应用客户端更新 ${buildId}，启动静默安装后退出`)
+        setTimeout(() => app.exit(0), 400)
+      },
+    })
+    if (!result.applied && (result.reason === 'already-current' || result.reason === 'hash-mismatch')) {
+      log.write('app', `丢弃客户端 pending：${result.reason}`)
+    }
+    return result.applied
+  } catch (err) {
+    log.write('app', `客户端更新未应用：${err && err.message ? err.message : err}`)
+    return false
+  }
+}
+
 async function main() {
   app.setAppUserModelId(APP_ID)
   log.write('app', `valimart harness ${app.getVersion()} packaged=${app.isPackaged} payload=${payloadDir} appDir=${appDir} dshHome=${dshHome}`)
+  if (await maybeApplyPendingClient()) return
   if (attachUrl) {
     if (!/^https?:\/\//i.test(attachUrl)) throw new Error('`--url` 必须是 http(s) 地址')
     await openMainWindow(attachUrl, { attach: true })

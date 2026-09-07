@@ -7,7 +7,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, readGatewayUrl } from '../lib/bootstrap.mjs'
-import { ALL_MARKS } from '../kernel/patches.mjs'
+import { ALL_MARKS, resolvePresetRel } from '../kernel/patches.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'diva-bootstrap-'))
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -79,6 +79,37 @@ test('ensureProfile：写 manifest、链接插件与 dsh 回退目录（selfHeal
   // 再跑一次：链接保持
   ensureProfile({ profileName: 'desk-test', dshHome, root, pluginsDir, patchFile, kernel: { bin: 'unused' }, selfHeal: false, log: (m) => logs.push(m) })
   assert.ok(logs.some((l) => /desk-ui kept/.test(l)))
+})
+
+test('ensureProfile：全新 DSH_HOME 没有扁平回退目录时，从内核物化，不要求先跑过 dsh', () => {
+  const dir = tmp()
+  const dshHome = path.join(dir, 'dsh')
+  const kernelRoot = path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh')
+  const nested = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-tools')
+  fs.mkdirSync(nested, { recursive: true })
+  fs.writeFileSync(path.join(nested, 'package.json'), '{"name":"@deepseek-ai/dsh-tools"}\n')
+  fs.writeFileSync(path.join(kernelRoot, 'package.json'), '{"name":"@deepseek-ai/dsh"}\n')
+  const root = path.join(dir, 'root')
+  const pluginsDir = path.join(root, 'plugins')
+  for (const p of ['desk-host', 'desk-ui']) fs.mkdirSync(path.join(pluginsDir, p), { recursive: true })
+  const patchFile = path.join(dir, 'cordis.patch.yml')
+  fs.writeFileSync(patchFile, "gatewayUrl: 'http://x:1'\n")
+  const flat = path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+  assert.equal(fs.existsSync(flat), false)
+  const { flatDir } = ensureProfile({
+    profileName: 'desk-fresh',
+    dshHome,
+    root,
+    pluginsDir,
+    patchFile,
+    kernel: { bin: path.join(kernelRoot, 'lib', 'bin.js'), root: kernelRoot },
+    selfHeal: false,
+    log: () => {},
+  })
+  assert.equal(flatDir, flat)
+  assert.ok(fs.existsSync(path.join(flat, 'dsh-tools', 'package.json')))
+  assert.ok(fs.existsSync(path.join(flat, 'dsh', 'package.json')))
+  assert.ok(fs.lstatSync(path.join(root, 'node_modules', '@deepseek-ai')).isSymbolicLink())
 })
 
 test('pinSkillsRoot：戳记一致但补丁文件缺失 → 走重打分支，KernelPatchError 包成 PATCH_FAIL <code>', (t) => {
@@ -262,7 +293,7 @@ test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写
   const stamp = JSON.parse(fs.readFileSync(path.join(appDir, 'kernel', '.company-desk-kernel.json'), 'utf8'))
   assert.equal(stamp.skillsDir, path.join(dshHome, 'desk', 'drive', '_shared', 'skills'))
   // 构建机的技能根必须真的被换掉（missingPatches 只看 mark，看不出路径不对）
-  const yaml = fs.readFileSync(path.join(res.kernelRoot, 'config', 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8')
+  const yaml = fs.readFileSync(path.join(res.kernelRoot, resolvePresetRel(res.kernelRoot, 'standard')), 'utf8')
   assert.equal(yaml.split(`'${stamp.skillsDir.replace(/\\/g, '/')}'`).length - 1, 2, '预设里两处技能根都指向本机 dshHome')
   assert.ok(events.some((e) => e.step === 'kernel' && e.status === 'ok'), '技能根被重新同步')
   assert.ok(fs.existsSync(path.join(dshHome, 'profiles', 'desk-app', 'cordis.patch.yml')))

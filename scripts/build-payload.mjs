@@ -128,13 +128,13 @@ const repoPatch = path.join(root, 'profile', 'cordis.patch.yml')
 fs.writeFileSync(path.join(out, 'profile', 'cordis.patch.yml'), patchGatewayUrl(fs.readFileSync(repoPatch, 'utf8'), gateway))
 
 // 8. 脚本
-for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 'scripts/kernel/pin.json', 'scripts/lib/bootstrap.mjs', 'scripts/lib/find-tar.mjs', 'scripts/lib/kernel-update.mjs', 'scripts/lib/lan-protocol.mjs']) {
+for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 'scripts/kernel/pin.json', 'scripts/lib/bootstrap.mjs', 'scripts/lib/find-tar.mjs', 'scripts/lib/kernel-update.mjs', 'scripts/lib/lan-protocol.mjs', 'scripts/lib/git-head.mjs', 'scripts/lib/client-update.mjs']) {
   fs.mkdirSync(path.dirname(path.join(out, rel)), { recursive: true })
   fs.copyFileSync(path.join(root, rel), path.join(out, rel))
 }
 
 // 9. payload.json
-const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
+const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
 const payload = {
   buildId: makeBuildId({ version, kernelVersion: kernel.version, digest }),
   version,
