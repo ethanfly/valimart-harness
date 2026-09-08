@@ -51,8 +51,16 @@ html.dk-desk-electron .dk-brand {
 html.dk-desk-electron .dk-rail { padding-top: 16px; }
 /* better-sidebar 的浮层按视口定位，会压住 Electron 自绘标题栏：
    右上角的展开按钮簇（[data-dsh-toggle-cluster]）和右侧面板（[data-dsh-panel]）整体下移一个标题栏高度。
-   用属性选择器（插件的 CSS module 哈希类名会随构建变）。 */
+   用属性选择器（插件的 CSS module 哈希类名会随构建变）。
+   按钮簇必须跟插件自己的两态对齐走，不能只写一条 14px：
+   - 右侧面板展开时它骑在面板 34px 的标签栏上（28px 按钮 top: 3，与「+」同一条基线）；
+   - 收起时它才落到 DSH 会话头那一行（top: 14）。
+   写死 14px 会把展开态压到标签栏下面 11px（插件 sidebar.module.css 的
+   body[data-dsh-sidebar-collapsed] 规则就是这两档，这里同步偏移标题栏高度）。 */
 html.dk-desk-electron [data-dsh-toggle-cluster] {
+  top: calc(3px + var(--dk-titlebar-h, 36px));
+}
+html.dk-desk-electron body[data-dsh-sidebar-collapsed] [data-dsh-toggle-cluster] {
   top: calc(14px + var(--dk-titlebar-h, 36px));
 }
 html.dk-desk-electron [data-dsh-panel] {
