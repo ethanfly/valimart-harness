@@ -1,8 +1,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 const { attachWindowDrag } = createRequire(import.meta.url)('../../desktop/window-drag.cjs')
+
+test('Electron 标题栏：better-sidebar 浮层（展开按钮簇 / 右侧面板）下移一个标题栏高度，不压住窗控', () => {
+  const css = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'plugins', 'desk-ui', 'src', 'client', 'styles.css'), 'utf8')
+  assert.match(css, /html\.dk-desk-electron \[data-dsh-toggle-cluster\]\s*\{\s*top:\s*calc\(14px \+ var\(--dk-titlebar-h, 36px\)\)/)
+  assert.match(css, /html\.dk-desk-electron \[data-dsh-panel\]\s*\{\s*top:\s*var\(--dk-titlebar-h, 36px\)/)
+})
 
 function harness(maximized = false) {
   const ipcMain = new EventEmitter(), win = new EventEmitter(), web = new EventEmitter()
