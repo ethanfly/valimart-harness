@@ -6,6 +6,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
+/** npm 的依赖安装脚本仍通过 PATH 执行 node；服务进程可能只有捆绑 runtime。 */
+export function npmEnvironment({ env = process.env, execPath = process.execPath, platform = process.platform } = {}) {
+  const result = { ...env }
+  const windows = platform === 'win32'
+  const paths = windows ? path.win32 : path.posix
+  // Windows 环境变量名不区分大小写，不能同时传 Path 和 PATH 给子进程。
+  const keys = Object.keys(result).filter((key) => windows ? key.toLowerCase() === 'path' : key === 'PATH').sort()
+  const key = keys[0] ?? 'PATH'
+  const inherited = result[key]
+  for (const name of keys) delete result[name]
+  result[key] = paths.dirname(execPath) + (inherited ? paths.delimiter + inherited : '')
+  return result
+}
+
 export function npmInvocation() {
   // 优先用与当前 node 同一套的 npm-cli.js（不走 shell，Windows 下也稳）；找不到再退回 PATH 上的 npm
   const nodeDir = path.dirname(process.execPath)

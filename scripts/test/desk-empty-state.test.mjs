@@ -70,6 +70,12 @@ test('侧栏项目行展示 git 分支', () => {
   assert.match(css, /\.dk-git-branch/)
 })
 
+test('Electron 侧栏品牌行有上内边距，避免 logo 顶到窗口边缘', () => {
+  const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8').replace(/\s+/g, ' ')
+  assert.match(css, /html\.dk-desk-electron \.dk-brand \{[^}]*padding: 16px 14px 8px 12px/)
+  assert.match(css, /html\.dk-desk-electron \.dk-rail \{ padding-top: 16px; \}/)
+})
+
 test('表单控件默认高度与按钮对齐', () => {
   const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8').replace(/\s+/g, ' ')
   assert.match(css, /\.dk-input:not\(textarea\), \.dk-select \{[^}]*height: 30px/)

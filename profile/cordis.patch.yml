@@ -49,6 +49,15 @@
         sandbox: danger-full-access
         approval: never
 
+# 第三方插件：@anweat/dsh-browser（随内核前缀离线分发）。公司机器用系统 Edge 当浏览器通道，
+# 不下载 Playwright Chromium；关掉 OpenCLI（省一份 ~13MB 依赖）。browser_* 工具默认仍需审批，
+# 但公司 profile 的默认权限预设是 danger-full-access / approval: never。
+- id: browser
+  config:
+    channel: msedge
+    browserRuntime: playwright
+    opencliEnabled: false
+
 - insert:
     - id: desk-host
       name: '@company-desk/desk-host'

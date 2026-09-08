@@ -2,6 +2,15 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 现在在哪（2026-09-08 追加）
+
+- **第三方插件落地：完成**。`dsh-better-sidebar@0.18.0`（改动预览/审查工作台）+ `@anweat/dsh-browser@0.1.11`（浏览器自动化，21 个 `browser_*` 工具）随内核前缀离线分发：
+  - `scripts/kernel/pin.json` 新增 `profilePlugins`（名字/版本/prune 白名单）；`install-kernel.mjs` 装到 staging 再按白名单拷进内核前缀；`ensureProfile` 写进 `dsh.profile.bundles`，并把插件 + 内核 `@deepseek-ai/*` peer 链接到 `$DSH_HOME/profiles/node_modules` 与内核顶层 scope；`build-payload.mjs` 打包前 `stripKernelPeerLinks` 剥掉运行时链接（否则 tar 翻倍）。
+  - 浏览器配置在 `profile/cordis.patch.yml`：`channel: msedge` + `opencliEnabled: false`（用系统 Edge，不下载 Chromium）。
+  - 顺手修了 desk-ui 的 `ctx.workspaces.startSession`（内核 0.1.2-rc.1 的服务名是 `uiWorkspace`；基线也复现）。
+  - 验证：`scripts/test/*.test.mjs` 178 个全绿（177 pass + 1 skip）；开发版 `desk` profile 真机启动 → better-sidebar 面板/文件树/「本轮文件」diff 正常、`browser_status` 返回 21 tools、点「新会话」0 报错；`build-payload` 出的 `kernel.tar` 232MB 含两个插件。
+  - 注意：`server/test/oauth-subscribe.test.js` 有 6 个既有失败（grok-imagine 图片/视频代理、管理页源码），与本次改动无关（未动 server/）。
+
 ## 现在在哪（2026-09-06）
 
 - **全量体验/缺陷清扫：完成并提交**。四路并行审计（网关服务端 / 桌面壳+脚本 / desk-ui / desk-host）→ 修掉约 40 项，最严重的是：任务卡正文跨任务串数据、llm-proxy 客户端断连不取消上游（照跑照扣费）、store 半提交污染、网关令牌永久有效、个人区远端删除被镜像“复活”、/desk/api 无来源校验。过程与逐项清单见 `docs/sessions/2026-09-06.md`；`npm test` 169/169。

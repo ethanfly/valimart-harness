@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, readGatewayUrl } from '../lib/bootstrap.mjs'
+import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, profilePluginBundles, readGatewayUrl } from '../lib/bootstrap.mjs'
 import { ALL_MARKS, resolvePresetRel } from '../kernel/patches.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'diva-bootstrap-'))
@@ -79,6 +79,41 @@ test('ensureProfile：写 manifest、链接插件与 dsh 回退目录（selfHeal
   // 再跑一次：链接保持
   ensureProfile({ profileName: 'desk-test', dshHome, root, pluginsDir, patchFile, kernel: { bin: 'unused' }, selfHeal: false, log: (m) => logs.push(m) })
   assert.ok(logs.some((l) => /desk-ui kept/.test(l)))
+})
+
+test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bundle 列表', (t) => {
+  const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  // 没装任何插件：不加
+  assert.deepEqual(profilePluginBundles({ root: kernelRoot }), [])
+  // 装了 better-sidebar、没装 browser：只加装了的
+  const sidebar = path.join(dir, 'kernel', 'node_modules', 'dsh-better-sidebar')
+  fs.mkdirSync(sidebar, { recursive: true })
+  fs.writeFileSync(path.join(sidebar, 'package.json'), '{"name":"dsh-better-sidebar"}\n')
+  // 内核嵌套的 @deepseek-ai/* peer：ensureProfile 会把它们链接到顶层 scope，插件才 import 得到
+  const nestedPeer = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-tools')
+  fs.mkdirSync(nestedPeer, { recursive: true })
+  fs.writeFileSync(path.join(nestedPeer, 'package.json'), '{"name":"@deepseek-ai/dsh-tools"}\n')
+  assert.deepEqual(profilePluginBundles({ root: kernelRoot }), ['dsh-better-sidebar'])
+  // 没有内核 root（旧调用/测试桩）时静默返回空，不炸
+  assert.deepEqual(profilePluginBundles({ bin: 'unused' }), [])
+  // ensureProfile 把插件写进 manifest.dsh.profile.bundles
+  const dshHome = path.join(dir, 'dsh')
+  const root = path.join(dir, 'root')
+  const pluginsDir = path.join(root, 'plugins')
+  for (const p of ['desk-host', 'desk-ui']) fs.mkdirSync(path.join(pluginsDir, p), { recursive: true })
+  const patchFile = path.join(dir, 'cordis.patch.yml')
+  fs.writeFileSync(patchFile, "gatewayUrl: 'http://x:1'\n")
+  fs.mkdirSync(path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai'), { recursive: true })
+  const { profileDir } = ensureProfile({ profileName: 'desk-plugins', dshHome, root, pluginsDir, patchFile, kernel: { root: kernelRoot }, selfHeal: false, log: () => {} })
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'))
+  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-better-sidebar'])
+  // 插件还要链接到 profiles/node_modules（运行时 import 只沿 profile 目录向上找）
+  assert.ok(fs.lstatSync(path.join(dshHome, 'profiles', 'node_modules', 'dsh-better-sidebar')).isSymbolicLink())
+  // 内核嵌套的 @deepseek-ai/* peer 链接到顶层 scope（插件真实路径的 import 才找得到）
+  assert.ok(fs.lstatSync(path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh-tools')).isSymbolicLink())
 })
 
 test('ensureProfile：全新 DSH_HOME 没有扁平回退目录时，从内核物化，不要求先跑过 dsh', () => {

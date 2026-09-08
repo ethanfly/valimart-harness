@@ -20,6 +20,12 @@ const GOAL_RC11 =
 const GOAL_RC12 =
   '\t\t\tif (current.phase === "active" && runtime.activation === "armed") throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n'
 
+test('0.1.3 会话落盘：增加 rename 时保留新会话锁使用的 lstat', () => {
+  const edit = CODE_PATCHES.find((p) => p.mark === 'company-session-smbfs-rename-v1').edits[0]
+  const source = 'import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";\n'
+  assert.equal(applyEdit(source, edit), source.replace('realpath, rm', 'realpath, rename, rm'))
+})
+
 const JUNCTION_RC11 =
   'function ensureSymlink(link, target) {\n' +
   '\tlet stat;\n' +

@@ -74,6 +74,7 @@ test('stageGatewayApp：含客户端目录与共用库', () => {
   stageGatewayApp(repo, stage, { version: '0.0.0-test' })
   assert.ok(fs.existsSync(path.join(stage, 'server', 'src', 'client-catalog.js')))
   assert.ok(fs.existsSync(path.join(stage, 'scripts', 'lib', 'client-update.mjs')))
+  assert.ok(fs.existsSync(path.join(stage, 'scripts', 'lib', 'kernel-native.mjs')))
   fs.rmSync(dir, { recursive: true, force: true })
 })
 

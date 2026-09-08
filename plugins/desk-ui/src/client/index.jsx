@@ -135,7 +135,8 @@ export function apply(ctx) {
             'sidebar.footer.action': { kind: 'list', scope: 'root' },
           },
           inject: () => ({
-            startSession: (workspaceId) => ctx.workspaces.startSession(workspaceId),
+            // 内核 0.1.2-rc.1 的 UI 工作区服务叫 uiWorkspace（ctx.workspaces 是数据服务，没有 startSession）。
+            startSession: (workspaceId) => (ctx.get('uiWorkspace') ?? ctx.workspaces).startSession(workspaceId),
             toggleSidebar: () => layout.toggleSidebar(),
           }),
         },

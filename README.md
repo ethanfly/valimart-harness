@@ -99,6 +99,19 @@ node scripts/install-kernel.mjs --force   # 重新 npm 安装再打补丁
 | `company-preset-web-fetch-v2` | 预设 `standard` / `code` | 会话开 `web_fetch`，放宽超时 |
 | `company-preset-instr-root-v1` | 预设 `standard` / `code` | 指令文件项目根标记 `.company-root`，不往上翻到 `$HOME` |
 
+### 随内核分发的第三方插件
+
+`scripts/kernel/pin.json` 的 `profilePlugins` 列出随内核一起装、离线分发的第三方插件（员工机器不需要 npm/pnpm）：
+
+| 插件 | 版本 | 作用 |
+|---|---|---|
+| `dsh-better-sidebar` | 0.18.0 | 右侧工作台：文件树 / CodeMirror 编辑器 / 图片·Markdown·HTML·PDF 预览 / 内嵌浏览器 / 真实终端 / Git 视角（真实 diff、暂存·提交·还原）/ **本轮文件视角**（agent 的 write/edit/read 按文件分组，点开看行级 diff） |
+| `@anweat/dsh-browser` | 0.1.11 | 浏览器自动化：21 个 `browser_*` 工具（navigate / snapshot / click / fill / screenshot …）。`profile/cordis.patch.yml` 配 `channel: msedge`（用系统 Edge，不下载 Chromium）+ `opencliEnabled: false` |
+
+安装链路：`install-kernel.mjs` 把插件装到独立 staging（`--omit=peer`，避免 `npm install` 把 `-g` 装进去的内核当 extraneous 删掉），按 `prune` 白名单拷进内核前缀的 `node_modules`（裁掉只服务预打包 client bundle 的 `react-icons`/`mermaid`/`@codemirror` 等，约省 300MB）；`ensureProfile` 把插件名写进 profile 的 `dsh.profile.bundles`，并在启动时把插件和内核的 `@deepseek-ai/*` peer 链接到 `$DSH_HOME/profiles/node_modules` 与内核前缀顶层 scope（DSH 运行时 `import()` 只沿 profile 目录向上找）。`build-payload.mjs` 打包前用 `stripKernelPeerLinks` 剥掉这些运行时链接，否则 `cpSync`/`tar` 会跟随 junction 把 kernel.tar 撑大一倍。
+
+体积：kernel.tar 从 147MB 增至约 232MB（插件约 85MB，主要是 node-pty 34MB、better-sidebar 13MB、playwright 15MB）。`npm run kernel:check` 会一并校验插件是否装齐、版本是否对。
+
 把 `SKILL.md` 放进公司盘 `_shared/skills/<名字>/`，同步到每个人后 Agent 即可使用。
 
 ### 上游模型密钥（只放服务端）

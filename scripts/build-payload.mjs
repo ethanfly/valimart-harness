@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { PIN, defaultPrefix, locateKernel } from './kernel/locate.mjs'
 import { ALL_MARKS, missingPatches, resolveMarkFile } from './kernel/patches.mjs'
 import { findTar, readGatewayUrl } from './lib/bootstrap.mjs'
-import { digestFiles, makeBuildId, makeInstallerVersion, patchGatewayUrl, shouldPrune } from './lib/payload.mjs'
+import { digestFiles, makeBuildId, makeInstallerVersion, patchGatewayUrl, shouldPrune, stripKernelPeerLinks } from './lib/payload.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -68,6 +68,9 @@ if (!kernel || kernel.version !== PIN.version || missingPatches(kernel.root).len
 }
 kernel = locateKernel(stage)
 if (!kernel) die(`暂存目录里找不到内核：${stage}`)
+// 运行时链接（linkKernelPeers）不进包：cpSync 会把 junction 展开成实体，tar 会翻倍
+const strippedPeers = stripKernelPeerLinks(stage)
+if (strippedPeers) log(`剥离运行时 peer 链接 ${strippedPeers} 个（启动时重建）`)
 
 // 3. 修剪
 const pruned = { files: 0, bytes: 0 }

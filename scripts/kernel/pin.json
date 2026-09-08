@@ -1,5 +1,19 @@
 {
   "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。",
   "package": "@deepseek-ai/dsh",
-  "version": "0.1.2-rc.1"
+  "version": "0.1.2-rc.1",
+  "profilePlugins": [
+    {
+      "name": "dsh-better-sidebar",
+      "version": "0.18.0",
+      "$comment": "改动预览/审查工作台：文件树、编辑器、内嵌浏览器、终端、Git 视角 + 本轮文件视角。prune 里的包只被预打包的 client bundle 用，host 侧不 import。",
+      "prune": ["react-icons", "mermaid", "@mermaid-js", "cytoscape", "cytoscape-fcose", "katex", "dompurify", "@codemirror", "@lezer"]
+    },
+    {
+      "name": "@anweat/dsh-browser",
+      "version": "0.1.11",
+      "$comment": "浏览器自动化：21 个 browser_* 工具。公司 profile 配 channel: msedge（用系统 Edge，不下载 Chromium）+ opencliEnabled: false，故 prune patchright 与 OpenCLI。",
+      "prune": ["patchright", "patchright-core", "@jackwener"]
+    }
+  ]
 }

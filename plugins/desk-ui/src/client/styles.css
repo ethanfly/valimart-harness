@@ -41,7 +41,14 @@ html.dk-desk-electron textarea,
 html.dk-desk-electron select,
 html.dk-desk-electron a,
 html.dk-desk-electron .dk-resizer { -webkit-app-region: no-drag; }
-html.dk-desk-electron .dk-brand { -webkit-app-region: drag; }
+/* 品牌行必须从 y=0 起（覆盖标题栏条，供拖窗）；只加行内上边距，避免字标顶到窗口边缘。 */
+html.dk-desk-electron .dk-brand {
+  -webkit-app-region: drag;
+  height: 56px;
+  padding: 16px 14px 8px 12px;
+  align-items: flex-start;
+}
+html.dk-desk-electron .dk-rail { padding-top: 16px; }
 
 .dk-frame {
   position: fixed;

@@ -154,6 +154,63 @@ export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
  * 并让 <root>/node_modules/@deepseek-ai 指向 dsh 的扁平回退目录（插件靠它解析 dsh 内置包）。
  * 扁平回退目录优先从内核物化；selfHeal=true 时再跑一次 `dsh --dump-default-config`（0.1.2 起不会创建该目录）。
  */
+/**
+ * pin.json 里声明、且已装进内核前缀 node_modules 的第三方插件 → profile bundle 名。
+ * 插件随 kernel.tar 离线分发（见 installProfilePlugins），员工机器不需要 npm/pnpm。
+ * @param kernel - locateKernel 的结果（用 root 定位内核前缀的 node_modules）
+ * @returns {string[]} 可直接放进 dsh.profile.bundles 的包名
+ */
+export function profilePluginBundles(kernel, plugins = PIN.profilePlugins ?? []) {
+  if (!kernel?.root || !plugins.length) return []
+  const modules = path.resolve(kernel.root, '..', '..')
+  return plugins
+    .filter((plugin) => fs.existsSync(path.join(modules, plugin.name, 'package.json')))
+    .map((plugin) => plugin.name)
+}
+
+/**
+ * 把内核前缀里的第三方插件链接到 <dshHome>/profiles/node_modules（与 @deepseek-ai 同一层）。
+ * DSH 的 bundle patch 能从安装锚点解析，但运行时 import() 只沿 profile 目录向上找，
+ * 插件必须出现在这个共享闭包目录里才能在员工机器上加载。
+ */
+export function linkProfilePlugins({ kernel, dshHome, plugins = PIN.profilePlugins ?? [], log = noop }) {
+  if (!kernel?.root || !plugins.length) return []
+  const sourceModules = path.resolve(kernel.root, '..', '..')
+  const targetModules = path.join(dshHome, 'profiles', 'node_modules')
+  const linked = []
+  for (const plugin of plugins) {
+    const source = path.join(sourceModules, plugin.name)
+    if (!fs.existsSync(path.join(source, 'package.json'))) continue
+    const target = path.join(targetModules, plugin.name)
+    const r = linkJunction(target, source)
+    log(`profile 插件 ${plugin.name} ${r}`)
+    linked.push(plugin.name)
+  }
+  return linked
+}
+
+/**
+ * 把内核自带的 @deepseek-ai/* peer 从 <prefix>/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/
+ * 链接到 <prefix>/node_modules/@deepseek-ai/。第三方插件装在内核前缀顶层，Node 从插件真实路径
+ * 往上只走到 <prefix>/node_modules/@deepseek-ai，不进去 dsh 的嵌套 node_modules，所以要先补这层。
+ */
+export function linkKernelPeers({ kernel, log = noop }) {
+  const kernelRoot = kernel?.root
+  if (!kernelRoot) return []
+  const scope = path.dirname(kernelRoot)
+  const nested = path.join(kernelRoot, 'node_modules', '@deepseek-ai')
+  if (!fs.existsSync(nested)) return []
+  const linked = []
+  for (const name of fs.readdirSync(nested)) {
+    const target = path.join(scope, name)
+    if (fs.existsSync(target)) continue
+    linkJunction(target, path.join(nested, name))
+    linked.push(name)
+  }
+  if (linked.length) log(`内核 peer 链接 ${linked.length} 个 → ${scope}`)
+  return linked
+}
+
 export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFile, kernel, nodeExe = process.execPath, selfHeal = true, log = noop }) {
   const profileDir = path.join(dshHome, 'profiles', profileName)
   fs.mkdirSync(profileDir, { recursive: true })
@@ -165,7 +222,7 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
       '@company-desk/desk-host': `file:${path.join(pluginsDir, 'desk-host').replace(/\\/g, '/')}`,
       '@company-desk/desk-ui': `file:${path.join(pluginsDir, 'desk-ui').replace(/\\/g, '/')}`,
     },
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...profilePluginBundles(kernel)] } },
   }
   fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
   fs.writeFileSync(path.join(profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
@@ -177,6 +234,8 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
   }
 
   const flatDir = ensureFlatFallback({ kernel, dshHome, log })
+  linkKernelPeers({ kernel, log })
+  linkProfilePlugins({ kernel, dshHome, log })
   if (selfHeal && kernel?.bin && fs.existsSync(kernel.bin)) {
     try {
       execFileSync(nodeExe, [kernel.bin, '--profile', profileName, '--dump-default-config'], { stdio: 'ignore', env: { ...process.env, DSH_HOME: dshHome } })

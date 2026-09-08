@@ -16,10 +16,9 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from './kernel/patches.mjs'
 import { PIN, defaultDshHome, defaultPrefix, locateKernel, refuseLivePrefix, stampPath } from './kernel/locate.mjs'
-import { npmInvocation } from './lib/npm-cli.mjs'
+import { installKernelPackage, installProfilePlugins, profilePluginStatus } from './lib/kernel-prepare.mjs'
 
 const args = process.argv.slice(2)
 const has = (k) => args.includes(k)
@@ -53,6 +52,9 @@ if (has('--check')) {
   const problems = []
   if (k.version !== PIN.version) problems.push(`版本 ${k.version} ≠ 锁定 ${PIN.version}`)
   problems.push(...missingPatches(k.root).map((m) => `缺补丁 ${m}`))
+  for (const p of profilePluginStatus({ prefix })) {
+    if (!p.ok) problems.push(`缺插件 ${p.name}@${p.want}${p.version ? `（现为 ${p.version}）` : ''}`)
+  }
   log(`prefix=${prefix}`)
   log(`kernel=${k.root} version=${k.version}`)
   if (problems.length) {
@@ -71,19 +73,24 @@ if (force || !kernel || kernel.version !== PIN.version) {
   else if (kernel) log('--force：重新安装')
   else log(`安装 ${spec} → ${prefix}（首次需要从 npm registry 下载，几分钟）`)
   fs.mkdirSync(prefix, { recursive: true })
-  const npm = npmInvocation()
-  const r = spawnSync(npm.cmd, [...npm.pre, 'install', '-g', spec, '--prefix', prefix, '--no-fund', '--no-audit'], {
-    stdio: 'inherit',
-    shell: npm.shell,
-    env: { ...process.env, npm_config_prefix: prefix },
-  })
-  if (r.status !== 0) die(`npm install 失败（退出码 ${r.status ?? r.signal}）。检查网络 / npm registry 后重试。`)
+  try {
+    installKernelPackage({ version: PIN.version, prefix, log })
+  } catch (err) {
+    die(err.message)
+  }
   kernel = locateKernel(prefix)
   if (!kernel) die(`npm 报告成功，但 ${prefix} 下找不到内核目录`)
   if (kernel.version !== PIN.version) die(`装到的是 ${kernel.version}，不是 ${PIN.version}`)
   log(`内核就位：${kernel.root}`)
 } else {
   log(`内核已在：${kernel.root}（${kernel.version}）`)
+}
+
+// ---------- 1.5 profile 插件（随内核前缀离线分发） ----------
+try {
+  installProfilePlugins({ prefix, log, force })
+} catch (err) {
+  die(`插件安装失败：${err.message}`)
 }
 
 // ---------- 2. 打补丁 ----------
@@ -100,7 +107,7 @@ if (left.length) die(`打完补丁仍缺：${left.join(', ')}`)
 // ---------- 3. 戳记 ----------
 fs.writeFileSync(
   stampPath(prefix),
-  JSON.stringify({ package: PIN.package, version: PIN.version, kernelRoot: kernel.root, skillsDir, patchedAt: new Date().toISOString(), marks: ALL_MARKS.map((m) => m.marks[0]) }, null, 2) + '\n',
+  JSON.stringify({ package: PIN.package, version: PIN.version, kernelRoot: kernel.root, skillsDir, profilePlugins: (PIN.profilePlugins ?? []).map((p) => `${p.name}@${p.version}`), patchedAt: new Date().toISOString(), marks: ALL_MARKS.map((m) => m.marks[0]) }, null, 2) + '\n',
 )
 log(`补丁：新打 ${counters.applied} 处，已有 ${counters.skipped} 处；技能根 ${skillsDir}`)
 log(`KERNEL_OK prefix=${prefix} version=${kernel.version}`)

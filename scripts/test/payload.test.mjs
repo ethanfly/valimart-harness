@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { digestFiles, makeBuildId, patchGatewayUrl, shouldPrune } from '../lib/payload.mjs'
+import { digestFiles, makeBuildId, patchGatewayUrl, shouldPrune, stripKernelPeerLinks } from '../lib/payload.mjs'
 
 test('shouldPrune：只删类型声明、source map 与其他平台的 node-pty 预编译', () => {
   assert.equal(shouldPrune('node_modules/x/lib/index.d.ts'), true)
@@ -17,6 +17,20 @@ test('shouldPrune：只删类型声明、source map 与其他平台的 node-pty 
   assert.equal(shouldPrune('node_modules/x/LICENSE'), false)
   assert.equal(shouldPrune('node_modules/x/README.md'), false)
   assert.equal(shouldPrune('node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node'), false)
+})
+
+test('stripKernelPeerLinks：剥掉顶层 @deepseek-ai/*（保留 dsh），symlink 与已展开的真目录都删', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-payload-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const scope = path.join(dir, 'node_modules', '@deepseek-ai')
+  fs.mkdirSync(path.join(scope, 'dsh'), { recursive: true })
+  fs.mkdirSync(path.join(scope, 'dsh-tools'), { recursive: true })
+  fs.writeFileSync(path.join(scope, 'dsh-tools', 'package.json'), '{}')
+  fs.writeFileSync(path.join(scope, 'schemastery-link'), 'x') // 普通文件也当链接残留删掉
+  assert.equal(stripKernelPeerLinks(dir), 2)
+  assert.ok(fs.existsSync(path.join(scope, 'dsh')))
+  assert.equal(fs.existsSync(path.join(scope, 'dsh-tools')), false)
+  assert.equal(stripKernelPeerLinks(path.join(dir, 'nope')), 0)
 })
 
 test('patchGatewayUrl：替换 gatewayUrl、去尾斜杠；没给 url 原样返回；找不到键就抛', () => {

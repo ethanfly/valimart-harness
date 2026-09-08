@@ -6,11 +6,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { ALL_MARKS, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
-import { locateKernel, refuseLivePrefix, stampPath } from '../kernel/locate.mjs'
+import { PIN, locateKernel, refuseLivePrefix, stampPath } from '../kernel/locate.mjs'
 import { findTar } from './find-tar.mjs'
-import { shouldPrune } from './payload.mjs'
+import { shouldPrune, stripKernelPeerLinks } from './payload.mjs'
 import { SOURCE_REPO, hashFile, resolveNpmRegistry } from './kernel-update.mjs'
-import { npmInvocation } from './npm-cli.mjs'
+import { npmEnvironment, npmInvocation } from './npm-cli.mjs'
+import { prepareWindowsNativeDependencies } from './kernel-native.mjs'
 
 const KERNEL_PACKAGE = '@deepseek-ai/dsh'
 
@@ -39,19 +40,25 @@ export function assertPublishedOnNpm(version, npmVersions) {
   }
 }
 
-function defaultInstall({ version, prefix, log, registry }) {
+export function installKernelPackage({ version, prefix, log = () => {}, registry }) {
+  assertSafeVersion(version)
+  const refused = refuseLivePrefix(prefix)
+  if (refused) throw new Error(refused)
   fs.mkdirSync(prefix, { recursive: true })
   const spec = `${KERNEL_PACKAGE}@${version}`
   log(`安装 ${spec} → ${prefix}`)
   const npm = npmInvocation()
   const resolved = resolveNpmRegistry(registry)
-  const r = spawnSync(npm.cmd, [...npm.pre, 'install', '-g', spec, '--prefix', prefix, '--no-fund', '--no-audit'], {
+  const windows = process.platform === 'win32'
+  const options = {
     encoding: 'utf8',
     windowsHide: true,
     shell: npm.shell,
-    env: { ...process.env, npm_config_prefix: prefix, npm_config_registry: resolved },
-  })
-  if (r.status !== 0) {
+    env: { ...npmEnvironment(), npm_config_prefix: prefix, npm_config_registry: resolved },
+  }
+  const runNpm = (args) => {
+    const r = spawnSync(npm.cmd, [...npm.pre, ...args], options)
+    if (r.status === 0) return
     const err = new Error(
       formatNpmInstallError({
         status: r.status,
@@ -63,7 +70,126 @@ function defaultInstall({ version, prefix, log, registry }) {
     err.code = 'npm_install_failed'
     throw err
   }
+  runNpm(['install', '-g', spec, '--prefix', prefix, '--no-fund', '--no-audit', ...(windows ? ['--ignore-scripts'] : [])])
+  if (windows) {
+    const kernel = locateKernel(prefix)
+    if (!kernel) throw new Error(`npm 报告成功，但 ${prefix} 下找不到内核目录`)
+    prepareWindowsNativeDependencies({ kernelRoot: kernel.root, log })
+    log('执行依赖安装脚本（koffi、node-pty 等）')
+    runNpm(['rebuild', '-g', '--prefix', prefix, '--ignore-scripts=false', '--no-fund', '--no-audit'])
+  }
+  // 内核就位后装 profile 插件（better-sidebar / dsh-browser）。它们随 kernel.tar 离线分发，
+  // 员工机器不需要 npm/pnpm；装进内核前缀的 node_modules 会被 profile 的 bundle 解析到。
+  installProfilePlugins({ prefix, log, registry })
 }
+
+/** 只读检查一个插件是否已装进内核前缀、版本是否对。 */
+export function profilePluginStatus({ prefix, plugins = PIN.profilePlugins ?? [] }) {
+  const modules = path.join(prefix, 'node_modules')
+  return plugins.map((plugin) => {
+    let version = null
+    try {
+      version = JSON.parse(fs.readFileSync(path.join(modules, plugin.name, 'package.json'), 'utf8')).version ?? null
+    } catch {
+      version = null
+    }
+    return { name: plugin.name, want: plugin.version, version, ok: version === plugin.version }
+  })
+}
+
+/**
+ * 把 pin.json 的 profilePlugins 装进内核前缀。
+ *
+ * 不能直接 `npm install --prefix <内核前缀>`：那会按新的 package.json 重算整棵树，
+ * 把 `npm install -g` 装进去的内核（及其 500+ 依赖）当 extraneous 删掉。
+ * 做法：每个插件先装到 `<前缀>/.profile-plugin-stage/<名字>`（--omit=peer，不把 @deepseek-ai
+ * 的 peer 拷进来覆盖内核），再按白名单拷进 `<前缀>/node_modules`（已存在的一律保留，
+ * 插件自己的包除外），最后删 staging。prune 里的包只服务预打包的浏览器端 bundle，不拷。
+ */
+export function installProfilePlugins({ prefix, plugins = PIN.profilePlugins ?? [], log = () => {}, registry, force = false }) {
+  if (!plugins.length) return []
+  const modules = path.join(prefix, 'node_modules')
+  fs.mkdirSync(modules, { recursive: true })
+  const npm = npmInvocation()
+  const resolved = resolveNpmRegistry(registry)
+  const options = {
+    encoding: 'utf8',
+    windowsHide: true,
+    shell: npm.shell,
+    env: {
+      ...npmEnvironment(),
+      npm_config_registry: resolved,
+      // 插件依赖里 playwright/patchright 的 postinstall 会下载 Chromium；公司 profile 用系统 Edge，跳过。
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+      PUPPETEER_SKIP_DOWNLOAD: '1',
+    },
+  }
+  const installed = []
+  for (const plugin of plugins) {
+    if (!force && profilePluginStatus({ prefix, plugins: [plugin] })[0].ok) {
+      log(`插件已在：${plugin.name}@${plugin.version}`)
+      installed.push(plugin.name)
+      continue
+    }
+    const stage = path.join(prefix, '.profile-plugin-stage', plugin.name.replace(/[/@]/g, '_'))
+    fs.rmSync(stage, { recursive: true, force: true })
+    fs.mkdirSync(stage, { recursive: true })
+    const run = (args) => {
+      const r = spawnSync(npm.cmd, [...npm.pre, ...args], { ...options, cwd: stage })
+      if (r.status === 0) return
+      throw new Error(
+        formatNpmInstallError({ status: r.status, signal: r.signal, stdout: r.stdout, stderr: r.stderr || r.error?.message }),
+      )
+    }
+    const spec = `${plugin.name}@${plugin.version}`
+    log(`安装插件 ${spec} → ${stage}`)
+    run(['install', spec, '--prefix', stage, '--omit=peer', '--ignore-scripts', '--no-fund', '--no-audit'])
+    // 原生依赖（node-pty）需要 install/postinstall 才能拿到 win32-x64 的 conpty.dll。
+    run(['rebuild', '--prefix', stage, '--ignore-scripts=false', '--no-fund', '--no-audit'])
+    copyPluginModules({ stageModules: path.join(stage, 'node_modules'), targetModules: modules, pluginName: plugin.name, prune: plugin.prune ?? [], log })
+    fs.rmSync(stage, { recursive: true, force: true })
+    installed.push(plugin.name)
+    log(`插件就位：${plugin.name}@${plugin.version}`)
+  }
+  return installed
+}
+
+/** 把 staging 的 node_modules 按白名单拷进内核前缀：跳过 @deepseek-ai（peer）、prune、已存在的依赖与点文件。 */
+function copyPluginModules({ stageModules, targetModules, pluginName, prune, log = () => {} }) {
+  const pruned = new Set(prune)
+  const skipped = []
+  const copyEntry = (src, dst, name) => {
+    if (fs.existsSync(dst) && name !== pluginName) {
+      skipped.push(name)
+      return
+    }
+    fs.rmSync(dst, { recursive: true, force: true })
+    fs.cpSync(src, dst, { recursive: true, force: true })
+  }
+  for (const entry of fs.readdirSync(stageModules)) {
+    if (entry.startsWith('.') || entry === '@deepseek-ai' || pruned.has(entry)) {
+      skipped.push(entry)
+      continue
+    }
+    const src = path.join(stageModules, entry)
+    if (entry.startsWith('@')) {
+      const dstScope = path.join(targetModules, entry)
+      fs.mkdirSync(dstScope, { recursive: true })
+      for (const child of fs.readdirSync(src)) {
+        const name = `${entry}/${child}`
+        if (pruned.has(name)) {
+          skipped.push(name)
+          continue
+        }
+        copyEntry(path.join(src, child), path.join(dstScope, child), name)
+      }
+    } else {
+      copyEntry(src, path.join(targetModules, entry), entry)
+    }
+  }
+  if (skipped.length) log(`跳过 ${skipped.length} 项（peer / prune / 已存在）：${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' …' : ''}`)
+}
+
 
 function pruneTree(root) {
   const walk = (dir) => {
@@ -121,6 +247,8 @@ export function packPatchedPrefix({ prefix, version, outDir, skillsDir, log = ()
   fs.rmSync(packRoot, { recursive: true, force: true })
   try {
     fs.cpSync(prefix, packRoot, { recursive: true, force: true })
+    // 运行时 peer 链接不进包（cpSync 会展开 junction，tar 会翻倍）；员工机器启动时 linkKernelPeers 重建
+    stripKernelPeerLinks(packRoot)
     pruneTree(packRoot)
     fs.mkdirSync(destStaging, { recursive: true })
     const tarPath = path.join(destStaging, 'kernel.tar')
@@ -156,7 +284,7 @@ export function packPatchedPrefix({ prefix, version, outDir, skillsDir, log = ()
 export function prepareKernelTarball({ version, prefix, outDir, skillsDir, log = () => {}, installer, registry, npmVersions }) {
   assertSafeVersion(version)
   assertPublishedOnNpm(version, npmVersions)
-  const install = installer ?? ((opts) => defaultInstall({ ...opts, registry }))
+  const install = installer ?? installKernelPackage
   install({ version, prefix, log, registry })
   return packPatchedPrefix({ prefix, version, outDir, skillsDir, log })
 }

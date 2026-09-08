@@ -21,7 +21,7 @@ export function writeStagedGatewayConfig(repoRoot, stageServerDir) {
 }
 
 export const GATEWAY_KERNEL_FILES = ['patches.mjs', 'locate.mjs', 'pin.json']
-export const GATEWAY_LIB_FILES = ['kernel-update.mjs', 'kernel-prepare.mjs', 'payload.mjs', 'npm-cli.mjs', 'find-tar.mjs', 'lan-protocol.mjs', 'client-update.mjs', 'model-input.mjs']
+export const GATEWAY_LIB_FILES = ['kernel-update.mjs', 'kernel-prepare.mjs', 'kernel-native.mjs', 'payload.mjs', 'npm-cli.mjs', 'find-tar.mjs', 'lan-protocol.mjs', 'client-update.mjs', 'model-input.mjs']
 export const GATEWAY_BRAND_FILES = ['valimart-mark.png', 'valimart-wordmark.png']
 
 /** 拷网关业务文件（不含 Windows node.exe / WinSW，也不含 Linux runtime）。 */

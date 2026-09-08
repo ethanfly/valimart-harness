@@ -15,6 +15,24 @@ export function shouldPrune(relPath) {
   return false
 }
 
+/**
+ * 打包前剥掉内核前缀顶层 node_modules/@deepseek-ai/* 的 peer 链接（保留 dsh 本身）。
+ * 这些链接是 ensureProfile 在运行时用 linkKernelPeers 建的；fs.cpSync/tar 会跟随 junction
+ * 把内容复制成实体，让 kernel.tar 凭空翻倍。员工机器启动时会重新建，所以不进包。
+ * 注意：stage 里的副本可能已被 cpSync 展开成真目录，所以不能只删 symlink。
+ */
+export function stripKernelPeerLinks(prefix) {
+  const scope = path.join(prefix, 'node_modules', '@deepseek-ai')
+  if (!fs.existsSync(scope)) return 0
+  let removed = 0
+  for (const entry of fs.readdirSync(scope)) {
+    if (entry === 'dsh') continue
+    fs.rmSync(path.join(scope, entry), { recursive: true, force: true })
+    removed++
+  }
+  return removed
+}
+
 /** 把 cordis.patch.yml 里 desk-host 的 gatewayUrl 换成公司地址；url 为空则不改。 */
 export function patchGatewayUrl(yamlText, url) {
   if (!url) return yamlText
