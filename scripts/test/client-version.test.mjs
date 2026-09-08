@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { makeBuildId, makeInstallerVersion } from '../lib/payload.mjs'
 import { clientPublicInfo, readLocalBuildId, readLocalPayload } from '../lib/client-update.mjs'
-import { clientVersionDetail, clientVersionLabel, kernelVersionLabel } from '../../plugins/desk-ui/src/client/version.js'
+import { clientVersionDetail, clientVersionLabel, kernelVersionLabel, searchKeyLabel } from '../../plugins/desk-ui/src/client/version.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -89,4 +89,28 @@ test('kernelVersionLabel：/state 的运行内核优先，退回 payload 构建�
   assert.equal(kernelVersionLabel(null), 'dev')
   assert.equal(kernelVersionLabel({ client: { kernelVersion: '0.1.2-rc.1' } }), '0.1.2-rc.1')
   assert.equal(kernelVersionLabel({ kernel: { version: '0.1.3-alpha.2' }, client: { kernelVersion: '0.1.2-rc.1' } }), '0.1.3-alpha.2')
+})
+
+test('searchKeyLabel：已由公司配置 / 匿名额度 / 未同步', () => {
+  assert.equal(searchKeyLabel(null), '未同步')
+  assert.equal(searchKeyLabel({ search: { anysearch: { configured: null } } }), '未同步')
+  assert.equal(searchKeyLabel({ search: { anysearch: { configured: true } } }), '已由公司配置')
+  assert.equal(searchKeyLabel({ search: { anysearch: { configured: false } } }), '匿名额度')
+})
+
+test('搜索密钥由网关下发：desk-host 同步进本机凭据，设置页显示状态', () => {
+  const host = fs.readFileSync(path.join(repo, 'plugins/desk-host/lib/index.js'), 'utf8')
+  const sync = fs.readFileSync(path.join(repo, 'plugins/desk-host/lib/search-key.js'), 'utf8')
+  const settings = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/settings.jsx'), 'utf8')
+  const serverApi = fs.readFileSync(path.join(repo, 'server/src/api.js'), 'utf8')
+  const serverCfg = fs.readFileSync(path.join(repo, 'server/src/config.js'), 'utf8')
+  assert.match(host, /scheduleSearchKey/)
+  assert.match(host, /credentials:\s*ctx\.credentials/)
+  assert.match(host, /search:\s*\{\s*anysearch:\s*\{\s*configured/)
+  assert.match(sync, /credentials\.set\(ref, remote\)/)
+  assert.match(sync, /credentials\.unset\(ref\)/)
+  assert.match(settings, /搜索密钥/)
+  assert.match(settings, /searchKeyLabel/)
+  assert.match(serverApi, /router\.get\('\/api\/search\/anysearch'/)
+  assert.match(serverCfg, /ANYSEARCH_API_KEY/)
 })

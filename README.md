@@ -147,6 +147,24 @@ $env:DEEPSEEK_API_KEY = "sk-..."        # 或写进 ~/.dsh/.credentials.yaml： 
 Claude / Anthropic 官方端点走 Messages API（`x-api-key` + `/v1/messages`）；ChatGPT / OpenAI 仍是 `/chat/completions`。
 有真实 key 时可 `npm run probe:channels`（读 `OPENAI_API_KEY` / `CHATGPT_API_KEY` / `ANTHROPIC_API_KEY`，不把密钥打进日志）。
 
+#### 搜索密钥（AnySearch，只放服务端）
+
+客户端装的 `@anysearch/anysearch-dsh` 按凭据引用 `ANYSEARCH_API_KEY` 取 key。公司统一在网关上配一次，
+员工登录时 desk-host 经 `GET /api/search/anysearch` 取回并写进本机 DSH 凭据（插件逐次解析，换 key 下一次搜索即生效）；
+不配则走 AnySearch 匿名额度。三种配置方式（优先级从高到低）：
+
+```jsonc
+// server/config.local.json
+{ "search": { "anysearch": { "apiKey": "as_sk_…" } } }
+```
+
+```powershell
+$env:ANYSEARCH_API_KEY = "as_sk_…"     # 网关进程的环境变量（apiKeyEnv 可改名）
+```
+
+`search.anysearch.apiKeyFile` 也可指向一个 `ANYSEARCH_API_KEY: …` 的 YAML（与上游密钥同款解析）。
+客户端「设置 → 桌面 → 本机版本」里的**搜索密钥**一行显示 `已由公司配置 / 匿名额度 / 未同步`。
+
 ### 本机覆盖
 
 - `server/config.local.json`：覆盖 `config.json` 任意字段（不入库），例如改端口、公司名、额度。

@@ -105,5 +105,7 @@ function defaults() {
     driveDir: null,
     device: null,
     taskSessions: {},
+    /** 搜索密钥（AnySearch）是否已由公司配置下发到本机凭据；null = 还没同步过。 */
+    searchKeyConfigured: null,
   }
 }

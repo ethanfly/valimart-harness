@@ -101,6 +101,11 @@
   "kernel": {
     "npmRegistry": "https://registry.npmmirror.com"
   },
+  "search": {
+    "anysearch": {
+      "apiKeyEnv": "ANYSEARCH_API_KEY"
+    }
+  },
   "loginTtlDays": 30,
   "presenceOnlineSeconds": 90
 }

@@ -22,6 +22,7 @@ import { ProducedIndex } from './produced.js'
 import { serveSessionImage } from './session-image.js'
 import { fetchKernelUpdate, readLocalKernelVersion, resolvePendingDir } from './kernel-update.js'
 import { fetchClientUpdate, resolveClientPendingDir, resolvePayloadDir } from './client-update.js'
+import { syncSearchCredentials } from './search-key.js'
 import { clientPublicInfo, readLocalPayload } from '../../../scripts/lib/client-update.mjs'
 import { discoverGateways } from './lan-discover.js'
 import { portFromUrl } from '../../../scripts/lib/lan-protocol.mjs'
@@ -63,7 +64,13 @@ export function apply(ctx, config) {
   const mirror = new DriveMirror({ root: state.data.driveDir, gateway, state, log })
   const produced = new ProducedIndex(stateDir)
   const credential = credentialRef(config.credentialName)
-  const publicDesk = () => ({ ...state.publicView(), client: clientPublicInfo(resolvePayloadDir()), kernel: { version: readLocalKernelVersion() } })
+  const publicDesk = () => ({
+    ...state.publicView(),
+    client: clientPublicInfo(resolvePayloadDir()),
+    kernel: { version: readLocalKernelVersion() },
+    // 搜索密钥状态：true = 公司已配置并下发到本机凭据，false = 匿名额度，null = 还没同步过（未登录/网关不可达）
+    search: { anysearch: { configured: typeof state.data.searchKeyConfigured === 'boolean' ? state.data.searchKeyConfigured : null } },
+  })
   // 给 desk-image 等一等插件读登录态 / 网关令牌（密钥仍只在网关）
   ctx.provide('deskHost', { state, gateway })
 
@@ -244,6 +251,26 @@ export function apply(ctx, config) {
     }).catch((err) => log(`客户端更新失败: ${err.message}`))
   }
 
+  /**
+   * 搜索供应商密钥（AnySearch）随登录从网关同步到本机凭据。
+   * 管理员在网关换 key 后，员工下次打开客户端（登录/启动校验）即生效；插件逐次解析，同会话内也立刻可用。
+   */
+  function scheduleSearchKey() {
+    syncSearchCredentials({
+      gateway,
+      credentials: ctx.credentials,
+      credentialRef,
+      log: (msg) => log(`搜索密钥: ${msg}`),
+    })
+      .then((r) => {
+        if (typeof r.configured === 'boolean') {
+          state.data.searchKeyConfigured = r.configured
+          state.save()
+        }
+      })
+      .catch((err) => log(`搜索密钥同步失败: ${err.message}`))
+  }
+
   // ---------- 登录 / 登出 / 心跳 ----------
   async function login({ gatewayUrl, username, password }) {
     const url = (gatewayUrl || state.data.gatewayUrl || config.gatewayUrl).replace(/\/+$/, '')
@@ -262,6 +289,7 @@ export function apply(ctx, config) {
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
     scheduleKernelUpdate()
     scheduleClientUpdate()
+    scheduleSearchKey()
     return publicDesk()
   }
 
@@ -282,6 +310,7 @@ export function apply(ctx, config) {
     log(`初始设置完成，已登录 ${result.user.username}`)
     scheduleKernelUpdate()
     scheduleClientUpdate()
+    scheduleSearchKey()
     return publicDesk()
   }
 
@@ -367,6 +396,7 @@ export function apply(ctx, config) {
         syncAll().catch((err) => log(`公司盘同步失败: ${err.message}`))
         scheduleKernelUpdate()
         scheduleClientUpdate()
+        scheduleSearchKey()
       } catch (err) {
         if (err instanceof GatewayError && (err.status === 401 || err.status === 403)) state.clearLogin('登录已失效，请重新登录')
         else log(`启动校验失败（网关可能未启动）: ${err.message}`)

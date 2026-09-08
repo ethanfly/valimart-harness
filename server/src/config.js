@@ -128,6 +128,17 @@ export function loadConfig(overrides = {}) {
     up.resolvedKey = key
     delete up.apiKey
   }
+
+  // 搜索供应商密钥（AnySearch）：与上游模型密钥同一原则——只在服务端解析，绝不出现在配置下发里；
+  // 员工登录后由 desk-host 经 /api/search/anysearch 取回，写进本机 DSH 凭据供插件逐次解析。
+  const search = cfg.search ?? {}
+  const any = search.anysearch ?? {}
+  const anyEnv = any.apiKeyEnv ?? 'ANYSEARCH_API_KEY'
+  let anyKey = any.apiKey
+  if (!anyKey && process.env[anyEnv]) anyKey = process.env[anyEnv]
+  if (!anyKey && any.apiKeyFile) anyKey = readKeyFromSimpleYaml(any.apiKeyFile, anyEnv)
+  cfg.search = { ...search, anysearch: { ...any, apiKeyEnv: anyEnv, resolvedKey: anyKey } }
+  delete cfg.search.anysearch.apiKey
   return cfg
 }
 

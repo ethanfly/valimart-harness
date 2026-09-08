@@ -14,3 +14,11 @@ export function clientVersionDetail(client) {
 export function kernelVersionLabel(desk) {
   return desk?.kernel?.version || desk?.client?.kernelVersion || 'dev'
 }
+
+/** 搜索密钥状态：true = 公司已配置并下发到本机凭据；false = 匿名额度；null = 还没同步过。 */
+export function searchKeyLabel(desk) {
+  const configured = desk?.search?.anysearch?.configured
+  if (configured === true) return '已由公司配置'
+  if (configured === false) return '匿名额度'
+  return '未同步'
+}

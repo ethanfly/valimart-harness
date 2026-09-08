@@ -221,6 +221,17 @@ export function registerApi(router, ctx) {
     sendJson(res, 200, { ok: true, serverTime: new Date().toISOString(), gatewayTokenActive: myGatewayTokenActive(session), quota: ledger.quotaView(user, providers()), modelsSignature: modelsSignature() })
   })
 
+  // ---------- 搜索供应商凭据 ----------
+  // AnySearch 的 key 由公司统一配置：server/config.local.json 的 search.anysearch.apiKey（或环境变量
+  // ANYSEARCH_API_KEY / apiKeyFile 指向的文件）。员工登录后 desk-host 取回并写进本机 DSH 凭据，
+  // @anysearch/anysearch-dsh 逐次解析——管理员换 key，员工下一次搜索即生效，不用改任何本机配置。
+  // 只回给已登录会话；未配置时返回 null，客户端留在匿名额度。值不进日志、不进 /api/auth/me 等状态接口。
+  router.get('/api/search/anysearch', async (req, res) => {
+    auth(req)
+    const key = cfg.search?.anysearch?.resolvedKey
+    sendJson(res, 200, { anysearch: key ? { apiKey: key } : null })
+  })
+
   // ---------- 模型目录 ----------
   router.get('/api/models', async (req, res) => {
     auth(req)

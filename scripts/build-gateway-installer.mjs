@@ -103,6 +103,7 @@ fs.writeFileSync(
     '  2) 写进 server\\config.local.json：{ "upstreams": { "deepseek": { "apiKey": "sk-…" } } }（键路径 upstreams.<上游id>.apiKey，id 见 config.json）；',
     '  3) 机器级环境变量，变量名即 config.json 里该上游的 apiKeyEnv（DeepSeek 为 DEEPSEEK_API_KEY）：管理员命令行 setx /M DEEPSEEK_API_KEY sk-…，或 系统属性 → 环境变量 → 系统变量；服务重启（service\\TheDivaGateway.exe restart）后生效。',
     '  注意：service\\TheDivaGateway.xml 每次安装 / 升级都由 init.mjs 按模板重新生成，手改（包括加 <env>）会丢，请勿手改。',
+    '搜索密钥（AnySearch，可选）：server\\config.local.json 写 { "search": { "anysearch": { "apiKey": "as_sk_…" } } }，或机器级环境变量 ANYSEARCH_API_KEY；员工登录时客户端自动取回，不配则用匿名额度。',
     '端口改了要同步改防火墙规则「valimart harness Gateway」。',
     '管理页：http://<本机名>:8790/admin（首次打开引导设置公司名与初始管理员，没有演示账号）',
     '首次启动不播种任何账号或示例文件（安装包 config.json 与 config.local.json 均为 seedAdmin:false、seedUsers:[]、seedDriveSamples:false；服务 NODE_ENV=production）。打开管理页或客户端完成引导。',
