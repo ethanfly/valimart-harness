@@ -18,12 +18,20 @@ import {
   chatgptHeaders,
   chatgptResponsesUrl,
   createCodexSseTranslator,
+  parseCodexImageStream,
+  toCodexImageBody,
   toCodexResponsesBody,
   usesChatgptCodex,
 } from './upstream-chatgpt.js'
 import { isUpstreamQuotaExhausted } from './upstream-quota.js'
 import { openaiCompatUrl } from './upstream-models.js'
 import { sendGeminiRequest, usesGeminiCodeAssist } from './upstream-gemini.js'
+import {
+  dashscopeOrigin,
+  parseDashscopeImage,
+  toDashscopeImageBody,
+  usesDashscopeImages,
+} from './upstream-dashscope.js'
 
 export class LlmProxy {
   constructor({ db, cfg, ledger, catalog, oauth, channels }) {
@@ -251,6 +259,11 @@ export class LlmProxy {
       upstreamRes = await this.fetchUpstream(upstream, body, model, { stream: false, signal: ac.signal, path: apiPath })
     } catch (err) {
       if (ac.signal.aborted) return
+      if (err instanceof HttpError) {
+        // 网关自己的校验错误（缺参考图 / 通道不支持媒体 / 没有驱动模型）原样返回，别包装成"上游不可达"
+        finish(undefined, 'rejected')
+        throw err
+      }
       finish(undefined, 'upstream_unreachable')
       throw new HttpError(502, '上游 ' + model.providerLabel + ' 不可达：' + err.message, 'upstream_unreachable')
     }
@@ -492,9 +505,163 @@ export class LlmProxy {
     return last
   }
 
+  /**
+   * ChatGPT 订阅（Codex）出图：上游没有 /images/*，用 Responses 的 image_generation 工具生成，
+   * 再把结果包成 OpenAI /images 的形状回给调用方。n>1 逐张生成。
+   */
+  async codexImages(upstream, body, model, apiPath, { signal } = {}) {
+    const driver = (upstream.models ?? []).find((m) => m?.id && !/image|video|dall-e|imagine|wanx|flux/i.test(m.id))
+    if (!driver) throw new HttpError(400, '该订阅通道里没有可用来驱动 image_generation 的对话模型', 'no_image_driver')
+    const driverModel = driver.upstreamModel ?? driver.id
+    const count = Math.max(1, Math.min(4, Number(body.n) || 1))
+    const data = []
+    let usage = null
+    for (let i = 0; i < count; i++) {
+      const reqBody = toCodexImageBody(body, driverModel)
+      const res = await fetch(chatgptResponsesUrl(upstream.baseUrl), {
+        method: 'POST',
+        headers: chatgptHeaders(upstream.resolvedKey, { accountId: upstream.chatgptAccountId }),
+        body: JSON.stringify(reqBody),
+        signal,
+      })
+      const text = await res.text()
+      if (!res.ok) {
+        return new Response(text || JSON.stringify({ error: { message: `上游 HTTP ${res.status}` } }), {
+          status: res.status,
+          headers: { 'content-type': res.headers.get('content-type') ?? 'application/json' },
+        })
+      }
+      const parsed = parseCodexImageStream(text)
+      if (!parsed.b64) throw new HttpError(502, parsed.error || '订阅通道没有返回图片', 'empty')
+      data.push({ b64_json: parsed.b64, ...(parsed.revisedPrompt ? { revised_prompt: parsed.revisedPrompt } : {}) })
+      usage = parsed.usage ?? usage
+    }
+    return new Response(JSON.stringify({ created: Math.floor(Date.now() / 1000), data, usage }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })
+  }
+
+  /**
+   * DashScope（阿里云百炼）出图：OpenAI /images/* ↔ 原生接口。
+   * qwen-image 系列走同步 multimodal-generation；该模型不支持时退回异步 text2image + 轮询。
+   */
+  async dashscopeImages(upstream, body, model, apiPath, { signal } = {}) {
+    const origin = dashscopeOrigin(upstream.baseUrl)
+    const modelId = model.upstreamModel ?? model.id
+    const count = Math.max(1, Math.min(4, Number(body.n) || 1))
+    const data = []
+    let usage = null
+    for (let i = 0; i < count; i++) {
+      const one = await this.dashscopeImageOnce(origin, upstream, body, modelId, { signal })
+      data.push({ b64_json: one.b64, ...(one.revisedPrompt ? { revised_prompt: one.revisedPrompt } : {}) })
+      usage = one.usage ?? usage
+    }
+    return new Response(JSON.stringify({ created: Math.floor(Date.now() / 1000), data, usage }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })
+  }
+
+  async dashscopeImageOnce(origin, upstream, body, modelId, { signal } = {}) {
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}` }
+    const errors = []
+    const post = async (url, payload, extra = {}) => {
+      const res = await fetch(url, { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(payload), signal })
+      const text = await res.text()
+      let json = null
+      try {
+        json = JSON.parse(text)
+      } catch {
+        /* 非 JSON 上游错误：留原文 */
+      }
+      return { res, text, json }
+    }
+    const finish = async (parsed) => {
+      const b64 = parsed.b64 || (parsed.url ? await this.fetchImageB64(parsed.url, signal) : '')
+      if (!b64) throw new HttpError(502, errors.filter(Boolean).join('；') || 'DashScope 没有返回图片', 'empty')
+      return { b64, revisedPrompt: parsed.revisedPrompt, usage: parsed.usage }
+    }
+    const waitTask = async (taskId) => {
+      const deadline = Date.now() + 150_000
+      const pollMs = Number(process.env.DESK_DASHSCOPE_POLL_MS || 2000)
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, pollMs))
+        const res = await fetch(`${origin}/api/v1/tasks/${encodeURIComponent(taskId)}`, { headers, signal })
+        const text = await res.text()
+        let json = null
+        try {
+          json = JSON.parse(text)
+        } catch {
+          /* ignore */
+        }
+        const parsed = parseDashscopeImage(json)
+        if (/SUCCEEDED/i.test(parsed.status)) return parsed
+        if (/FAILED|CANCELED|UNKNOWN/i.test(parsed.status)) {
+          errors.push(parsed.error || parsed.code || `任务 ${parsed.status}`)
+          return null
+        }
+      }
+      errors.push('DashScope 出图超时')
+      return null
+    }
+
+    // 1) 同步多模态（qwen-image 系列）
+    const sync = await post(`${origin}/api/v1/services/aigc/multimodal-generation/generation`, toDashscopeImageBody(body, modelId))
+    const syncParsed = parseDashscopeImage(sync.json)
+    if (sync.res.ok) {
+      if (syncParsed.b64 || syncParsed.url) return finish(syncParsed)
+      if (syncParsed.taskId) {
+        const done = await waitTask(syncParsed.taskId)
+        if (done) return finish(done)
+      } else {
+        errors.push(syncParsed.error || 'multimodal 返回空结果')
+      }
+    } else {
+      errors.push(syncParsed.error || syncParsed.code || `multimodal HTTP ${sync.res.status}`)
+    }
+
+    // 2) 异步 text2image（wanx 系列）
+    const asyn = await post(
+      `${origin}/api/v1/services/aigc/text2image/image-synthesis`,
+      toDashscopeImageBody(body, modelId, { async: true }),
+      { 'x-dashscope-async': 'enable' },
+    )
+    const asynParsed = parseDashscopeImage(asyn.json)
+    if (asyn.res.ok) {
+      if (asynParsed.b64 || asynParsed.url) return finish(asynParsed)
+      if (asynParsed.taskId) {
+        const done = await waitTask(asynParsed.taskId)
+        if (done) return finish(done)
+      } else {
+        errors.push(asynParsed.error || 'text2image 返回空结果')
+      }
+    } else {
+      errors.push(asynParsed.error || asynParsed.code || `text2image HTTP ${asyn.res.status}`)
+    }
+    throw new HttpError(502, errors.filter(Boolean).join('；') || 'DashScope 出图失败', 'dashscope_failed')
+  }
+
+  async fetchImageB64(url, signal) {
+    const raw = String(url ?? '')
+    const dataUrl = /^data:image\/[^;]+;base64,(.+)$/i.exec(raw)
+    if (dataUrl) return dataUrl[1]
+    const res = await fetch(raw, { signal })
+    if (!res.ok) throw new HttpError(502, `下载上游图片失败 HTTP ${res.status}`, 'download_failed')
+    const buf = Buffer.from(await res.arrayBuffer())
+    return buf.toString('base64')
+  }
+
   sendUpstream(upstream, body, model, { stream, signal, path: apiPath } = {}) {
     if (apiPath && apiPath !== '/chat/completions') {
-      if (usesChatgptCodex(upstream) || usesAnthropicMessages(upstream) || usesGeminiCodeAssist(upstream)) {
+      if (usesChatgptCodex(upstream)) {
+        if (String(apiPath).includes('/images')) return this.codexImages(upstream, body, model, apiPath, { signal })
+        throw new HttpError(400, '该上游不支持媒体接口（ChatGPT 订阅只支持对话与图片生成）', 'media_unsupported')
+      }
+      if (usesDashscopeImages(upstream) && String(apiPath).includes('/images')) {
+        return this.dashscopeImages(upstream, body, model, apiPath, { signal })
+      }
+      if (usesAnthropicMessages(upstream) || usesGeminiCodeAssist(upstream)) {
         throw new HttpError(400, '该上游不支持媒体接口（仅 OpenAI 兼容通道，如 Grok / xAI）', 'media_unsupported')
       }
       const forward = mediaForwardBody(body, model, apiPath)

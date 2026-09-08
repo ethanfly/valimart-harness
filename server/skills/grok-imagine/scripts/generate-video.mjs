@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
- * 通过公司网关调用 Grok Imagine 生成视频，把 MP4 写到磁盘。
+ * 生视频 —— 公司网关 /v1/videos/generations，模型固定 grok-imagine-video-1.5。
+ * 生图/修图走 image_generate / image_edit（desk-image 插件，按「设置 → 生图」），或本目录 generate.mjs。
  *
  *   node scripts/generate-video.mjs --prompt "..." [--out out.mp4] [--duration 6] [--ratio 16:9]
  *   node scripts/generate-video.mjs --prompt "..." --image first.png --out shot.mp4
  *
- * 默认模型 grok-imagine-video-1.5。令牌：DESK_GATEWAY_TOKEN 或 desk-state.json 的 gatewayToken。
+ * 令牌：DESK_GATEWAY_TOKEN 或 ~/.dsh/desk/desk-state.json 的 gatewayToken。
  */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+
+const VIDEO_MODEL = 'grok-imagine-video-1.5'
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name)
@@ -31,6 +34,11 @@ function parseDataUrl(s) {
   return m ? m[1] : String(s)
 }
 
+function stampName(now = new Date()) {
+  const iso = now.toISOString()
+  return `video-${iso.slice(0, 10).replace(/-/g, '')}-${iso.slice(11, 19).replace(/:/g, '')}`
+}
+
 const prompt = arg('--prompt')
 if (!prompt) {
   console.error('缺少 --prompt')
@@ -45,13 +53,15 @@ if (!token) {
   process.exit(2)
 }
 
-const model = arg('--model', 'grok-imagine-video-1.5')
+const model = arg('--model', VIDEO_MODEL)
 const ratio = arg('--ratio', '16:9')
-const out = arg('--out', 'grok-imagine.mp4')
+const out = path.resolve(arg('--out', `${stampName()}.mp4`))
 const image = arg('--image')
 let duration = Number(arg('--duration', '6')) || 6
 if (duration <= 8) duration = 6
 else duration = 10
+
+console.error(`模型=${model} 比例=${ratio} 时长=${duration}s`)
 
 const body = { model, prompt, duration, aspect_ratio: ratio }
 if (image) body.image = fs.readFileSync(image).toString('base64')
@@ -81,6 +91,7 @@ if (!items.length) {
 }
 
 const item = items[0]
+fs.mkdirSync(path.dirname(out), { recursive: true })
 if (item.b64_json) {
   fs.writeFileSync(out, Buffer.from(parseDataUrl(item.b64_json), 'base64'))
 } else if (item.url) {
@@ -94,4 +105,4 @@ if (item.b64_json) {
   console.error('条目缺少 b64_json / url')
   process.exit(1)
 }
-console.log(path.resolve(out))
+console.log(out)

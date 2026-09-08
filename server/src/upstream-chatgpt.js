@@ -118,6 +118,92 @@ export function toCodexResponsesBody(openaiBody, model) {
   return body
 }
 
+/** ChatGPT 订阅（Codex）没有 /images/*，出图走 Responses 的 image_generation 工具。 */
+export const CODEX_IMAGE_TOOL = 'image_generation'
+
+/** aspect_ratio / size → 图片工具支持的尺寸。 */
+export function codexImageSize(body = {}) {
+  const explicit = String(body.size ?? '').trim()
+  if (/^\d{3,4}x\d{3,4}$/.test(explicit) || explicit === 'auto') return explicit
+  const ratio = String(body.aspect_ratio ?? '').trim()
+  const map = { '1:1': '1024x1024', '16:9': '1536x1024', '4:3': '1536x1024', '9:16': '1024x1536', '3:4': '1024x1536' }
+  return map[ratio] ?? '1024x1024'
+}
+
+function imageRefToUrl(ref) {
+  const s = String(ref ?? '')
+  if (!s) return ''
+  if (/^(data:|https?:)/i.test(s)) return s
+  return `data:image/png;base64,${s}`
+}
+
+/** OpenAI /images/generations|edits 的 body → Codex responses（带 image_generation 工具）。 */
+export function toCodexImageBody(openaiBody, driverModel) {
+  const content = []
+  const ref = openaiBody.image ?? openaiBody.image_url ?? (Array.isArray(openaiBody.images) ? openaiBody.images[0] : null)
+  const url = imageRefToUrl(ref)
+  if (url) content.push({ type: 'input_image', image_url: url })
+  content.push({ type: 'input_text', text: String(openaiBody.prompt ?? '') })
+  const tool = { type: CODEX_IMAGE_TOOL, size: codexImageSize(openaiBody) }
+  if (openaiBody.quality) tool.quality = String(openaiBody.quality)
+  if (openaiBody.background) tool.background = String(openaiBody.background)
+  return {
+    model: driverModel,
+    input: [{ type: 'message', role: 'user', content }],
+    tools: [tool],
+    stream: true,
+    store: false,
+  }
+}
+
+/** 从 Codex SSE 流里取出图片（image_generation_call.result）与用量。 */
+export function parseCodexImageStream(text) {
+  let b64 = ''
+  let revisedPrompt = ''
+  let size = ''
+  let outputFormat = ''
+  let usage = null
+  let error = ''
+  for (const block of String(text ?? '').split(/\n\n/)) {
+    const line = /^data: (.*)$/m.exec(block)
+    if (!line) continue
+    let ev
+    try {
+      ev = JSON.parse(line[1])
+    } catch {
+      continue
+    }
+    if (ev.type === 'response.output_item.done' && ev.item?.type === 'image_generation_call') {
+      if (ev.item.result) {
+        b64 = ev.item.result
+        revisedPrompt = ev.item.revised_prompt ?? ''
+        size = ev.item.size ?? ''
+        outputFormat = ev.item.output_format ?? ''
+      } else if (ev.item.status === 'failed') {
+        error = ev.item.error?.message ?? '订阅通道图片生成失败'
+      }
+      continue
+    }
+    if (ev.type === 'response.completed') {
+      const u = ev.response?.usage
+      if (u) {
+        usage = {
+          prompt_tokens: u.input_tokens ?? 0,
+          completion_tokens: u.output_tokens ?? 0,
+          total_tokens: u.total_tokens ?? (u.input_tokens ?? 0) + (u.output_tokens ?? 0),
+        }
+      }
+      continue
+    }
+    if (ev.type === 'response.failed') {
+      error = ev.response?.error?.message ?? (error || '订阅通道返回失败')
+      continue
+    }
+    if (ev.error?.message && !error) error = ev.error.message
+  }
+  return { b64, revisedPrompt, size, outputFormat, usage, error }
+}
+
 export function textFromCodexOutput(output) {
   if (!Array.isArray(output)) return ''
   const parts = []
