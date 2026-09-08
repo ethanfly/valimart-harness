@@ -6,6 +6,7 @@ import css from './styles.css'
 import { DeskFrame, DeskLayoutController, ThemePresenter } from './layout.jsx'
 import { DeskSidebar, DeskUserSettingsTrigger } from './sidebar.jsx'
 import { AccountSection, ColleaguesSection, DesktopSection, KnowledgeSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
+import { ImageGenSection, makeImageChip } from './image-gen.jsx'
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
 import { makeFileChip } from './composer.jsx'
@@ -178,6 +179,7 @@ export function apply(ctx) {
     { id: 'desk-quick', order: 30, label: '快速推理', component: QuickInferenceSection },
     { id: 'desk-subscription', order: 35, label: '订阅', component: SubscriptionSection },
     { id: 'desk-knowledge', order: 40, label: '技能与知识', component: KnowledgeSection },
+    { id: 'desk-image', order: 42, label: '生图', component: ImageGenSection },
     { id: 'desk-desktop', order: 45, label: '桌面', component: DesktopSection },
   ]
   ctx.effect(
@@ -196,9 +198,13 @@ export function apply(ctx) {
 
   // ---- 输入框工具行：「文件」芯片（本机文件 → 会话工作目录 _attachments/ → @ 引用）----
   const FileChip = makeFileChip(ctx)
+  const ImageChip = makeImageChip(ctx)
   ctx.effect(
-    () => ctx.slots.inject('conversation.input.left', () => ctx.slots.register({ name: 'conversation.input.left', id: 'desk-files', order: 10, label: '文件' }, FileChip)),
-    'desk-ui: composer file chip',
+    () => ctx.slots.inject('conversation.input.left', () => [
+      ctx.slots.register({ name: 'conversation.input.left', id: 'desk-files', order: 10, label: '文件' }, FileChip),
+      ctx.slots.register({ name: 'conversation.input.left', id: 'desk-image', order: 11, label: '生图' }, ImageChip),
+    ]),
+    'desk-ui: composer file and image chips',
   )
 
   // ---- 登录态 / 任务轮询 ----

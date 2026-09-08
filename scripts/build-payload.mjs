@@ -123,6 +123,7 @@ log(`kernel.tar ${(fs.statSync(tarFile).size / 1024 / 1024).toFixed(1)} MB`)
   const b = spawnSync(process.execPath, [path.join(root, 'scripts', 'build-client.mjs')], { stdio: 'inherit' })
   if (b.status !== 0) die('build-client 失败')
   fs.cpSync(path.join(root, 'plugins', 'desk-host'), path.join(out, 'plugins', 'desk-host'), { recursive: true })
+  fs.cpSync(path.join(root, 'plugins', 'desk-image'), path.join(out, 'plugins', 'desk-image'), { recursive: true })
   const uiSrc = path.join(root, 'plugins', 'desk-ui')
   fs.cpSync(uiSrc, path.join(out, 'plugins', 'desk-ui'), { recursive: true, filter: (s) => path.relative(uiSrc, s).split(path.sep)[0] !== 'src' })
 }
@@ -139,7 +140,7 @@ for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 's
 }
 
 // 9. payload.json
-const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'session-image.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'model-input.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
+const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'session-image.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), path.join(out, 'plugins', 'desk-image', 'lib', 'index.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'kernel-update.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'model-input.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
 const now = new Date()
 const installerVersion = makeInstallerVersion({ version, now })
 const payload = {

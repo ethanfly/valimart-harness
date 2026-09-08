@@ -28,6 +28,7 @@ export const here = path.dirname(fileURLToPath(import.meta.url))
 export const repoRoot = path.resolve(here, '..', '..')
 
 const noop = () => {}
+const COMPANY_PLUGINS = ['desk-host', 'desk-ui', 'desk-image']
 
 // ---------- 通用 ----------
 
@@ -108,8 +109,13 @@ export function killTree(child) {
 
 // ---------- profile ----------
 
+function companyPluginsPresent(pluginsDir) {
+  if (!pluginsDir) return COMPANY_PLUGINS
+  return COMPANY_PLUGINS.filter((name) => fs.existsSync(path.join(pluginsDir, name)))
+}
+
 /** profile 缺文件、缺插件链接、或补丁内容与仓库不一致 → 需要重装。 */
-export function profileNeedsSetup({ profileDir, patchFile, kernel }) {
+export function profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir }) {
   const profilePatch = path.join(profileDir, 'cordis.patch.yml')
   if (kernel) {
     try {
@@ -122,10 +128,10 @@ export function profileNeedsSetup({ profileDir, patchFile, kernel }) {
       }
     } catch { return true }
   }
+  const company = companyPluginsPresent(pluginsDir)
   return (
     !fs.existsSync(profilePatch) ||
-    !fs.existsSync(path.join(profileDir, 'node_modules', '@company-desk', 'desk-host')) ||
-    !fs.existsSync(path.join(profileDir, 'node_modules', '@company-desk', 'desk-ui')) ||
+    company.some((name) => !fs.existsSync(path.join(profileDir, 'node_modules', '@company-desk', name))) ||
     fs.readFileSync(profilePatch, 'utf8') !== fs.readFileSync(patchFile, 'utf8')
   )
 }
@@ -232,6 +238,7 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
     dependencies: {
       '@company-desk/desk-host': `file:${path.join(pluginsDir, 'desk-host').replace(/\\/g, '/')}`,
       '@company-desk/desk-ui': `file:${path.join(pluginsDir, 'desk-ui').replace(/\\/g, '/')}`,
+      '@company-desk/desk-image': `file:${path.join(pluginsDir, 'desk-image').replace(/\\/g, '/')}`,
     },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...profilePluginBundles(kernel)] } },
   }
@@ -239,8 +246,13 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
   fs.writeFileSync(path.join(profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
   fs.copyFileSync(patchFile, path.join(profileDir, 'cordis.patch.yml'))
   log(`profile: ${profileDir}`)
-  for (const name of ['desk-host', 'desk-ui']) {
-    const r = linkJunction(path.join(profileDir, 'node_modules', '@company-desk', name), path.join(pluginsDir, name))
+  for (const name of COMPANY_PLUGINS) {
+    const src = path.join(pluginsDir, name)
+    if (!fs.existsSync(src)) {
+      log(`@company-desk/${name} skipped`)
+      continue
+    }
+    const r = linkJunction(path.join(profileDir, 'node_modules', '@company-desk', name), src)
     log(`@company-desk/${name} ${r}`)
   }
 
@@ -484,7 +496,7 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
   const profileName = 'desk-app'
   const profileDir = path.join(dshHome, 'profiles', profileName)
   const patchFile = path.join(appDir, 'profile', 'cordis.patch.yml')
-  if (fresh || update.applied || profileNeedsSetup({ profileDir, patchFile, kernel }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai'))) {
+  if (fresh || update.applied || profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir: path.join(appDir, 'plugins') }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai'))) {
     log({ step: 'profile', status: 'start', detail: '安装工作台配置（desk-app）' })
     ensureProfile({ profileName, dshHome, root: appDir, pluginsDir: path.join(appDir, 'plugins'), patchFile, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
     log({ step: 'profile', status: 'ok' })

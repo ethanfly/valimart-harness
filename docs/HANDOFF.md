@@ -2,6 +2,12 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 现在在哪（2026-09-08 生图插件）
+
+- **DSH 没有现成的、可配 GPT / Qwen / Grok 且走公司网关的生图插件。** awesome-dsh-plugin 的 Vision & Multimodal 是选图 / 预览 / 附件（如 `dsh-image-picker`），官方内核也没有 `image_generate` 工具。公司此前只有团队技能 `grok-imagine`（脚本调网关 `/v1/images/*`）。
+- **已加公司一等插件 `@company-desk/desk-image`**：`plugins/desk-image`，写入 `profile/cordis.patch.yml` 与 `ensureProfile` 链接。工具 `image_generate` / `image_edit` 只走公司网关（密钥不落本机）；短名 `gpt` / `qwen` / `grok` 对到目录里的真实 id。设置 → 生图 可改默认模型；输入框「生图」芯片直接出图写工作目录。
+- 管理员仍需在网关通道里接入对应上游（GPT Image / 通义万相 / Grok Imagine），目录里没有的 id 可在设置里填「额外模型 id」。
+
 ## 现在在哪（2026-09-08 追加）
 
 - **Google One 个人订阅接入不可用，旧方案需迁移（2026-09-08 实测更正）**：之前新增的 `gemini-code-assist` 是旧 Gemini CLI 接入；Google 官方已于 2026-06-18 停用个人 Google AI Pro / Ultra 在此客户端的权限。用户亲测返回 `This client is no longer supported... migrate to Antigravity`。之前 mock 测试及安装包只证明本地协议代码可运行，不能证明个人订阅可用；项目 ID / 轮询修复包不能解决停用。README、provider 提示和上游错误分类已更正。当前尚未实现 Antigravity 集成，不要继续让个人用户登录旧 Gemini CLI、自建项目或更换旧 OAuth client ID。Standard / Enterprise 不受官方本次停用影响，但项目未实测企业账号。依据：https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals 。

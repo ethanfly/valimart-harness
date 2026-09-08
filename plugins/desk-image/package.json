@@ -1,0 +1,11 @@
+{
+  "name": "@company-desk/desk-image",
+  "version": "0.1.0",
+  "private": true,
+  "description": "企业交付工作台 · 生图插件：经公司网关调用 GPT / Qwen / Grok 等常用生图模型",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  }
+}

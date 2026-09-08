@@ -58,6 +58,11 @@ export const api = {
   attachLocal: (taskId, paths, sessionId, source) => call('POST', `/tasks/${encodeURIComponent(taskId)}/attach-local`, { paths, sessionId, source }),
   openPath: (path) => call('POST', '/open', { path }),
   plugins: () => call('GET', '/plugins'),
+  image: {
+    config: () => call('GET', '/image/config'),
+    saveConfig: (body) => call('POST', '/image/config', body),
+    generate: (body) => call('POST', '/image/generate', body, { timeoutMs: 180_000 }),
+  },
   // 网关业务接口透传：/desk/api/gw/<path> → 网关 /api/<path>
   gw: {
     get: (p) => call('GET', `/gw${p}`),

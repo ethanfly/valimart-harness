@@ -31,6 +31,7 @@ company-desk/
 │  └─ test/                # 网关端到端 + sqlite / Anthropic 转译（node --test）
 ├─ plugins/
 │  ├─ desk-host/           # dsh 宿主插件：网关登录态、模型路由、公司盘镜像、任务工具、/desk/api
+│  ├─ desk-image/          # 生图插件：经公司网关 /v1/images/* 调用 GPT / Qwen / Grok 等模型
 │  └─ desk-ui/             # dsh 浏览器端插件：valimart harness 外壳、侧栏、任务页、设置页、登录遮罩
 ├─ profile/cordis.patch.yml# dsh "desk" profile 补丁层（关官方外壳、插公司插件、默认全访问）
 ├─ desktop/                # Electron 壳（安装版客户端，§2.5）：main.js、splash.html、electron-builder.yml、build/icon.*；独立 npm 子项目
@@ -107,6 +108,8 @@ node scripts/install-kernel.mjs --force   # 重新 npm 安装再打补丁
 |---|---|---|
 | `dsh-better-sidebar` | 0.18.0 | 右侧工作台：文件树 / CodeMirror 编辑器 / 图片·Markdown·HTML·PDF 预览 / 内嵌浏览器 / 真实终端 / Git 视角（真实 diff、暂存·提交·还原）/ **本轮文件视角**（agent 的 write/edit/read 按文件分组，点开看行级 diff） |
 | `@anweat/dsh-browser` | 0.1.11 | 浏览器自动化：21 个 `browser_*` 工具（navigate / snapshot / click / fill / screenshot …）。`profile/cordis.patch.yml` 配 `channel: msedge`（用系统 Edge，不下载 Chromium）+ `opencliEnabled: false` |
+
+公司一等插件 `@company-desk/desk-image` 不走 npm：随 `plugins/desk-image` 安装进 desk profile。官方 / 社区 DSH 没有可配 GPT / Qwen / Grok、且走公司网关的生图插件（awesome 清单 Vision 类是选图、预览、附件）。本插件注册 `image_generate` / `image_edit`，设置 → 生图 可选默认模型短名 `gpt` / `qwen` / `grok` 或目录里的真实 id。
 
 安装链路：`install-kernel.mjs` 把插件装到独立 staging（`--omit=peer`，避免 `npm install` 把 `-g` 装进去的内核当 extraneous 删掉），按 `prune` 白名单拷进内核前缀的 `node_modules`（裁掉只服务预打包 client bundle 的 `react-icons`/`mermaid`/`@codemirror` 等，约省 300MB）；`ensureProfile` 把插件名写进 profile 的 `dsh.profile.bundles`，并在启动时把插件和内核的 `@deepseek-ai/*` peer 链接到 `$DSH_HOME/profiles/node_modules` 与内核前缀顶层 scope（DSH 运行时 `import()` 只沿 profile 目录向上找）。`build-payload.mjs` 打包前用 `stripKernelPeerLinks` 剥掉这些运行时链接，否则 `cpSync`/`tar` 会跟随 junction 把 kernel.tar 撑大一倍。
 

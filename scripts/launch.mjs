@@ -69,7 +69,7 @@ const dshBin = kernel.bin
 // ---------- 1. profile ----------
 const profileDir = path.join(dshHome, 'profiles', 'desk')
 const repoPatch = path.join(root, 'profile', 'cordis.patch.yml')
-if (profileNeedsSetup({ profileDir, patchFile: repoPatch })) {
+if (profileNeedsSetup({ profileDir, patchFile: repoPatch, kernel, pluginsDir: path.join(root, 'plugins') })) {
   log('安装/刷新 desk profile …')
   try {
     ensureProfile({ profileName: 'desk', dshHome, root, pluginsDir: path.join(root, 'plugins'), patchFile: repoPatch, kernel, log: (m) => log(`[profile] ${m}`) })

@@ -1,7 +1,7 @@
 # THE DIVA · 企业交付工作台 —— dsh "desk" profile 的用户补丁层
 # 在 @deepseek-ai/dsh-base + @deepseek-ai/dsh-web-app 两个 bundle 之上：
 #   1) 关掉官方外壳（布局/侧栏/品牌）与员工不该碰的模型密钥页；插件列表保持与 DeepSeek Harness 兼容；
-#   2) 插入公司插件：desk-host（网关登录、模型路由、公司盘、任务工具）与 desk-ui（THE DIVA 外壳）；
+#   2) 插入公司插件：desk-host（网关登录、模型路由、公司盘、任务工具）、desk-ui（THE DIVA 外壳）、desk-image（经网关生图）；
 #   3) 默认权限预设改为“完全访问”（公司电脑上的交付进程不逐条审批）。
 # 安装脚本 scripts/setup-profile.mjs 会把本文件复制到 $DSH_HOME/profiles/desk/cordis.patch.yml。
 
@@ -79,3 +79,12 @@
         providerName: 'valimart harness 公司网关'
     - id: desk-ui
       name: '@company-desk/desk-ui'
+    - id: desk-image
+      name: '@company-desk/desk-image'
+      config:
+        defaultModel: grok
+        aspectRatio: '1:1'
+        aliases:
+          gpt: gpt-image-1
+          qwen: qwen-image
+          grok: grok-imagine-image-2.0
