@@ -27,7 +27,7 @@ function writeBareKernel(prefix, version) {
 /** 与 bootstrap.test pinSkillsRoot 假内核相同：每个补丁文件只写 mark，yml 放 v2 骨架。 */
 function writeMarkedKernel(prefix, version) {
   writeBareKernel(prefix, version)
-  for (const name of ['dsh-better-sidebar', '@anweat/dsh-browser']) {
+  for (const name of ['dsh-better-sidebar', '@anweat/dsh-browser', '@anysearch/anysearch-dsh']) {
     const plugin = path.join(prefix, 'node_modules', name)
     fs.mkdirSync(path.join(plugin, 'lib'), { recursive: true })
     fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({ name }))
@@ -329,7 +329,7 @@ test('preparePackaged：fresh 解压后 pending 覆盖 bundled，locateKernel �
   fs.mkdirSync(payloadDir, { recursive: true })
   packPrefixTar(bundled, path.join(payloadDir, 'kernel.tar'))
   fs.writeFileSync(path.join(payloadDir, 'payload.json'), JSON.stringify({ buildId: 'test-build', kernel: { version: '1.0.0' } }))
-  for (const d of ['plugins/desk-host', 'plugins/desk-ui', 'profile', 'scripts']) fs.mkdirSync(path.join(payloadDir, d), { recursive: true })
+  for (const d of ['plugins/desk-host', 'plugins/desk-ui', 'plugins/desk-image', 'profile', 'scripts']) fs.mkdirSync(path.join(payloadDir, d), { recursive: true })
   fs.writeFileSync(path.join(payloadDir, 'profile', 'cordis.patch.yml'), "gatewayUrl: 'http://x:1'\n")
   const src = path.join(dir, 'pending-src')
   writeMarkedKernel(src, '9.0.0')

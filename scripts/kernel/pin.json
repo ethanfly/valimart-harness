@@ -1,7 +1,7 @@
 {
-  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。",
+  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-08 从 0.1.2-rc.1 升到 0.1.3-alpha.2：16 处补丁锚点全部干净命中（prepare 已验证）；0.1.5-alpha.1 虽是 alpha 通道最新，但上游发布不完整（dsh-fs-local@^0.1.5-alpha.1 等子包没上 npm，ETARGET），装不了，勿试。",
   "package": "@deepseek-ai/dsh",
-  "version": "0.1.2-rc.1",
+  "version": "0.1.3-alpha.2",
   "profilePlugins": [
     {
       "name": "dsh-better-sidebar",
@@ -14,6 +14,12 @@
       "version": "0.1.11",
       "$comment": "浏览器自动化：21 个 browser_* 工具。公司 profile 配 channel: msedge（用系统 Edge，不下载 Chromium）+ opencliEnabled: false，故 prune patchright 与 OpenCLI。",
       "prune": ["patchright", "patchright-core", "@jackwener"]
+    },
+    {
+      "name": "@anysearch/anysearch-dsh",
+      "version": "0.1.4",
+      "$comment": "AnySearch 官方 DSH 插件（npm 带 provenance）。自带 bundle 层把 ctx.web 的 searchProvider/fetchProvider 从 deepseek-official/http 切成 anysearch，接管原生 web_search/web_fetch，并加 anysearch_search / anysearch_batch_search / anysearch_capabilities 三个垂直搜索工具。默认匿名额度；API Key 放 $DSH_HOME/.credentials.yaml 的 ANYSEARCH_API_KEY。运行时依赖只有 @deepseek-ai/schemastery（由内核 peer junction 解析），无需 prune。",
+      "prune": []
     }
   ]
 }

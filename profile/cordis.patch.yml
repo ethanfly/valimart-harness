@@ -58,6 +58,18 @@
     browserRuntime: playwright
     opencliEnabled: false
 
+# 第三方插件：@anysearch/anysearch-dsh（随内核前缀离线分发，官方接 DSH 的方式）。
+# 它自带的 bundle 层已把 ctx.web 的 searchProvider/fetchProvider 固定为 anysearch（接管原生
+# web_search/web_fetch）。这里按 AnySearch 官方文档在用户层显式覆盖 web-search-anysearch 条目：
+# id 保持不变、完整替换 config，不要另起 id 加第二个 Provider。
+# 无 Key 走匿名额度；Key 写 $DSH_HOME/.credentials.yaml 的 ANYSEARCH_API_KEY（不落仓库），
+# 插件每次请求动态解析，换 Key 不用重启。
+- id: web-search-anysearch
+  config:
+    apiKeyEnv: ANYSEARCH_API_KEY
+    baseURL: https://api.anysearch.com
+    maxRenderedContentChars: 12000
+
 - insert:
     - id: desk-host
       name: '@company-desk/desk-host'
