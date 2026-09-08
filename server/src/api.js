@@ -40,7 +40,7 @@ function throwCatalog(err) {
 }
 
 export function registerApi(router, ctx) {
-  const { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt, oauth } = ctx
+  const { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt, oauth, searchSettings } = ctx
   const kernels =
     ctx.kernels ??
     openKernelCatalog(cfg.dataDir, {
@@ -222,14 +222,30 @@ export function registerApi(router, ctx) {
   })
 
   // ---------- 搜索供应商凭据 ----------
-  // AnySearch 的 key 由公司统一配置：server/config.local.json 的 search.anysearch.apiKey（或环境变量
-  // ANYSEARCH_API_KEY / apiKeyFile 指向的文件）。员工登录后 desk-host 取回并写进本机 DSH 凭据，
-  // @anysearch/anysearch-dsh 逐次解析——管理员换 key，员工下一次搜索即生效，不用改任何本机配置。
+  // AnySearch 的 key 由公司统一配置：管理页「搜索密钥」优先，其次 server/config.local.json 的
+  // search.anysearch.apiKey（或环境变量 ANYSEARCH_API_KEY / apiKeyFile）。员工登录后 desk-host 取回并写进
+  // 本机 DSH 凭据，@anysearch/anysearch-dsh 逐次解析——管理员换 key，员工下一次搜索即生效，不用改本机配置。
   // 只回给已登录会话；未配置时返回 null，客户端留在匿名额度。值不进日志、不进 /api/auth/me 等状态接口。
   router.get('/api/search/anysearch', async (req, res) => {
     auth(req)
-    const key = cfg.search?.anysearch?.resolvedKey
+    const key = searchSettings.anysearchKey()
     sendJson(res, 200, { anysearch: key ? { apiKey: key } : null })
+  })
+
+  // 管理页：只回「是否配置 / 来源」，绝不回 key 值（总监可看，只有管理员能改）。
+  router.get('/api/admin/search', async (req, res) => {
+    const { user } = auth(req)
+    if (user.role === 'employee') throw new HttpError(403, '搜索密钥设置仅总监/管理员可见', 'forbidden')
+    sendJson(res, 200, searchSettings.view())
+  })
+  router.put('/api/admin/search/anysearch', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const body = await readJson(req)
+    const raw = body.apiKey === null || body.apiKey === undefined ? '' : String(body.apiKey)
+    const value = raw.trim()
+    if (value.length > 200 || /\s/.test(value)) throw new HttpError(400, 'key 里不能有空白字符，且不超过 200 字', 'bad_key')
+    sendJson(res, 200, searchSettings.setAnysearchKey(value))
   })
 
   // ---------- 模型目录 ----------

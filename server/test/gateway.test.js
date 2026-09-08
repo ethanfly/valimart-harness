@@ -439,7 +439,8 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.ok(html.includes('class="word"'), '管理页 logo 用完整字标蒙版（图里已含花标）')
   assert.ok(!html.includes('class="mark"'), '字标图已含花标，不要再并一枚 mark')
   assert.ok(!html.includes('<small>harness</small>'), '管理页不应把 harness 当 logo 文字')
-  assert.match(html, /let status, channels, collections, kernel, client, plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
+  assert.match(html, /let status, channels, collections, kernel, client,[^\n]*plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
+  assert.match(html, /let status, channels, collections, kernel, client,[^\n]*search = \{/, 'search 也必须和外层变量一起声明')
   for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
     try {
       new Function(m[1])

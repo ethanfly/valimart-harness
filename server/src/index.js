@@ -16,6 +16,7 @@ import { Drive } from './drive.js'
 import { Tasks } from './tasks.js'
 import { LlmProxy } from './llm-proxy.js'
 import { Channels } from './channels.js'
+import { SearchSettings } from './search-settings.js'
 import { OAuthSubscribe } from './oauth-subscribe.js'
 import { Knowledge } from './knowledge.js'
 import { registerApi } from './api.js'
@@ -38,6 +39,7 @@ export function createGateway(overrides = {}) {
   const tasks = new Tasks(db, drive)
   tasksRef.current = tasks
   const channels = new Channels(cfg, cfg.dataDir) // 界面上接入的通道合并进 cfg.upstreams
+  const searchSettings = new SearchSettings(cfg, cfg.dataDir) // 管理页设置的搜索密钥（AnySearch），优先于配置文件
   const knowledge = new Knowledge({ drive, tasks, db }) // 第四层通道：检索「公司里有没有人做过」
   const catalog = () => modelCatalog(cfg)
   const oauth = new OAuthSubscribe({ cfg, channels })
@@ -71,6 +73,7 @@ export function createGateway(overrides = {}) {
     catalog,
     presence,
     channels,
+    searchSettings,
     knowledge,
     startedAt,
     fetchReleases,
@@ -131,6 +134,7 @@ export function createGateway(overrides = {}) {
     drive,
     proxy,
     channels,
+    searchSettings,
     oauth,
     knowledge,
     server,

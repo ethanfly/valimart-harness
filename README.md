@@ -151,7 +151,10 @@ Claude / Anthropic 官方端点走 Messages API（`x-api-key` + `/v1/messages`�
 
 客户端装的 `@anysearch/anysearch-dsh` 按凭据引用 `ANYSEARCH_API_KEY` 取 key。公司统一在网关上配一次，
 员工登录时 desk-host 经 `GET /api/search/anysearch` 取回并写进本机 DSH 凭据（插件逐次解析，换 key 下一次搜索即生效）；
-不配则走 AnySearch 匿名额度。三种配置方式（优先级从高到低）：
+不配则走 AnySearch 匿名额度。
+
+**首选：管理页 → 模型 → 搜索密钥**，粘贴 `as_sk_…` 保存即可（只存服务端库，页面不回显 key；清除则回匿名额度）。
+也支持配置文件 / 环境变量（优先级：管理页设置 > 以下）：
 
 ```jsonc
 // server/config.local.json

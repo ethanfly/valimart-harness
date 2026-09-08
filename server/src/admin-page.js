@@ -367,9 +367,9 @@ export function renderAdminHtml({ companyName }) {
   }
 
   async function renderMain() {
-    let status, channels, collections, kernel, client, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
+    let status, channels, collections, kernel, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
     try {
-      [status, channels, collections, kernel, client] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/kernel'), api('GET', '/api/admin/client')]);
+      [status, channels, collections, kernel, client, search] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/kernel'), api('GET', '/api/admin/client'), api('GET', '/api/admin/search')]);
       try { plugins = await api('GET', '/api/plugins'); } catch (e) { /* 旧网关 */ }
       try { personnel = await api('GET', '/api/personnel'); } catch (e) { /* 总监/管理员才有 */ }
       if (!me) me = (await api('GET', '/api/auth/me')).user;
@@ -510,6 +510,19 @@ export function renderAdminHtml({ companyName }) {
         </table>
       </section>
 
+      <section id="searchkey">
+        <h2>搜索密钥</h2>
+        <p class="desc">AnySearch 的 key 只存服务端，员工登录后自动下发到本机 DSH 凭据（插件逐次解析，换 key 下一次搜索即生效）。不配则员工走 AnySearch 匿名额度。\${isAdmin ? '' : '（总监只读）'}</p>
+        <div class="kv">
+          <div><span>状态</span>\${search.anysearch.configured ? '<span class="ok">已配置</span>' : '<span class="muted">未配置（匿名额度）</span>'}\${search.anysearch.sourceLabel ? ' · 来源：' + esc(search.anysearch.sourceLabel) : ''}</div>
+        </div>
+        \${isAdmin ? \`<form id="searchKeyForm" class="row" style="margin-top:12px">
+          <input name="apiKey" type="password" placeholder="as_sk_…（留空保存 = 清除）" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px" />
+          <button class="primary" type="submit">保存</button>
+          <button type="button" id="searchKeyClear">清除</button>
+        </form>\` : ''}
+      </section>
+
       <section>
         <h2>模型目录</h2>
         <p class="desc">当前对全员分发的模型（客户端模型菜单按厂商分组显示）。</p>
@@ -611,6 +624,21 @@ export function renderAdminHtml({ companyName }) {
     applyPage();
 
     const kBusy = (on) => { document.querySelectorAll('#kernel button').forEach((b) => { b.disabled = on; }); };
+    const searchKeyForm = $('#searchKeyForm');
+    if (searchKeyForm) searchKeyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const value = String(new FormData(searchKeyForm).get('apiKey') || '');
+      try {
+        const r = await api('PUT', '/api/admin/search/anysearch', { apiKey: value });
+        toast(r.anysearch.configured ? '已保存搜索密钥，员工下次打开客户端生效' : '已清除搜索密钥（回到匿名额度）');
+        renderMain();
+      } catch (err) { toast(err.message, true); }
+    });
+    const searchKeyClear = $('#searchKeyClear');
+    if (searchKeyClear) searchKeyClear.addEventListener('click', async () => {
+      if (!confirm('清除搜索密钥？员工将回到 AnySearch 匿名额度。')) return;
+      try { await api('PUT', '/api/admin/search/anysearch', { apiKey: '' }); toast('已清除'); renderMain(); } catch (err) { toast(err.message, true); }
+    });
     document.querySelectorAll('[data-kpub]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('发布 ' + b.dataset.kpub + ' 为当前内核？员工下次启动后切换。')) return;
       try { await api('POST', '/api/admin/kernel/publish', { version: b.dataset.kpub }); toast('已发布 ' + b.dataset.kpub); renderMain(); } catch (err) { toast(err.message, true); }
