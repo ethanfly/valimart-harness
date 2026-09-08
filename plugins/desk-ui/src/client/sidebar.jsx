@@ -13,7 +13,7 @@ import { BrandMark, Logotype, PRODUCT_NAME } from './brand.jsx'
 import { IconPanel, IconPlus, IconSearch, IconChat, IconTask, IconRefresh } from './icons.jsx'
 import { NewTaskDialog } from './tasks.jsx'
 import { STATUS_LABEL } from './tasks.jsx'
-import { clientVersionDetail, clientVersionLabel } from './version.js'
+import { clientVersionDetail, clientVersionLabel, kernelVersionLabel } from './version.js'
 
 function WorkspaceGitSync({ rootRef }) {
   const loggedIn = useStoreValue(deskStore, (s) => s.desk?.loggedIn)
@@ -132,8 +132,8 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
       <div className="dk-side-footer">
         {renderSlot('sidebar.footer.action', { wide: true })}
         <div className="dk-account-settings">{renderSlot('sidebar.settings', { wide: true })}</div>
-        <div className="dk-client-ver" title={clientVersionDetail(desk?.client)}>
-          {clientVersionLabel(desk?.client)}
+        <div className="dk-client-ver" title={`${clientVersionDetail(desk?.client)} · 内核 ${kernelVersionLabel(desk)}`}>
+          {clientVersionLabel(desk?.client)} · 内核 {kernelVersionLabel(desk)}
         </div>
       </div>
     </div>

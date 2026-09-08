@@ -63,7 +63,9 @@ export function apply(ctx, config) {
   const mirror = new DriveMirror({ root: state.data.driveDir, gateway, state, log })
   const produced = new ProducedIndex(stateDir)
   const credential = credentialRef(config.credentialName)
-  const publicDesk = () => ({ ...state.publicView(), client: clientPublicInfo(resolvePayloadDir()) })
+  const publicDesk = () => ({ ...state.publicView(), client: clientPublicInfo(resolvePayloadDir()), kernel: { version: readLocalKernelVersion() } })
+  // 给 desk-image 等一等插件读登录态 / 网关令牌（密钥仍只在网关）
+  ctx.provide('deskHost', { state, gateway })
 
   // ---------- 会话事件：窗口产物索引 ----------
   ctx.on('session/event', (session, event) => {
@@ -864,6 +866,7 @@ export function apply(ctx, config) {
               for (const extra of [
                 { entryId: 'desk-host', moduleName: '@company-desk/desk-host', enabled: true, fiberPhase: 'active' },
                 { entryId: 'desk-ui', moduleName: '@company-desk/desk-ui', enabled: true, fiberPhase: 'active' },
+                { entryId: 'desk-image', moduleName: '@company-desk/desk-image', enabled: true, fiberPhase: 'active' },
               ]) {
                 if (!have.has(extra.entryId)) entries.push(extra)
               }

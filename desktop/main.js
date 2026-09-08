@@ -561,6 +561,111 @@ async function maybeApplyPendingClient() {
   }
 }
 
+// ---------- 打开前更新检查（安装版）：登录会话在 desk-state.json，用它把「检查+下载」提前到本次启动 ----------
+
+/** 读 desk-state.json 里的网关地址与登录会话令牌；缺任一返回 null（首次装 / 未登录时跳过检查，登录后 desk-host 还有第二道网）。 */
+function readDeskState() {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(dshHome, 'desk', 'desk-state.json'), 'utf8'))
+    if (!j || typeof j !== 'object') return null
+    const gatewayUrl = typeof j.gatewayUrl === 'string' ? j.gatewayUrl.replace(/\/+$/, '') : ''
+    const sessionToken = typeof j.sessionToken === 'string' ? j.sessionToken : ''
+    if (!/^https?:\/\//i.test(gatewayUrl) || !sessionToken) return null
+    return { gatewayUrl, sessionToken }
+  } catch {
+    return null
+  }
+}
+
+/** 主进程用的最小网关客户端：与 desk-host 的 GatewayClient 同 wire 格式（Bearer 会话令牌），只服务更新检查。
+ *  下载超时一律封顶 180s：打开前检查不该把启动页卡死在慢链路上，超了就留给登录后 desk-host 的兜底下载。 */
+function makeGateway({ gatewayUrl, sessionToken }) {
+  async function request(method, apiPath, { timeoutMs = 30_000 } = {}) {
+    const cap = Math.min(timeoutMs, 180_000)
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), cap)
+    try {
+      const res = await fetch(`${gatewayUrl}${apiPath}`, {
+        method,
+        headers: { authorization: `Bearer ${sessionToken}` },
+        signal: ac.signal,
+      })
+      const ct = res.headers.get('content-type') ?? ''
+      if (ct.includes('application/json')) {
+        const json = await res.json()
+        if (!res.ok) throw new Error(json?.error?.message ?? `网关返回 ${res.status}`)
+        return json
+      }
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (!res.ok) throw new Error(`网关返回 ${res.status}`)
+      return buf
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return { get: (p, o) => request('GET', p, o), request }
+}
+
+/** desk-host 的更新模块在 payload/plugins/desk-host/lib（安装版优先；开发跑桌面时退回仓库源码）。 */
+async function loadDeskHostUpdateMod(rel) {
+  const packaged = path.join(payloadDir, 'plugins', 'desk-host', 'lib', rel)
+  const fallback = path.join(__dirname, '..', 'plugins', 'desk-host', 'lib', rel)
+  const file = fs.existsSync(packaged) ? packaged : fallback
+  return import(pathToFileURL(file).href)
+}
+
+/**
+ * 打开前自动检查并下载更新：
+ *   1) 客户端整包：有新版就下载并立刻静默安装，安装器收尾后拉起新版（本次不再起内核）；
+ *   2) 内核 tar：客户端已是最新才检查内核，下载到 kernel-next 后由本次 runBootstrap 直接套用。
+ * 任何失败都只记日志、不挡启动；未登录（无会话令牌）跳过，登录后 desk-host 的 schedule*Update 兜底。
+ * @returns {Promise<boolean>} true = 客户端更新已应用、进程即将退出，不要再起内核。
+ */
+async function preOpenUpdateCheck() {
+  if (!app.isPackaged) return false
+  const desk = readDeskState()
+  if (!desk) {
+    log.write('update', '没有已登录会话，跳过打开前更新检查')
+    return false
+  }
+  const gateway = makeGateway(desk)
+  try {
+    setStatus('正在检查客户端更新…')
+    const clientMod = await loadDeskHostUpdateMod('client-update.js')
+    const helpers = await loadClientUpdateMod()
+    const local = helpers.readLocalPayload(payloadDir)
+    const r = await clientMod.fetchClientUpdate({
+      gateway,
+      pendingDir: path.join(appDir, 'client-next'),
+      localBuildId: local?.buildId,
+      localInstallerVersion: local?.installerVersion,
+      payloadDir,
+      log: (m) => log.write('update', `客户端 ${m}`),
+    })
+    if (r.action === 'downloaded') {
+      log.write('update', `客户端已下载 ${r.detail}，立即套用`)
+      if (await maybeApplyPendingClient()) return true
+    }
+  } catch (err) {
+    log.write('update', `客户端更新检查失败（不影响启动）：${err && err.message ? err.message : err}`)
+  }
+  try {
+    setStatus('正在检查内核更新…')
+    const kernelMod = await loadDeskHostUpdateMod('kernel-update.js')
+    const r = await kernelMod.fetchKernelUpdate({
+      gateway,
+      pendingDir: path.join(appDir, 'kernel-next'),
+      localVersion: kernelMod.readLocalKernelVersion(appDir),
+      log: (m) => log.write('update', `内核 ${m}`),
+    })
+    if (r.action === 'downloaded') setStatus(`已下载内核 ${r.detail}，本次启动即套用…`)
+    else log.write('update', `内核检查：${r.action}（${r.detail}）`)
+  } catch (err) {
+    log.write('update', `内核更新检查失败（不影响启动）：${err && err.message ? err.message : err}`)
+  }
+  return false
+}
+
 async function main() {
   app.setAppUserModelId(APP_ID)
   log.write('app', `valimart harness ${app.getVersion()} packaged=${app.isPackaged} payload=${payloadDir} appDir=${appDir} dshHome=${dshHome}`)
@@ -573,6 +678,9 @@ async function main() {
   if (!fs.existsSync(nodeExe)) throw new Error(`缺少运行时 ${nodeExe}`)
   if (!fs.existsSync(path.join(payloadDir, 'payload.json'))) throw new Error(`缺少 ${path.join(payloadDir, 'payload.json')}（开发时先 node scripts/build-payload.mjs）`)
   splash = createSplash()
+  setStatus('正在检查更新…')
+  const relaunching = await preOpenUpdateCheck()
+  if (relaunching || quitting) return
   setStatus('正在准备工作台…')
   const ready = await runBootstrap()
   if (quitting) return

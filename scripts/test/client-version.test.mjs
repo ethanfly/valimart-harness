@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { makeBuildId, makeInstallerVersion } from '../lib/payload.mjs'
 import { clientPublicInfo, readLocalBuildId, readLocalPayload } from '../lib/client-update.mjs'
-import { clientVersionDetail, clientVersionLabel } from '../../plugins/desk-ui/src/client/version.js'
+import { clientVersionDetail, clientVersionLabel, kernelVersionLabel } from '../../plugins/desk-ui/src/client/version.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -68,14 +68,25 @@ test('构建脚本写入 installerVersion，安装包文件名跟它走', () => 
   assert.match(installer, /VMBUILD/)
 })
 
-test('desk-host /state 带上 client；设置 / 登录 / 侧栏展示版本', () => {
+test('desk-host /state 带上 client 与实际内核版本；设置 / 登录 / 侧栏展示两个版本', () => {
   const host = fs.readFileSync(path.join(repo, 'plugins/desk-host/lib/index.js'), 'utf8')
   const settings = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/settings.jsx'), 'utf8')
   const login = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/login.jsx'), 'utf8')
   const sidebar = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/sidebar.jsx'), 'utf8')
+  const version = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/version.js'), 'utf8')
   assert.match(host, /clientPublicInfo/)
   assert.match(host, /client:/)
+  assert.match(host, /kernel:\s*\{\s*version:\s*readLocalKernelVersion\(\)\s*\}/)
   assert.match(settings, /客户端版本/)
+  assert.match(settings, /内核/)
   assert.match(login, /clientVersionLabel/)
   assert.match(sidebar, /clientVersionLabel/)
+  for (const f of [settings, login, sidebar]) assert.match(f, /kernelVersionLabel/)
+  assert.match(version, /export function kernelVersionLabel/)
+})
+
+test('kernelVersionLabel：/state 的运行内核优先，退回 payload 构建内核，再退回 dev', () => {
+  assert.equal(kernelVersionLabel(null), 'dev')
+  assert.equal(kernelVersionLabel({ client: { kernelVersion: '0.1.2-rc.1' } }), '0.1.2-rc.1')
+  assert.equal(kernelVersionLabel({ kernel: { version: '0.1.3-alpha.2' }, client: { kernelVersion: '0.1.2-rc.1' } }), '0.1.3-alpha.2')
 })

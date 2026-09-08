@@ -3,7 +3,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, refreshDeskState, fmtCny, fmtDateTime, fmtTime, loadPeople } from './api.js'
-import { clientVersionDetail, clientVersionLabel } from './version.js'
+import { clientVersionDetail, clientVersionLabel, kernelVersionLabel } from './version.js'
 import { deskStore, useStoreValue, toast } from './store.js'
 
 const ROLE = { admin: '管理员', director: '总监', employee: '员工' }
@@ -1386,6 +1386,7 @@ export function DesktopSection() {
       <div className="dk-card-title">本机版本</div>
       <div className="dk-kv">
         <div><div className="k">客户端</div><div className="v">{clientVersionLabel(desk?.client)}</div></div>
+        <div><div className="k">内核</div><div className="v">{kernelVersionLabel(desk)}</div></div>
         <div><div className="k">构建</div><div className="v dk-mono dk-small">{clientVersionDetail(desk?.client)}</div></div>
       </div>
     </div>
