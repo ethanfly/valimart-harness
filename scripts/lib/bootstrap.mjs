@@ -16,7 +16,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { PIN, locateKernel, stampPath } from '../kernel/locate.mjs'
+import { PIN, locateKernel, stampPath, missingProfilePlugins } from '../kernel/locate.mjs'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
 import { findTar } from './find-tar.mjs'
 import { pendingPaths, readPending, clearPending, hashFile, defaultPendingDir } from './kernel-update.mjs'
@@ -109,10 +109,22 @@ export function killTree(child) {
 // ---------- profile ----------
 
 /** profile 缺文件、缺插件链接、或补丁内容与仓库不一致 → 需要重装。 */
-export function profileNeedsSetup({ profileDir, patchFile }) {
+export function profileNeedsSetup({ profileDir, patchFile, kernel }) {
   const profilePatch = path.join(profileDir, 'cordis.patch.yml')
+  if (kernel) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'))
+      const bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...profilePluginBundles(kernel)]
+      if (JSON.stringify(manifest.dsh?.profile?.bundles) !== JSON.stringify(bundles)) return true
+      const modules = path.resolve(profileDir, '..', 'node_modules')
+      for (const name of bundles) {
+        if (!fs.existsSync(path.join(modules, name, 'package.json'))) return true
+      }
+    } catch { return true }
+  }
   return (
     !fs.existsSync(profilePatch) ||
+    !fs.existsSync(path.join(profileDir, 'node_modules', '@company-desk', 'desk-host')) ||
     !fs.existsSync(path.join(profileDir, 'node_modules', '@company-desk', 'desk-ui')) ||
     fs.readFileSync(profilePatch, 'utf8') !== fs.readFileSync(patchFile, 'utf8')
   )
@@ -132,7 +144,6 @@ export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
       return false
     }
   }
-  if (populated()) return flatDir
   const kernelRoot = kernel?.root
   const nested = kernelRoot ? path.join(kernelRoot, 'node_modules', '@deepseek-ai') : ''
   if (kernelRoot && fs.existsSync(nested)) {
@@ -140,11 +151,11 @@ export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
     for (const name of fs.readdirSync(nested)) {
       linkJunction(path.join(flatDir, name), path.join(nested, name))
     }
-    if (!fs.existsSync(path.join(flatDir, 'dsh'))) linkJunction(path.join(flatDir, 'dsh'), kernelRoot)
+    linkJunction(path.join(flatDir, 'dsh'), kernelRoot)
     log(`物化扁平回退目录 → ${flatDir}`)
     return flatDir
   }
-  if (fs.existsSync(flatDir)) return flatDir
+  if (populated() || fs.existsSync(flatDir)) return flatDir
   throw new Error(`缺少 dsh 扁平回退目录 ${flatDir}，且内核没有 node_modules/@deepseek-ai 可物化。`)
 }
 
@@ -272,6 +283,8 @@ export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = 
   }
   const staging = targetPrefix + '-staging'
   const prev = targetPrefix + '-prev'
+  let movedOld = false
+  let activated = false
   try {
     fs.rmSync(staging, { recursive: true, force: true })
     fs.mkdirSync(staging, { recursive: true })
@@ -281,17 +294,25 @@ export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = 
     if (!kernel?.bin || !fs.existsSync(kernel.bin)) throw new Error('no-bin')
     pinSkillsRoot({ kernelPrefix: staging, kernel, skillsDir, log })
     if (missingPatches(kernel.root).length) throw new Error('patches')
+    if (kernel.version !== pending.version) throw new Error('version-mismatch')
+    const missing = missingProfilePlugins(kernel)
+    if (missing.length) throw new Error(`更新包缺少必需插件：${missing.join(', ')}`)
     fs.rmSync(prev, { recursive: true, force: true })
-    if (fs.existsSync(targetPrefix)) fs.renameSync(targetPrefix, prev)
+    if (fs.existsSync(targetPrefix)) {
+      fs.renameSync(targetPrefix, prev)
+      movedOld = true
+    }
     fs.renameSync(staging, targetPrefix)
+    activated = true
     clearPending(pendingDir)
     log(`内核已更新到 ${pending.version}`)
     return { applied: true, version: pending.version, detail: 'ok' }
   } catch (err) {
+    if (movedOld && !activated) fs.renameSync(prev, targetPrefix)
     fs.rmSync(staging, { recursive: true, force: true })
     clearPending(pendingDir)
     const old = locateKernel(targetPrefix)
-    log(`内核更新未生效，仍用 ${old?.version ?? '旧版本'}`)
+    log(`内核更新未生效，仍用 ${old?.version ?? '旧版本'}：${err.message}`)
     return { applied: false, detail: String(err.message) }
   }
 }
@@ -416,6 +437,8 @@ export function needsExtract({ stateFile, kernelPrefix, buildId }) {
   if (state.buildId !== buildId) return { fresh: true, reason: `版本更新（${state.buildId} → ${buildId}），重新解压内核` }
   const kernel = locateKernel(kernelPrefix)
   if (!kernel || !fs.existsSync(kernel.bin)) return { fresh: true, reason: '内核目录不完整，重新解压内核' }
+  const missing = missingProfilePlugins(kernel)
+  if (missing.length) return { fresh: true, reason: `内核缺少必需插件（${missing.join(', ')}），恢复随包内核` }
   return { fresh: false, reason: `内核已就位（${buildId}）` }
 }
 
@@ -450,16 +473,18 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
     log({ step: 'extract', status: 'ok', detail: `内核 ${payload.kernel.version}` })
   } else log({ step: 'extract', status: 'skip', detail: reason })
 
-  applyPendingKernel({ pendingDir: path.join(appDir, 'kernel-next'), targetPrefix: kernelPrefix, skillsDir, log })
+  const update = applyPendingKernel({ pendingDir: path.join(appDir, 'kernel-next'), targetPrefix: kernelPrefix, skillsDir, log })
 
   const kernel = locateKernel(kernelPrefix)
   if (!kernel) throw new Error(`解压后找不到内核：${kernelPrefix}`)
+  const missing = missingProfilePlugins(kernel)
+  if (missing.length) throw new Error(`内核缺少必需插件：${missing.join(', ')}`)
   pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log })
 
   const profileName = 'desk-app'
   const profileDir = path.join(dshHome, 'profiles', profileName)
   const patchFile = path.join(appDir, 'profile', 'cordis.patch.yml')
-  if (fresh || profileNeedsSetup({ profileDir, patchFile }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai'))) {
+  if (fresh || update.applied || profileNeedsSetup({ profileDir, patchFile, kernel }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai'))) {
     log({ step: 'profile', status: 'start', detail: '安装工作台配置（desk-app）' })
     ensureProfile({ profileName, dshHome, root: appDir, pluginsDir: path.join(appDir, 'plugins'), patchFile, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
     log({ step: 'profile', status: 'ok' })

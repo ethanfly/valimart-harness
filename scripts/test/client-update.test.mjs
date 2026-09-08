@@ -87,6 +87,33 @@ test('shouldFetchClientUpdate：无发布 / 同 buildId / 已 pending 不拉', (
   assert.equal(shouldFetchClientUpdate({ available: true, buildId: 'b', sha256: '22'.repeat(32) }, 'a', null).fetch, true)
 })
 
+test('本机修复版比网关旧发布新：不下载、不安装，并清除已下载的降级包', async (t) => {
+  const old = '0.1.0+0.1.2-rc.1.20260908-1012.7d44f77f'
+  const current = '0.1.0+0.1.2-rc.1.20260908-1038.a8a198b1'
+  const remote = { available: true, buildId: old, sha256: 'aa'.repeat(32), filename: 'valimart-harness-Setup-0.1.0-20260908.1012.exe' }
+  assert.deepEqual(shouldFetchClientUpdate(remote, current, remote), { fetch: false, reason: 'older-build' })
+  assert.deepEqual(shouldApplyClientUpdate(remote, { packaged: true, exeExists: true, localBuildId: current }), { apply: false, reason: 'older-build' })
+  assert.equal(shouldFetchClientUpdate({ ...remote, buildId: current }, old).fetch, true)
+  // Filename fallback handles catalog entries whose buildId was entered manually.
+  assert.equal(shouldFetchClientUpdate({ ...remote, buildId: 'legacy' }, 'local', null, { installerVersion: '0.1.0-20260908.1038' }).reason, 'older-build')
+  const dir = tmp(t)
+  const pendingDir = path.join(dir, 'pending')
+  writeClientPending(pendingDir, remote)
+  fs.writeFileSync(clientPendingPaths(pendingDir).exe, 'old-installer')
+  const gateway = mockGateway({ current: remote })
+  assert.equal((await fetchClientUpdate({ gateway, pendingDir, localBuildId: current })).detail, 'older-build')
+  assert.equal(readClientPending(pendingDir), null)
+  assert.equal(gateway.calls.length, 1)
+  writeClientPending(pendingDir, remote)
+  fs.writeFileSync(clientPendingPaths(pendingDir).exe, 'old-installer')
+  const payloadDir = path.join(dir, 'payload')
+  fs.mkdirSync(payloadDir)
+  fs.writeFileSync(path.join(payloadDir, 'payload.json'), JSON.stringify({ buildId: current }))
+  const applied = applyPendingClientUpdate({ pendingDir, payloadDir, packaged: true, hashFile: () => remote.sha256, spawn: () => assert.fail('must not launch older installer') })
+  assert.equal(applied.reason, 'older-build')
+  assert.equal(readClientPending(pendingDir), null)
+})
+
 test('shouldFetchClientUpdate：发布填错 buildId 但安装包文件名已是本机版本则不拉', () => {
   const current = {
     available: true,

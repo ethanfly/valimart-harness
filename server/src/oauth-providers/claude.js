@@ -15,5 +15,6 @@ export const claudeProvider = {
   redirectUri: 'https://console.anthropic.com/oauth/code/callback',
   scope: 'org:create_api_key user:profile user:inference user:sessions:claude_code',
   tokenBody: 'json',
+  authorizeParams: { code: 'true' },
   authStyle: 'anthropic-oauth',
 }

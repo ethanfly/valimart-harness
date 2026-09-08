@@ -23,6 +23,7 @@ import {
 } from './upstream-chatgpt.js'
 import { isUpstreamQuotaExhausted } from './upstream-quota.js'
 import { openaiCompatUrl } from './upstream-models.js'
+import { sendGeminiRequest, usesGeminiCodeAssist } from './upstream-gemini.js'
 
 export class LlmProxy {
   constructor({ db, cfg, ledger, catalog, oauth, channels }) {
@@ -420,7 +421,7 @@ export class LlmProxy {
     const accs = Array.isArray(live.accounts) && live.accounts.length
       ? live.accounts
       : live.resolvedKey
-        ? [{ id: 'primary', credential: live.resolvedKey, chatgptAccountId: live.chatgptAccountId, status: 'active' }]
+        ? [{ id: 'primary', credential: live.resolvedKey, chatgptAccountId: live.chatgptAccountId, googleProjectId: live.googleProjectId, status: 'active' }]
         : []
     const now = Date.now()
     const ready = []
@@ -439,6 +440,7 @@ export class LlmProxy {
       ...upstream,
       resolvedKey: acc.credential ?? upstream.resolvedKey,
       chatgptAccountId: acc.chatgptAccountId ?? upstream.chatgptAccountId,
+      googleProjectId: acc.googleProjectId,
       authStyle: acc.authStyle ?? upstream.authStyle,
     }
   }
@@ -492,7 +494,7 @@ export class LlmProxy {
 
   sendUpstream(upstream, body, model, { stream, signal, path: apiPath } = {}) {
     if (apiPath && apiPath !== '/chat/completions') {
-      if (usesChatgptCodex(upstream) || usesAnthropicMessages(upstream)) {
+      if (usesChatgptCodex(upstream) || usesAnthropicMessages(upstream) || usesGeminiCodeAssist(upstream)) {
         throw new HttpError(400, '该上游不支持媒体接口（仅 OpenAI 兼容通道，如 Grok / xAI）', 'media_unsupported')
       }
       const forward = mediaForwardBody(body, model, apiPath)
@@ -504,6 +506,7 @@ export class LlmProxy {
         signal,
       })
     }
+    if (usesGeminiCodeAssist(upstream)) return sendGeminiRequest(upstream, body, model, { stream, signal })
     if (usesChatgptCodex(upstream)) {
       const forward = toCodexResponsesBody({ ...body, stream: true }, model)
       return fetch(chatgptResponsesUrl(upstream.baseUrl), {

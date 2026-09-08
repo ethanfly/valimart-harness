@@ -115,11 +115,29 @@ export function sameInstalledClient(remote, local = {}) {
   return Boolean(ver && typeof remote.filename === 'string' && remote.filename.includes(ver))
 }
 
+/** Compare release version then UTC build minute; kernel version and digest
+ * identify a build but do not determine which desktop release is newer. */
+export function isOlderClient(remote, local = {}) {
+  const key = (info) => {
+    const build = /^(\d+)\.(\d+)\.(\d+)\+.*\.(\d{8})-(\d{4})\.[a-f\d]+$/i.exec(info.buildId ?? '')
+    const installer = /(?:^|Setup-)(\d+)\.(\d+)\.(\d+)-(\d{8})\.(\d{4})(?:\.exe)?$/i.exec(info.installerVersion || info.filename || '')
+    return (build || installer)?.slice(1).map(Number)
+  }
+  const a = key(remote ?? {})
+  const b = key(local)
+  if (!a || !b) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i]
+  }
+  return false
+}
+
 export function shouldFetchClientUpdate(current, localBuildId, pending, local = {}) {
   if (!current?.available || !current.buildId || !current.sha256) return { fetch: false, reason: 'unavailable' }
   if (sameInstalledClient(current, { buildId: localBuildId, installerVersion: local.installerVersion })) {
     return { fetch: false, reason: 'same-build' }
   }
+  if (isOlderClient(current, { buildId: localBuildId, installerVersion: local.installerVersion })) return { fetch: false, reason: 'older-build' }
   if (pending?.sha256 === current.sha256 && pending.buildId === current.buildId) return { fetch: false, reason: 'already-pending' }
   return { fetch: true, reason: 'newer' }
 }
@@ -134,6 +152,7 @@ export function shouldApplyClientUpdate(pending, { packaged, exeExists, sha, loc
   if (sameInstalledClient(pending, { buildId: localBuildId, installerVersion: localInstallerVersion })) {
     return { apply: false, reason: 'already-current' }
   }
+  if (isOlderClient(pending, { buildId: localBuildId, installerVersion: localInstallerVersion })) return { apply: false, reason: 'older-build' }
   if (!exeExists) return { apply: false, reason: 'no-exe' }
   if (sha && sha !== pending.sha256) return { apply: false, reason: 'hash-mismatch' }
   return { apply: true, args: silentInstallArgs() }
@@ -164,7 +183,7 @@ export function applyPendingClientUpdate({ pendingDir, payloadDir, packaged, has
     localInstallerVersion: local?.installerVersion,
   })
   if (!decision.apply) {
-    if (pendingDir && (decision.reason === 'already-current' || decision.reason === 'hash-mismatch')) {
+    if (pendingDir && ['already-current', 'hash-mismatch', 'older-build'].includes(decision.reason)) {
       clearClientPending(pendingDir)
     }
     return { applied: false, reason: decision.reason }

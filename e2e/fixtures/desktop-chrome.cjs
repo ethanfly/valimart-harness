@@ -7,6 +7,9 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 900, height: 700, frame: false, titleBarStyle: 'hidden', webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true, preload: path.resolve(__dirname, '../../desktop/preload.js') } })
   win.setMenu(null)
   ipcMain.handle('desk:window-state', () => ({ maximized: win.isMaximized(), focused: win.isFocused(), inset: 0 }))
+  for (const event of ['maximize', 'unmaximize', 'focus', 'blur']) {
+    win.on(event, () => win.webContents.send('desk:window-state', { maximized: win.isMaximized(), focused: win.isFocused(), inset: 0 }))
+  }
   ipcMain.on('desk:window-maximize', () => win.isMaximized() ? win.unmaximize() : win.maximize())
   if (process.platform === 'win32') attachWindowDrag(win, url, { ipcMain })
   global.testWindow = win

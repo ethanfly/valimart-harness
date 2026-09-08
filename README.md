@@ -116,6 +116,22 @@ node scripts/install-kernel.mjs --force   # 重新 npm 安装再打补丁
 
 ### 上游模型密钥（只放服务端）
 
+#### Google One / Gemini：个人订阅旧接入已停用
+
+**2026-09-08 实测更正：本项目当前的 `gemini-code-assist` 适配不能用于个人 Google One / Google AI Pro / Ultra 订阅。** Google 官方已于 2026-06-18 停用个人版 Gemini Code Assist 和 Gemini CLI 的 Google 登录，要求迁移到 Antigravity。项目早先依照仍在线的旧登录文档实现，mock 测试通过不代表当前个人订阅仍可用；初始化轮询修复也无法恢复已停用的服务。
+
+个人账号请使用官方 [Antigravity](https://antigravity.google) 或 [Antigravity CLI](https://antigravity.google/docs/cli/install/)。**本项目尚未实现 Antigravity 接入。** 官方 CLI 的 headless 自动化模式不是现有网关的 OpenAI 模型代理接口，不能通过更换 OAuth client ID 或品牌名称声称完成迁移。
+
+旧 Code Assist 适配代码保留；Google 的停用公告明确 Code Assist Standard / Enterprise 不受此次停用影响，但本项目也未实测企业账号。旧适配的流式回复、工具签名、图片和账号续期测试仅验证协议转换逻辑。
+
+企业 Code Assist 配置可使用 `oauth.gemini.clientId/clientSecret/redirectUri/projectId`（对应 `OAUTH_GEMINI_*` 环境变量）。配置自有项目不能解决个人版客户端停用。AI Studio API key 是另一种接入和计费方式，不应当作 Google One 订阅令牌填写。
+
+更新后重启网关、刷新客户端。若 `config.local.json` 自定义了整个 `channels` 数组，需将默认 `server/config.json` 中的 `gemini` 条目同步到该数组。
+
+依据：[Google 官方停用公告](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals?hl=zh-cn)、[Antigravity CLI 迁移指南](https://antigravity.google/docs/cli/gcli-migration/)。
+
+#### API 密钥
+
 网关从 **环境变量** 或 `~/.dsh/.credentials.yaml` 读取上游密钥，客户端永远拿不到：
 
 ```powershell

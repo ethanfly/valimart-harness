@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { PIN, defaultPrefix, locateKernel } from './kernel/locate.mjs'
+import { PIN, defaultPrefix, locateKernel, missingProfilePlugins } from './kernel/locate.mjs'
 import { ALL_MARKS, missingPatches, resolveMarkFile } from './kernel/patches.mjs'
 import { findTar, readGatewayUrl } from './lib/bootstrap.mjs'
 import { digestFiles, makeBuildId, makeInstallerVersion, patchGatewayUrl, shouldPrune, stripKernelPeerLinks } from './lib/payload.mjs'
@@ -68,6 +68,8 @@ if (!kernel || kernel.version !== PIN.version || missingPatches(kernel.root).len
 }
 kernel = locateKernel(stage)
 if (!kernel) die(`暂存目录里找不到内核：${stage}`)
+const missingPlugins = missingProfilePlugins(kernel)
+if (missingPlugins.length) die(`内核缺少必需插件：${missingPlugins.join(', ')}，请先 npm run kernel`)
 // 运行时链接（linkKernelPeers）不进包：cpSync 会把 junction 展开成实体，tar 会翻倍
 const strippedPeers = stripKernelPeerLinks(stage)
 if (strippedPeers) log(`剥离运行时 peer 链接 ${strippedPeers} 个（启动时重建）`)

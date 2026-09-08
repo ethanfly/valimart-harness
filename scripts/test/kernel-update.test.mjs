@@ -27,6 +27,13 @@ function writeBareKernel(prefix, version) {
 /** 与 bootstrap.test pinSkillsRoot 假内核相同：每个补丁文件只写 mark，yml 放 v2 骨架。 */
 function writeMarkedKernel(prefix, version) {
   writeBareKernel(prefix, version)
+  for (const name of ['dsh-better-sidebar', '@anweat/dsh-browser']) {
+    const plugin = path.join(prefix, 'node_modules', name)
+    fs.mkdirSync(path.join(plugin, 'lib'), { recursive: true })
+    fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({ name }))
+    fs.writeFileSync(path.join(plugin, 'lib', 'index.js'), '')
+    fs.writeFileSync(path.join(plugin, 'cordis.patch.yml'), '')
+  }
   const kernelRoot = path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh')
   const buildSkills = 'C:/Users/builder/.dsh/desk/drive/_shared/skills'
   const preset = (withSkills) =>
@@ -289,7 +296,7 @@ test('applyPendingKernel：缺补丁 → 不切换，保留旧 prefix', (t) => {
   assert.equal(fs.existsSync(targetPrefix + '-staging'), false)
 })
 
-test('applyPendingKernel：ALL_MARKS 假内核 → applied，locateKernel 为 9.0.0', (t) => {
+test('applyPendingKernel：ALL_MARKS 和必需插件齐全 → applied，locateKernel 为 9.0.0', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diva-apk-ok-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const targetPrefix = path.join(dir, 'kernel')
@@ -337,6 +344,28 @@ test('preparePackaged：fresh 解压后 pending 覆盖 bundled，locateKernel �
   assert.equal(readPending(pendingDir), null)
   assert.ok(fs.existsSync(path.join(appDir, 'plugins', 'desk-ui')))
   assert.equal(JSON.parse(fs.readFileSync(path.join(appDir, 'state.json'), 'utf8')).buildId, 'test-build')
+})
+
+test('更新包有全部补丁但遗漏面板插件：拒绝打包和切换，旧内核仍可用', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-kernel-bundles-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const targetPrefix = path.join(dir, 'kernel')
+  const src = path.join(dir, 'src')
+  const pendingDir = path.join(dir, 'kernel-next')
+  const skillsDir = path.join(dir, 'skills')
+  writeMarkedKernel(targetPrefix, '1.0.0')
+  writeMarkedKernel(src, '9.0.0')
+  fs.rmSync(path.join(src, 'node_modules', 'dsh-better-sidebar'), { recursive: true })
+  assert.throws(() => packPatchedPrefix({ prefix: src, version: '9.0.0', outDir: path.join(dir, 'out'), skillsDir }), /缺少必需插件.*dsh-better-sidebar/)
+  fs.mkdirSync(pendingDir)
+  packPrefixTar(src, pendingPaths(pendingDir).tar)
+  writePending(pendingDir, { version: '9.0.0', sha256: hashFile(pendingPaths(pendingDir).tar) })
+  const result = applyPendingKernel({ pendingDir, targetPrefix, skillsDir })
+  assert.equal(result.applied, false)
+  assert.match(result.detail, /缺少必需插件.*dsh-better-sidebar/)
+  assert.equal(locateKernel(targetPrefix).version, '1.0.0')
+  assert.ok(fs.existsSync(path.join(targetPrefix, 'node_modules', 'dsh-better-sidebar', 'lib', 'index.js')))
+  assert.equal(readPending(pendingDir), null)
 })
 
 function shaOf(buf) {

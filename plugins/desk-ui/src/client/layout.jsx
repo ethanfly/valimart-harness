@@ -5,6 +5,7 @@
  * 同时承担 ui-layout 的两项职责：ctx.layout 服务（toggleSidebar/openDetails/closeDetails + 任务模式动作）与主题呈现器。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { createStore, useStoreValue, deskStore } from './store.js'
 import { TaskPanel, TaskChatColumn } from './tasks.jsx'
 import { LoginOverlay, Toast } from './login.jsx'
@@ -186,8 +187,8 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
   const electron = useDeskElectron()
 
   return (
-    <div ref={frameRef} className="dk-frame" data-mode={panels.mode} data-sidebar-collapsed={sidebarCollapsed || undefined} data-electron={electron || undefined}>
-      {electron && <DeskTitlebar sidebarWidth={sidebarWidth} />}
+    <div ref={frameRef} className="dk-frame" data-dsh-frame data-mode={panels.mode} data-sidebar-collapsed={sidebarCollapsed || undefined} data-electron={electron || undefined}>
+      {electron && createPortal(<DeskTitlebar sidebarWidth={sidebarWidth} />, document.body)}
       {narrow && panels.narrowExpanded && <div className="dk-mask" onClick={() => layoutActions.toggleSidebar()} />}
       <div className={`dk-col-sidebar${narrow && panels.narrowExpanded ? ' dk-drawer' : ''}`} style={{ width: narrow && panels.narrowExpanded ? 280 : sidebarWidth }}>
         {renderSlot('sidebar', { collapsed: narrow ? !panels.narrowExpanded : sidebarCollapsed, width: narrow && panels.narrowExpanded ? 280 : sidebarWidth })}

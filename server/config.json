@@ -83,6 +83,7 @@
     { "id": "grok", "label": "Grok", "kind": "subscription", "baseUrl": "https://api.x.ai/v1", "hint": "grok-4.6, grok-4.6-fast", "reasoningEfforts": ["low", "high"] },
     { "id": "chatgpt", "label": "ChatGPT", "kind": "subscription", "baseUrl": "https://api.openai.com/v1", "hint": "gpt-5.5", "reasoningEfforts": ["low", "medium", "high"] },
     { "id": "claude", "label": "Claude", "kind": "subscription", "baseUrl": "https://api.anthropic.com/v1", "api": "anthropic-messages", "hint": "claude-opus-4-6" },
+    { "id": "gemini", "label": "Google One / Gemini", "kind": "subscription", "baseUrl": "https://cloudcode-pa.googleapis.com/v1internal", "api": "gemini-code-assist", "hint": "gemini-2.5-pro, gemini-2.5-flash, gemini-3.1-pro-preview, gemini-3-flash-preview", "contextWindow": 1048576, "maxTokens": 65536, "reasoningEfforts": ["low", "high"] },
     { "id": "openai", "label": "OpenAI", "kind": "key", "baseUrl": "https://api.openai.com/v1", "hint": "gpt-5.5, gpt-5.5-mini", "reasoningEfforts": ["low", "medium", "high"] },
     { "id": "anthropic", "label": "Anthropic", "kind": "key", "baseUrl": "https://api.anthropic.com/v1", "api": "anthropic-messages", "hint": "claude-opus-4-6, claude-sonnet-4-6" },
     { "id": "deepseek", "label": "DeepSeek", "kind": "key", "baseUrl": "https://api.deepseek.com", "hint": "deepseek-v4-pro, deepseek-v4-flash" }

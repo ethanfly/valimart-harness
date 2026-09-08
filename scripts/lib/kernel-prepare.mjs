@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { ALL_MARKS, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
-import { PIN, locateKernel, refuseLivePrefix, stampPath } from '../kernel/locate.mjs'
+import { PIN, locateKernel, refuseLivePrefix, stampPath, missingProfilePlugins } from '../kernel/locate.mjs'
 import { findTar } from './find-tar.mjs'
 import { shouldPrune, stripKernelPeerLinks } from './payload.mjs'
 import { SOURCE_REPO, hashFile, resolveNpmRegistry } from './kernel-update.mjs'
@@ -222,6 +222,9 @@ export function packPatchedPrefix({ prefix, version, outDir, skillsDir, log = ()
   const counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log })
   const left = missingPatches(kernel.root)
   if (left.length) throw new Error(`打完补丁仍缺：${left.join(', ')}`)
+
+  const missing = missingProfilePlugins(kernel)
+  if (missing.length) throw new Error(`拒绝打包：缺少必需插件 ${missing.join(', ')}`)
 
   fs.writeFileSync(
     stampPath(prefix),

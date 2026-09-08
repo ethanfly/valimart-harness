@@ -75,11 +75,12 @@ function bootChrome() {
 function installWindowDrag() {
   // Keep the fallback in the preload, so it also covers the startup title bar and older UI payloads.
   const style = document.createElement('style')
-  style.textContent = '.dk-titlebar-main, .dk-titlebar-main *, .dk-brand, .dk-brand *, #dk-shell-fallback, #dk-shell-fallback * { -webkit-app-region: no-drag !important; }'
+  const conversationDrag = '.dk-frame[data-mode="chat"] [data-slot="conversation.session.header"] > header > :first-child'
+  style.textContent = `.dk-titlebar-main, .dk-titlebar-main *, .dk-brand, .dk-brand *, #dk-shell-fallback, #dk-shell-fallback *, ${conversationDrag}, ${conversationDrag} * { -webkit-app-region: no-drag !important; }`
   document.head.append(style)
   let dragging = null
   const dragTarget = (event) => {
-    const element = event.target.closest?.('.dk-titlebar-main, .dk-brand, #dk-shell-fallback')
+    const element = event.target.closest?.(`.dk-titlebar-main, .dk-brand, #dk-shell-fallback, ${conversationDrag}`)
     return element && !event.target.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]') ? element : null
   }
   const end = () => {

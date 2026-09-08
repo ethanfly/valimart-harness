@@ -4,6 +4,8 @@
 
 ## 现在在哪（2026-09-08 追加）
 
+- **Google One 个人订阅接入不可用，旧方案需迁移（2026-09-08 实测更正）**：之前新增的 `gemini-code-assist` 是旧 Gemini CLI 接入；Google 官方已于 2026-06-18 停用个人 Google AI Pro / Ultra 在此客户端的权限。用户亲测返回 `This client is no longer supported... migrate to Antigravity`。之前 mock 测试及安装包只证明本地协议代码可运行，不能证明个人订阅可用；项目 ID / 轮询修复包不能解决停用。README、provider 提示和上游错误分类已更正。当前尚未实现 Antigravity 集成，不要继续让个人用户登录旧 Gemini CLI、自建项目或更换旧 OAuth client ID。Standard / Enterprise 不受官方本次停用影响，但项目未实测企业账号。依据：https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals 。
+
 - **第三方插件落地：完成**。`dsh-better-sidebar@0.18.0`（改动预览/审查工作台）+ `@anweat/dsh-browser@0.1.11`（浏览器自动化，21 个 `browser_*` 工具）随内核前缀离线分发：
   - `scripts/kernel/pin.json` 新增 `profilePlugins`（名字/版本/prune 白名单）；`install-kernel.mjs` 装到 staging 再按白名单拷进内核前缀；`ensureProfile` 写进 `dsh.profile.bundles`，并把插件 + 内核 `@deepseek-ai/*` peer 链接到 `$DSH_HOME/profiles/node_modules` 与内核顶层 scope；`build-payload.mjs` 打包前 `stripKernelPeerLinks` 剥掉运行时链接（否则 tar 翻倍）。
   - 浏览器配置在 `profile/cordis.patch.yml`：`channel: msedge` + `opencliEnabled: false`（用系统 Edge，不下载 Chromium）。

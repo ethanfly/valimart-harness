@@ -6,7 +6,8 @@
 import crypto from 'node:crypto'
 import { HttpError, readJson, sendJson, parseUrl } from './http.js'
 import { providerSpec } from './oauth-providers/index.js'
-import { accountIdFromToken, needsRefresh, resolveConnectBaseUrl } from './oauth-tokens.js'
+import { accountIdFromToken, decodeJwtPayload, needsRefresh, resolveConnectBaseUrl } from './oauth-tokens.js'
+import { setupGeminiProject } from './upstream-gemini.js'
 import { accountsOf, normalizeModels } from './channels.js'
 import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
 
@@ -65,7 +66,8 @@ export function resolveProviderConfig(channelId, cfg) {
   return {
     ...spec,
     clientId: pick(fromCfg.clientId, process.env[envKey(channelId, 'CLIENT_ID')]) || spec.clientId,
-    clientSecret: pick(fromCfg.clientSecret, process.env[envKey(channelId, 'CLIENT_SECRET')]),
+    clientSecret: pick(fromCfg.clientSecret, process.env[envKey(channelId, 'CLIENT_SECRET')]) || (pick(fromCfg.clientId, process.env[envKey(channelId, 'CLIENT_ID')]) ? undefined : spec.clientSecret),
+    projectId: pick(fromCfg.projectId, process.env[envKey(channelId, 'PROJECT_ID')]),
     authorizeUrl: pick(fromCfg.authorizeUrl, process.env[envKey(channelId, 'AUTHORIZE_URL')]) || spec.authorizeUrl,
     tokenUrl: pick(fromCfg.tokenUrl, process.env[envKey(channelId, 'TOKEN_URL')]) || spec.tokenUrl,
     scope: pick(fromCfg.scope, process.env[envKey(channelId, 'SCOPE')]) || spec.scope,
@@ -107,6 +109,8 @@ export function describeOAuth(channel, cfg) {
     reason: configured ? null : `请先配置 OAuth 应用：环境变量 ${envKey(channel.id, 'CLIENT_ID')} 或 config.json 的 oauth.${channel.id}.clientId`,
     callbackUrl: flow === 'authorization_code' ? redirect : resolved.redirectUri || redirect,
     providerLabel: spec.label,
+    detail: spec.detail ?? null,
+    pasteHint: spec.pasteHint ?? null,
   }
 }
 
@@ -222,7 +226,7 @@ export class OAuthSubscribe {
     url.searchParams.set('state', session.state)
     url.searchParams.set('code_challenge', challenge)
     url.searchParams.set('code_challenge_method', 'S256')
-    if (provider.flow === 'authorization_code_paste') url.searchParams.set('code', 'true')
+    for (const [key, value] of Object.entries(provider.authorizeParams ?? {})) url.searchParams.set(key, value)
     console.log(`[gateway] OAuth 发起 ${channel.label} state=${session.state.slice(0, 6)}…`)
     return {
       flow: session.flow,
@@ -343,6 +347,7 @@ export class OAuthSubscribe {
     if (s.userId !== user.id) throw new HttpError(403, '不是你发起的授权', 'forbidden')
     if (s.channelId !== channelId) throw new HttpError(400, '通道与授权会话不一致', 'oauth_channel_mismatch')
     const pasted = parsePastedOAuth(input.code)
+    if (resolveProviderConfig(channelId, this.cfg)?.requirePastedState && !pasted.state) throw new HttpError(400, '请粘贴含 code 和 state 的完整回调网址。', 'oauth_state_required')
     if (pasted.state && pasted.state !== s.state) throw new HttpError(400, '授权码与本次登录不匹配', 'oauth_state_mismatch')
     await this.finishWithCode(s, { code: pasted.code })
     return publicStatus(s)
@@ -382,6 +387,9 @@ export class OAuthSubscribe {
     const expiresIn = Number(tokens.expires_in)
     const channelDef = this.channels.find(s.channelId)
     const baseUrl = resolveConnectBaseUrl(s.baseUrl, provider, channelDef.baseUrl)
+    const googleProjectId = provider.upstreamApi === 'gemini-code-assist'
+      ? await setupGeminiProject({ credential: access, baseUrl, projectId: provider.projectId, fetchImpl: this.fetchImpl })
+      : undefined
     const discovered = await discoverUpstreamModels({
       baseUrl,
       credential: access,
@@ -406,6 +414,8 @@ export class OAuthSubscribe {
       authStyle: provider.authStyle,
       api: provider.upstreamApi,
       oauthProvider: s.channelId,
+      googleProjectId,
+      googleAccountId: provider.upstreamApi === 'gemini-code-assist' ? decodeJwtPayload(tokens.id_token)?.sub : undefined,
       chatgptAccountId: accountIdFromToken(tokens.id_token || access),
     }
     s.discoveredModels = catalog
@@ -443,6 +453,8 @@ export class OAuthSubscribe {
       s.channelId,
       {
         credential: p.access,
+        googleProjectId: p.googleProjectId,
+        googleAccountId: p.googleAccountId,
         models,
         contextWindow,
         maxTokens,
@@ -556,7 +568,8 @@ export class OAuthSubscribe {
   tokenRequest(provider, payload) {
     const headers = { accept: 'application/json', 'user-agent': 'valimart-harness' }
     if (provider.clientSecret) {
-      headers.authorization = `Basic ${Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString('base64')}`
+      if (provider.clientSecretInBody) payload = { ...payload, client_secret: provider.clientSecret }
+      else headers.authorization = `Basic ${Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString('base64')}`
     }
     if (provider.tokenBody === 'json') {
       headers['content-type'] = 'application/json'

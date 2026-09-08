@@ -5,11 +5,13 @@
 import { HttpError } from './http.js'
 import { inferUpstreamApi, usesAnthropicMessages, anthropicHeaders } from './upstream-anthropic.js'
 import { usesChatgptCodex } from './upstream-chatgpt.js'
+import { usesGeminiCodeAssist } from './upstream-gemini.js'
 
 const DEFAULT_EFFORTS = ['low', 'medium', 'high']
 
 /** 按模型 id 推断上下文与思考档位（自动设；不对再手改）。 */
 const KNOWN_META = [
+  { test: /gemini-(2\.5|3)/, contextWindow: 1_048_576, maxTokens: 65_536, reasoningEfforts: ['low', 'high'] },
   { test: /deepseek-v4|deepseek-reasoner|deepseek-chat/, contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, high: 'high', max: 'max' } },
   { test: /gpt-5|gpt-4\.1|o3|o4|codex/, contextWindow: 256_000, maxTokens: 32_768, reasoningEfforts: DEFAULT_EFFORTS },
   { test: /gpt-4o|chatgpt/, contextWindow: 128_000, maxTokens: 16_384, reasoningEfforts: DEFAULT_EFFORTS },
@@ -117,6 +119,9 @@ export async function discoverUpstreamModels({
   timeoutMs = 12_000,
 } = {}) {
   const upstream = { baseUrl, api: api || inferUpstreamApi(baseUrl), authStyle }
+  if (usesGeminiCodeAssist(upstream)) {
+    return { models: fallbackModelsFor(channel), source: 'fallback', reason: 'Gemini 订阅无公开 /models；显示内置候选目录，模型权限以 Google 账号为准。' }
+  }
   if (usesChatgptCodex(upstream)) {
     return { models: fallbackModelsFor(channel ?? { id: 'chatgpt' }), source: 'fallback', reason: 'chatgpt-codex 无公开 /models' }
   }

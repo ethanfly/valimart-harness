@@ -24,6 +24,10 @@
 /* ---------- 外壳 ---------- */
 html.dk-desk-electron { --dk-titlebar-h: 36px; --dk-win-inset: 0px; }
 html.dk-desk-electron.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset); }
+/* Preserve the workbench's right-panel reservation when sizing the frame. */
+html.dk-desk-electron #root .dk-frame[data-dsh-frame] {
+  padding-right: calc(var(--dsh-sidebar-width, 0px) + var(--dk-win-inset));
+}
 html.dk-desk-electron.dk-desk-maximized .dk-titlebar {
   top: var(--dk-win-inset);
   left: var(--dk-win-inset);
@@ -35,6 +39,87 @@ html.dk-desk-electron .dk-overlay,
 html.dk-desk-electron [data-shell-overlay] { top: var(--dk-win-inset); }
 html.dk-desk-electron .dk-col-main,
 html.dk-desk-electron .dk-col-right { padding-top: var(--dk-titlebar-h); }
+/* Active conversations own the top row; an empty session keeps the draggable
+   shell strip. Scope to chat mode so task/details headings keep their space. */
+html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-main:has([data-slot='conversation.session.header']) {
+  padding-top: 0;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header {
+  padding-top: 8px;
+  padding-right: 20px;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > [role='tablist'] {
+  margin-top: 8px;
+}
+/* Keep the upstream export action and its busy state, with a quiet icon button. */
+.dk-frame [data-slot='conversation.session.header'] [class*='_titleRow']:has(button[class*='_sessionLogButton']) {
+  column-gap: 6px;
+  align-items: center;
+}
+.dk-frame [data-slot='conversation.session.header'] [class*='_titleRow']:has(button[class*='_sessionLogButton']) > [class*='_titleCluster'] {
+  display: contents;
+}
+.dk-frame [data-slot='conversation.session.header'] [class*='_titleRow']:has(button[class*='_sessionLogButton']) [class*='_headerActions'] {
+  order: 2;
+}
+.dk-frame [data-slot='conversation.session.header'] [class*='_headerUtilities']:has(button[class*='_sessionLogButton']) {
+  order: 1;
+  margin-left: 0;
+  align-self: center;
+}
+.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] {
+  position: relative;
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  gap: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dk-text-3);
+}
+.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton']:hover:not(:disabled) {
+  background: var(--dk-hover);
+  color: var(--dk-text);
+}
+.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton']:focus-visible {
+  outline: 2px solid var(--dk-accent);
+  outline-offset: 2px;
+}
+.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] > svg {
+  width: 16px;
+  height: 16px;
+}
+/* Preserve the original text for assistive technology. */
+.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
+  min-height: 32px;
+  height: 32px;
+  -webkit-app-region: drag;
+}
+html.dk-desk-electron body[data-dsh-sidebar-collapsed] .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
+  margin-right: 210px;
+}
+html.dk-desk-electron body:not(:has([data-dsh-panel-host])) .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
+  margin-right: 138px;
+}
+html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-main {
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-title {
+  display: none;
+}
 html.dk-desk-electron button,
 html.dk-desk-electron input,
 html.dk-desk-electron textarea,
@@ -49,23 +134,37 @@ html.dk-desk-electron .dk-brand {
   align-items: flex-start;
 }
 html.dk-desk-electron .dk-rail { padding-top: 16px; }
-/* better-sidebar 的浮层按视口定位，会压住 Electron 自绘标题栏：
-   右上角的展开按钮簇（[data-dsh-toggle-cluster]）和右侧面板（[data-dsh-panel]）整体下移一个标题栏高度。
-   用属性选择器（插件的 CSS module 哈希类名会随构建变）。
-   按钮簇必须跟插件自己的两态对齐走，不能只写一条 14px：
-   - 右侧面板展开时它骑在面板 34px 的标签栏上（28px 按钮 top: 3，与「+」同一条基线）；
-   - 收起时它才落到 DSH 会话头那一行（top: 14）。
-   写死 14px 会把展开态压到标签栏下面 11px（插件 sidebar.module.css 的
-   body[data-dsh-sidebar-collapsed] 规则就是这两档，这里同步偏移标题栏高度）。 */
+/* Workbench tabs and toggles share the caption row. Keep the toggle cluster
+   fixed in both states, left of the three 46px window controls. */
 html.dk-desk-electron [data-dsh-toggle-cluster] {
-  top: calc(3px + var(--dk-titlebar-h, 36px));
+  top: calc(4px + var(--dk-win-inset));
+  right: calc(148px + var(--dk-win-inset));
 }
 html.dk-desk-electron body[data-dsh-sidebar-collapsed] [data-dsh-toggle-cluster] {
-  top: calc(14px + var(--dk-titlebar-h, 36px));
+  top: calc(4px + var(--dk-win-inset));
+  right: calc(148px + var(--dk-win-inset));
 }
-html.dk-desk-electron [data-dsh-panel] {
-  top: var(--dk-titlebar-h, 36px);
+html.dk-desk-electron [data-dsh-panel]:not([data-dsh-bottom-panel]) {
+  top: var(--dk-win-inset);
+  right: var(--dk-win-inset);
+  bottom: var(--dk-win-inset);
+  padding-top: 0;
 }
+/* Keep the host's viewport origin: the plugin measures bottom-panel left
+   and right in viewport coordinates, so insetting the host would shift twice. */
+html.dk-desk-electron [data-dsh-bottom-panel] { bottom: var(--dk-win-inset); }
+html.dk-desk-electron [data-dsh-panel]:not([data-dsh-bottom-panel]) [class*='_tabBar']:has(> [class*='_tabList']) {
+  box-sizing: border-box;
+  height: var(--dk-titlebar-h, 36px);
+  padding-right: 210px;
+}
+html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
+  margin-right: max(210px, var(--dsh-sidebar-width, 0px));
+}
+/* Both workbenches carry data-dsh-panel. The bottom one must stay anchored
+   to bottom:0; giving it a top over-constrains its explicit height. The
+   portal lives outside .dk-frame, so it also needs border-box sizing. */
+[data-dsh-bottom-panel] { box-sizing: border-box; }
 
 .dk-frame {
   position: fixed;
@@ -79,7 +178,9 @@ html.dk-desk-electron [data-dsh-panel] {
 .dk-frame * { box-sizing: border-box; }
 
 .dk-titlebar {
-  position: absolute;
+  /* Portaled beside the workbench host: the frame's fixed stacking context
+     would otherwise put its window controls underneath the panel surface. */
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
@@ -123,6 +224,9 @@ html.dk-desk-electron [data-dsh-panel] {
 .dk-titlebar[data-maximized] .dk-titlebar-title { opacity: 0.7; }
 .dk-titlebar:not([data-focused]) .dk-winbtn { opacity: 0.7; }
 .dk-titlebar-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
   margin-left: auto;
   height: 100%;
   display: flex;
@@ -191,6 +295,7 @@ html.dk-desk-electron [data-dsh-panel] {
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -213,6 +318,20 @@ html.dk-desk-electron [data-dsh-panel] {
 .dk-resizer:hover, .dk-resizer.dragging { background: var(--dk-accent-soft); }
 .dk-slot-fill { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .dk-slot-fill > * { flex: 1 1 auto; min-height: 0; }
+/* The workbench measures the conversation slot's parent. It reserves bottom
+   space with a margin: prevent the slot's 100% height from overflowing a flex
+   column, and let the remaining conversation/composer shrink together. */
+#root .dk-frame [data-dsh-center-col] {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+#root .dk-frame [data-dsh-center-col] > [data-slot="conversation"] {
+  height: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
 .dk-mask {
   position: fixed;
   inset: 0;
@@ -524,8 +643,12 @@ html.dk-desk-electron [data-dsh-panel] {
   letter-spacing: 0.01em;
 }
 .dk-dialog .dk-client-ver { margin-top: 10px; text-align: center; padding: 0; }
-.dk-side-user { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 8px; cursor: default; }
-.dk-side-user:hover { background: var(--dk-hover); }
+.dk-account-settings [class*='_triggerRow'] { width: 100%; margin: 0; }
+.dk-account-settings button[class*='_trigger'] { width: 100%; height: auto; padding: 0; border-radius: 8px; text-align: left; }
+.dk-account-settings button[class*='_trigger']:focus-visible { outline: 2px solid var(--dk-accent); outline-offset: 2px; }
+.dk-account-settings.compact { width: 36px; margin: 8px 0; }
+.dk-account-settings.compact button[class*='_trigger'] { width: 36px; height: 36px; border-radius: 50%; }
+.dk-side-user { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; }
 .dk-avatar {
   width: 30px;
   height: 30px;

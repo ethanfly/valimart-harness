@@ -4,7 +4,7 @@
  */
 import css from './styles.css'
 import { DeskFrame, DeskLayoutController, ThemePresenter } from './layout.jsx'
-import { DeskSidebar } from './sidebar.jsx'
+import { DeskSidebar, DeskUserSettingsTrigger } from './sidebar.jsx'
 import { AccountSection, ColleaguesSection, DesktopSection, KnowledgeSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
@@ -36,6 +36,27 @@ export function apply(ctx) {
     document.head.append(el)
     return () => el.remove()
   }, 'desk-ui: styles')
+
+  // The export plugin owns its click handler, progress state and dialog.
+  // Add a tooltip to its icon-only presentation without replacing the button.
+  ctx.effect(() => {
+    const selector = '.dk-frame [data-slot="conversation.session.header.utilities"] button[class*="_sessionLogButton"]'
+    const label = '下载会话日志'
+    const sync = () => {
+      for (const button of document.querySelectorAll(selector)) {
+        if (!button.hasAttribute('title')) button.setAttribute('title', label)
+      }
+    }
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => {
+      observer.disconnect()
+      for (const button of document.querySelectorAll(selector)) {
+        if (button.getAttribute('title') === label) button.removeAttribute('title')
+      }
+    }
+  }, 'desk-ui: session log tooltip')
 
   // ---- 窗口标题：官方写死 "DeepSeek Harness"，改成 valimart harness ----
   ctx.effect(() => {
@@ -146,6 +167,10 @@ export function apply(ctx) {
   )
 
   // ---- 设置页：账号 / 同事 / 人员 / 快速推理 / 订阅 ----
+  ctx.effect(
+    () => ctx.slots.inject('settings.trigger', () => ctx.slots.register({ name: 'settings.trigger', priority: -10 }, DeskUserSettingsTrigger)),
+    'desk-ui: account settings trigger',
+  )
   const sections = [
     { id: 'desk-account', order: 2, label: '账号', component: AccountSection },
     { id: 'desk-colleagues', order: 5, label: '同事', component: ColleaguesSection },

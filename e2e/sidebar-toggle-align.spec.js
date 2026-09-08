@@ -1,13 +1,7 @@
 /**
- * 展开/收起按钮簇（better-sidebar [data-dsh-toggle-cluster]）在 Electron 自绘标题栏下的几何对齐。
- *
- * 为什么不是只断言 CSS 文本：这条 bug 是两套样式表的层叠结果 ——
- *   - 插件按面板状态给两档 top（展开 3px 骑 34px 标签栏 / 收起 14px 对位会话头）；
- *   - desk-ui 要把两者整体下移一个标题栏高度（--dk-titlebar-h: 36px），
- *     用属性选择器覆盖，特异性 (0,2,1) 会盖掉插件自己的 body[data-dsh-sidebar-collapsed] 规则。
- * 所以这里把两份「真样式表」同时喂给页面量真实 rect：
- *   plugins/desk-ui/src/client/styles.css + 内核前缀里 dsh-better-sidebar 的 sidebar.module.css
- * （后者只做 :global() 去壳，类名不哈希 —— desk-ui 的覆盖用的是属性选择器，与哈希无关）。
+ * Real desk and workbench stylesheets verify caption-row tabs and hit testing,
+ * stationary collapsed controls, and the bottom panel's independent
+ * bottom anchor. CSS module suffixes are represented on the fixture tab bar.
  */
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs'
@@ -40,6 +34,7 @@ function stripGlobal(css) {
 function pluginCssPath() {
   const root = locateKernel(defaultPrefix())?.root ?? path.resolve('build/kernel-stage/node_modules/@deepseek-ai/dsh')
   const candidates = [
+    path.resolve(root, '..', '..', 'dsh-better-sidebar', 'src', 'client', 'sidebar.module.css'),
     path.join(root, 'node_modules', 'dsh-better-sidebar', 'src', 'client', 'sidebar.module.css'),
     path.resolve('build/kernel-stage/node_modules/dsh-better-sidebar/src/client/sidebar.module.css'),
   ]
@@ -51,13 +46,25 @@ test.skip(pluginCss === undefined, '需要内核前缀里的 dsh-better-sidebar�
 
 function fixture() {
   return `<!doctype html>
-<html class="dk-desk-electron dk-desk-maximized">
+<html class="dk-desk-electron dk-desk-maximized" style="--dsh-sidebar-width:442px">
 <head><meta charset="utf-8">
 <style>${DESK_CSS}</style>
 <style>${stripGlobal(fs.readFileSync(pluginCss, 'utf8'))}</style>
+<style>${fs.readFileSync(path.join(path.dirname(pluginCss), 'layout.css'), 'utf8')}</style>
 <style>html, body { margin: 0; background: #fff; }</style>
 </head>
 <body>
+  <div id="root"><div data-slot="root" style="display:contents">
+    <div class="dk-frame" data-dsh-frame>
+      <div class="dk-col-sidebar" style="width:280px"></div>
+      <div class="dk-resizer"></div>
+      <div class="dk-col-main"><div class="dk-slot-fill" data-dsh-center-col>
+        <div data-slot="conversation" style="display:contents"><div style="height:100%;display:flex;flex-direction:column;min-height:0">
+          <div style="flex:1;min-height:0;overflow:auto">Conversation</div><input aria-label="composer" style="height:80px;flex:none" />
+        </div></div>
+      </div></div>
+    </div>
+  </div></div>
   <header class="dk-titlebar" data-focused>
     <div class="dk-titlebar-side" aria-hidden="true"></div>
     <div class="dk-titlebar-main">
@@ -70,13 +77,16 @@ function fixture() {
     </div>
   </header>
   <div data-dsh-panel-host>
+    <div class="bottomPanel" data-dsh-panel data-dsh-bottom-panel style="height:220px;left:285px;right:442px">
+      <div class="tabBar">Terminal</div><div class="panelBody"></div>
+    </div>
     <div class="toggleCluster" data-dsh-toggle-cluster>
       <button type="button" class="toggleButton" aria-label="展开底部面板"></button>
       <button type="button" class="toggleButton" aria-label="展开右侧面板"></button>
     </div>
     <div class="panel" data-dsh-panel style="width:442px">
-      <div class="tabBar">
-        <div class="tabList">
+      <div class="tabBar test_tabBar">
+        <div class="tabList test_tabList">
           <button type="button" class="tabBarPlus" aria-label="新建标签页">+</button>
         </div>
       </div>
@@ -104,9 +114,13 @@ function probe(page) {
       titlebar: box('.dk-titlebar'),
       cluster: box('[data-dsh-toggle-cluster]'),
       toggle,
-      panel: box('[data-dsh-panel]'),
-      tabBar: box('[data-dsh-panel] .tabBar'),
-      tabPlus: box('[data-dsh-panel] .tabBarPlus'),
+      panel: box('[data-dsh-panel]:not([data-dsh-bottom-panel])'),
+      tabBar: box('[data-dsh-panel]:not([data-dsh-bottom-panel]) .tabBar'),
+      tabPlus: box('[data-dsh-panel]:not([data-dsh-bottom-panel]) .tabBarPlus'),
+      plusHit: (() => {
+        const r = box('.tabBarPlus')
+        return document.elementFromPoint(r.left + r.width / 2, r.center)?.closest('.tabBarPlus') !== null
+      })(),
       winButtonHit: hit instanceof Element && hit.closest('.dk-winbtn') !== null,
       toggleHit: toggleHit instanceof Element && toggleHit.closest('[data-dsh-toggle-cluster]') !== null,
     }
@@ -118,30 +132,100 @@ test('展开态：按钮簇骑在右侧面板的标签栏上（与 + 同一条�
   await page.setContent(fixture(), { waitUntil: 'load' })
   const open = await probe(page)
 
-  // 面板整体下移一个标题栏高度，标签栏就从 y=36 起
-  expect(open.panel.top).toBeCloseTo(36, 1)
-  expect(open.tabBar.top).toBeCloseTo(36, 1)
-  expect(open.tabBar.height).toBeCloseTo(34, 1)
+  // The panel's tabs now share the top row with the native window controls.
+  expect(open.panel.top).toBeCloseTo(0, 1)
+  expect(open.tabBar.top).toBeCloseTo(0, 1)
+  expect(open.tabBar.height).toBeCloseTo(36, 1)
   // 按钮簇在标签栏带内，且与「+」垂直居中同一行
   expect(open.toggle.top).toBeGreaterThanOrEqual(open.tabBar.top)
   expect(open.toggle.bottom).toBeLessThanOrEqual(open.tabBar.bottom)
   expect(Math.abs(open.toggle.center - open.tabPlus.center)).toBeLessThanOrEqual(1)
   // 不压住自绘标题栏的窗控，按钮自己也点得到（落进标题栏条就会被拖窗吃掉）
-  expect(open.toggle.top).toBeGreaterThanOrEqual(open.titlebar.bottom)
+  expect(open.toggle.center).toBeCloseTo(open.titlebar.center, 1)
+  expect(open.cluster.right).toBeLessThanOrEqual(1280 - 138)
   expect(open.winButtonHit).toBe(true)
   expect(open.toggleHit).toBe(true)
+  expect(open.plusHit).toBe(true)
+  await page.locator('.tabBarPlus').click()
 })
 
-test('收起态：按钮簇落到会话头那一行（top = 标题栏 + 14），窗控仍可点', async ({ page }) => {
+for (const size of [{ width: 1280, height: 819 }, { width: 1000, height: 650 }]) {
+  test(`两面板同时展开：底部贴底，会话输入框不被遮挡 ${size.width}`, async ({ page }) => {
+    await page.setViewportSize(size)
+    await page.setContent(fixture())
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--dsh-sidebar-width', '442px')
+      document.documentElement.style.setProperty('--dsh-sidebar-height', '220px')
+    })
+    const boxes = await page.evaluate(() => {
+      const rect = s => document.querySelector(s).getBoundingClientRect().toJSON()
+      return { bottom: rect('[data-dsh-bottom-panel]'), center: rect('[data-dsh-center-col]'), input: rect('input'), right: rect('[data-dsh-panel]:not([data-dsh-bottom-panel])'), frame: rect('.dk-frame') }
+    })
+    expect(boxes.bottom.bottom).toBeCloseTo(size.height, 1)
+    expect(boxes.bottom.height).toBeCloseTo(220, 1)
+    expect(boxes.center.bottom).toBeCloseTo(boxes.bottom.top, 1)
+    expect(boxes.input.bottom).toBeLessThanOrEqual(boxes.bottom.top)
+    expect(boxes.center.right).toBeCloseTo(boxes.right.left, 1)
+    expect(boxes.frame.width).toBe(size.width)
+  })
+}
+
+test('收起态：按钮簇保持顶部原位，窗控与面板开关仍可点', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 819 })
   await page.setContent(fixture(), { waitUntil: 'load' })
-  await page.evaluate(() => { document.body.setAttribute('data-dsh-sidebar-collapsed', '') })
-  await expect.poll(async () => (await probe(page)).toggle.top).toBeCloseTo(36 + 14, 1)
+  const open = await probe(page)
+  await page.evaluate(() => {
+    document.body.setAttribute('data-dsh-sidebar-collapsed', '')
+    document.documentElement.style.setProperty('--dsh-sidebar-width', '0px')
+    document.querySelector('[data-dsh-panel]:not([data-dsh-bottom-panel])').classList.add('panelHidden')
+  })
   const collapsed = await probe(page)
 
-  expect(collapsed.toggle.top).toBeGreaterThanOrEqual(collapsed.titlebar.bottom)
+  expect(collapsed.cluster).toEqual(open.cluster)
+  expect(collapsed.toggle.center).toBeCloseTo(collapsed.titlebar.center, 1)
   expect(collapsed.winButtonHit).toBe(true)
   expect(collapsed.toggleHit).toBe(true)
   // 收起时面板滑出屏幕，按钮簇仍贴视口右上角
-  expect(collapsed.cluster.right).toBeCloseTo(1280 - 10, 1)
+  expect(collapsed.cluster.right).toBeCloseTo(1280 - 148, 1)
+  await page.locator('[data-dsh-toggle-cluster] button').last().click()
 })
+
+for (const viewport of [{ width: 1920, height: 1152 }, { width: 1536, height: 864 }]) {
+  test(`Windows 最大化 ${viewport.width}：四周无留白，标题栏与两面板贴边，收起不跳位`, async ({ page }) => {
+    const inset = 0
+    await page.setViewportSize(viewport)
+    await page.setContent(fixture())
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--dsh-sidebar-height', '220px')
+      // Same viewport coordinates written by the workbench's center locator.
+      const center = document.querySelector('[data-dsh-center-col]').getBoundingClientRect()
+      const bottom = document.querySelector('[data-dsh-bottom-panel]')
+      bottom.style.left = `${center.left}px`
+      bottom.style.right = `${innerWidth - center.right}px`
+    })
+    const open = await probe(page)
+    expect(open.panel.top).toBe(inset)
+    expect(open.panel.right).toBe(viewport.width - inset)
+    expect(open.panel.bottom).toBe(viewport.height - inset)
+    expect(open.toggle.center).toBeCloseTo(open.titlebar.center, 1)
+    expect(Math.abs(open.tabPlus.center - open.titlebar.center)).toBeLessThanOrEqual(1)
+    expect(open.winButtonHit && open.toggleHit && open.plusHit).toBe(true)
+    const geometry = await page.evaluate(() => {
+      const rect = s => document.querySelector(s).getBoundingClientRect().toJSON()
+      return { center: rect('[data-dsh-center-col]'), bottom: rect('[data-dsh-bottom-panel]'), right: rect('[data-dsh-panel]:not([data-dsh-bottom-panel])') }
+    })
+    expect(geometry.bottom.bottom).toBe(viewport.height - inset)
+    expect(geometry.center.bottom).toBeCloseTo(geometry.bottom.top, 1)
+    expect(geometry.center.right).toBeCloseTo(geometry.right.left, 1)
+    expect(geometry.bottom.right).toBeCloseTo(geometry.right.left, 1)
+    await page.evaluate(() => {
+      document.body.setAttribute('data-dsh-sidebar-collapsed', '')
+      document.documentElement.style.setProperty('--dsh-sidebar-width', '0px')
+      document.querySelector('[data-dsh-panel]:not([data-dsh-bottom-panel])').classList.add('panelHidden')
+    })
+    const closed = await probe(page)
+    expect(closed.cluster).toEqual(open.cluster)
+    expect(closed.winButtonHit && closed.toggleHit).toBe(true)
+    await page.locator('[data-dsh-toggle-cluster] button').last().click()
+  })
+}

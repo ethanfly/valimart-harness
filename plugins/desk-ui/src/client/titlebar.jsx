@@ -22,7 +22,8 @@ export function useDeskElectron() {
     root.classList.add('dk-desk-electron')
     const apply = (s) => {
       root.classList.toggle('dk-desk-maximized', Boolean(s?.maximized))
-      root.style.setProperty('--dk-win-inset', `${Math.max(0, Number(s?.inset) || 0)}px`)
+      // Also ignore the native-frame estimate supplied by older desktop shells.
+      root.style.setProperty('--dk-win-inset', '0px')
     }
     shell.getState?.().then(apply).catch(() => {})
     const off = shell.onState?.(apply)

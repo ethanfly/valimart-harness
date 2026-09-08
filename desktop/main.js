@@ -8,7 +8,7 @@
  * 日志：~/.company-desk/logs/desktop.log（5 MB 滚动保留 3 份）；Electron 自身状态（userData）：<appDir>/electron
  */
 'use strict'
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen, shell } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const net = require('node:net')
@@ -102,17 +102,9 @@ function windowFrom(event) {
 }
 function windowState(win) {
   if (!win || win.isDestroyed()) return { maximized: false, focused: false, inset: 0 }
-  let inset = 0
-  if (process.platform === 'win32' && win.isMaximized()) {
-    try {
-      const { workArea } = screen.getDisplayMatching(win.getBounds())
-      const b = win.getBounds()
-      inset = Math.max(0, Math.round(Math.max(b.height - workArea.height, b.width - workArea.width) / 2))
-    } catch {
-      inset = 0
-    }
-  }
-  return { maximized: win.isMaximized(), focused: win.isFocused(), inset }
+  // The frameless renderer fills its viewport. Native bounds vs. workArea
+  // include Windows frame metrics, not an inset to add inside the page.
+  return { maximized: win.isMaximized(), focused: win.isFocused(), inset: 0 }
 }
 function sendWindowState(win) {
   if (!win || win.isDestroyed()) return

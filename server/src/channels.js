@@ -71,6 +71,7 @@ export class Channels {
       label: channel.custom ? channel.label : existing?.label ?? channel.label,
       baseUrl,
       resolvedKey: credential,
+      googleProjectId: primary.googleProjectId,
       authStyle: primary.authStyle ?? item.authStyle ?? existing?.authStyle,
       chatgptAccountId: primary.chatgptAccountId ?? item.chatgptAccountId ?? accountIdFromToken(credential) ?? existing?.chatgptAccountId,
       channel: channel.id,
@@ -81,6 +82,7 @@ export class Channels {
         refreshToken: a.refreshToken,
         tokenExpiresAt: a.tokenExpiresAt,
         chatgptAccountId: a.chatgptAccountId,
+        googleProjectId: a.googleProjectId,
         authStyle: a.authStyle ?? item.authStyle,
         api: a.api ?? item.api,
         status: a.status,
@@ -367,6 +369,7 @@ function withModelDefaults(m, channel) {
 }
 
 export function accountIdentity(input) {
+  if (input.googleAccountId) return `google:${input.googleAccountId}`
   if (input.chatgptAccountId) return `acct:${input.chatgptAccountId}`
   const cred = String(input.credential ?? '')
   return `cred:${crypto.createHash('sha256').update(cred).digest('hex').slice(0, 16)}`
@@ -385,6 +388,8 @@ export function accountsOf(item) {
         refreshToken: item.refreshToken,
         tokenExpiresAt: item.tokenExpiresAt,
         chatgptAccountId: item.chatgptAccountId,
+        googleProjectId: item.googleProjectId,
+        googleAccountId: item.googleAccountId,
         oauthProvider: item.oauthProvider,
         authStyle: item.authStyle,
         api: item.api,
@@ -416,6 +421,8 @@ function makeAccount(input, user) {
     refreshToken: input.refreshToken ? String(input.refreshToken) : undefined,
     tokenExpiresAt: input.tokenExpiresAt,
     chatgptAccountId,
+    googleProjectId: input.googleProjectId,
+    googleAccountId: input.googleAccountId,
     oauthProvider: input.oauthProvider,
     authStyle: input.authStyle,
     api: input.api,

@@ -68,7 +68,7 @@ export async function fetchClientUpdate({
 
     const decision = helpers.shouldFetchClientUpdate(current, buildId, pending, { installerVersion })
     if (!decision.fetch) {
-      if (decision.reason === 'same-build' && pending) helpers.clearClientPending(pendingDir)
+      if (['same-build', 'older-build'].includes(decision.reason) && pending) helpers.clearClientPending(pendingDir)
       if (decision.reason === 'already-pending') return { action: 'skip', detail: 'already-pending' }
       return { action: 'skip', detail: decision.reason }
     }

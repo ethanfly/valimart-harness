@@ -130,7 +130,7 @@ export function renderAdminHtml({ companyName }) {
   .hit .m { color:var(--muted); font-size:12px; }
   .hit .s { margin-top:4px; font-size:13px; }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:10; }
-  .dialog { background:#fff; border-radius:14px; padding:22px 24px; width: min(680px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+  .dialog { background:#fff; border-radius:14px; padding:22px 24px; width: min(680px, calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow-y:auto; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
   .model-pick { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow:auto; padding:2px 0; }
   .model-tag { display:inline-flex; align-items:center; gap:2px; padding:2px 4px 2px 8px; border-radius:6px; background:var(--chip); font-size:12px; line-height:20px; }
   .model-tag.model-row { display:flex; width:100%; align-items:center; gap:8px; padding:4px 6px 4px 10px; }
@@ -489,7 +489,7 @@ export function renderAdminHtml({ companyName }) {
       <div data-page="models">
       <section id="channels">
         <h2>模型通道</h2>
-        <p class="desc">可接入订阅（Grok / ChatGPT / Claude）或 API key（OpenAI / Anthropic / DeepSeek）；员工统一走公司网关，凭据不出服务端。\${isAdmin ? '' : '（总监只读）'}</p>
+        <p class="desc">可接入订阅（Grok / ChatGPT / Claude / Google One · Gemini）或 API key（OpenAI / Anthropic / DeepSeek）；员工统一走公司网关，凭据不出服务端。\${isAdmin ? '' : '（总监只读）'}</p>
         <div class="row" style="margin-bottom:10px">
           <button id="addSub" \${isAdmin ? '' : 'disabled'}>加入订阅</button>
           <button id="addKey" \${isAdmin ? '' : 'disabled'}>加入模型</button>
@@ -1015,7 +1015,7 @@ export function renderAdminHtml({ companyName }) {
         showOAuthLink(r.authorizeUrl);
         wrap.dataset.oauthState = r.state || '';
         if (r.flow === 'authorization_code_paste') {
-          setOAuthStatus('浏览器登录后，把回调页上的授权码（或整段网址）贴到下面。');
+          setOAuthStatus(c.oauth?.pasteHint || '浏览器登录后，把回调页上的授权码（或整段网址）贴到下面。');
           const paste = wrap.querySelector('#oauthPaste');
           if (paste) paste.style.display = '';
           return;
@@ -1050,11 +1050,11 @@ export function renderAdminHtml({ companyName }) {
       }
       const o = c.oauth || {};
       if (o.available && o.configured) {
-        desc.textContent = '用官方 OAuth 登录订阅账号，令牌只保存在服务端；员工不接触凭据。';
+        desc.textContent = o.detail || '用官方 OAuth 登录订阅账号，令牌只保存在服务端；员工不接触凭据。';
         const flowHint = o.flow === 'device_code'
           ? '将打开浏览器，输入一次性代码登录订阅账号。'
           : o.flow === 'authorization_code_paste'
-            ? '将打开浏览器登录；登录后把授权码贴回来。'
+            ? (o.pasteHint || '将打开浏览器登录；登录后把授权码贴回来。')
             : '浏览器打开授权页，登录后回到此页选择模型。';
         oauthBox.innerHTML = '<div class="field"><button type="button" class="primary" id="oauthLogin">登录账号</button><p class="desc" id="oauthStatus">' + flowHint + '</p><p class="mono" id="oauthDeviceCode" style="font-size:22px;letter-spacing:2px;margin:6px 0 0"></p><p id="oauthOpenWrap" style="display:none;margin:8px 0 0"><a id="oauthOpenLink" target="_blank" rel="noopener noreferrer">如果浏览器拦截了弹窗，点这里打开授权页</a></p><div id="oauthPaste" style="display:none;margin-top:10px"><input id="oauthPasteCode" placeholder="授权码或回调网址" /><button type="button" id="oauthComplete" style="margin-top:8px">提交授权码</button></div><details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12px">高级：手动粘贴</summary></details></div>';
         credLabel.textContent = '订阅凭据（访问令牌）';

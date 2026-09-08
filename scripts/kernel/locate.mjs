@@ -49,6 +49,20 @@ export function locateKernel(prefix) {
 /** 安装完成后落在前缀根目录的戳记（版本 + 补丁清单），用来快速判断「已装好」。 */
 export const stampPath = (prefix) => path.join(prefix, '.company-desk-kernel.json')
 
+/** Offline bundles are part of the kernel's runnable closure, including their entry files. */
+export function missingProfilePlugins(kernel, plugins = PIN.profilePlugins ?? []) {
+  const modules = kernel?.root ? path.resolve(kernel.root, '..', '..') : ''
+  return plugins.filter(({ name }) => {
+    try {
+      if (!modules) return true
+      const dir = path.join(modules, name)
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+      return [pkg.main ?? 'lib/index.js', pkg.dsh?.bundle?.patch ?? 'cordis.patch.yml']
+        .some((file) => !fs.existsSync(path.join(dir, file)))
+    } catch { return true }
+  }).map(({ name }) => name)
+}
+
 /**
  * 绝不往正在被使用的 npm 树里写：全局 npm 目录、~/.local、以及历史上的手工安装目录。
  * 返回 null 表示可以用，否则返回被拒的原因。

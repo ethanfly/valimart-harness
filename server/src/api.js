@@ -14,7 +14,8 @@ import { KernelPatchError } from '../../scripts/kernel/patches.mjs'
 import { assertPublishedOnNpm, prepareKernelTarball } from '../../scripts/lib/kernel-prepare.mjs'
 import { hasNpm } from '../../scripts/lib/npm-cli.mjs'
 import { fetchNpmVersions, resolveNpmRegistry } from '../../scripts/lib/kernel-update.mjs'
-import { registerOAuthSubscribe, decorateChannels } from './oauth-subscribe.js'
+import { registerOAuthSubscribe, decorateChannels, resolveProviderConfig } from './oauth-subscribe.js'
+import { setupGeminiProject } from './upstream-gemini.js'
 import { normalizeModels } from './channels.js'
 import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
 import { workspacePluginCatalog } from './dsh-plugins.js'
@@ -325,7 +326,10 @@ export function registerApi(router, ctx) {
     const body = await readJson(req)
     const channelDef = channels.find(req.params.id)
     const { models: resolved } = await resolveConnectModels(channelDef, body, body.credential)
-    const channel = channels.connect(req.params.id, { ...body, models: resolved }, user)
+    const googleProjectId = channelDef.api === 'gemini-code-assist'
+      ? await setupGeminiProject({ credential: body.credential, baseUrl: body.baseUrl || channelDef.baseUrl, projectId: resolveProviderConfig(channelDef.id, cfg)?.projectId, fetchImpl: fetchModels })
+      : undefined
+    const channel = channels.connect(req.params.id, { ...body, models: resolved, ...(googleProjectId ? { googleProjectId, api: channelDef.api } : {}) }, user)
     console.log(`[gateway] ${user.username} 接入通道 ${channel.label}（${channel.kindLabel}），模型 ${channel.models.join(', ')}`)
     sendJson(res, 200, { channel, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
   })

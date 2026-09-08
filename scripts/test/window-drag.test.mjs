@@ -1,22 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 const { attachWindowDrag } = createRequire(import.meta.url)('../../desktop/window-drag.cjs')
 
-test('Electron 标题栏：better-sidebar 浮层（展开按钮簇 / 右侧面板）下移一个标题栏高度，不压住窗控', () => {
-  const css = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'plugins', 'desk-ui', 'src', 'client', 'styles.css'), 'utf8')
-  // 展开态：按钮簇骑在面板 34px 标签栏上（插件里就是 top: 3）
-  assert.match(css, /html\.dk-desk-electron \[data-dsh-toggle-cluster\]\s*\{\s*top:\s*calc\(3px \+ var\(--dk-titlebar-h, 36px\)\)/)
-  // 收起态：按钮簇对位 DSH 会话头那一行（插件里是 top: 14）
-  assert.match(css, /html\.dk-desk-electron body\[data-dsh-sidebar-collapsed\] \[data-dsh-toggle-cluster\]\s*\{\s*top:\s*calc\(14px \+ var\(--dk-titlebar-h, 36px\)\)/)
-  assert.match(css, /html\.dk-desk-electron \[data-dsh-panel\]\s*\{\s*top:\s*var\(--dk-titlebar-h, 36px\)/)
-  // 一条 14px 管两态会把展开态的按钮簇压到标签栏下面 11px
-  assert.doesNotMatch(css, /html\.dk-desk-electron \[data-dsh-toggle-cluster\]\s*\{\s*top:\s*calc\(14px \+ var\(--dk-titlebar-h, 36px\)\)/)
-})
+// Panel/titlebar geometry is exercised with both real stylesheets in
+// e2e/sidebar-toggle-align.spec.js (including the bottom-panel exclusion).
 
 function harness(maximized = false) {
   const ipcMain = new EventEmitter(), win = new EventEmitter(), web = new EventEmitter()

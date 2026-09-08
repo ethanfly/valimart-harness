@@ -2,7 +2,7 @@
  * DeskSidebar：THE DIVA 品牌行 + 「会话 / 任务」双 Tab 侧栏。
  *  - 会话 Tab：沿用 ui-workspace 的工作区浏览器（个人 / 团队工作区、搜索、筛选、归档）。
  *  - 任务 Tab：任务列表（按状态/更新时间）、搜索、新建任务；点击进入任务模式。
- * 底部：sidebar.footer.action 列表槽 + sidebar.settings（设置按钮）+ 当前登录人。
+ * 底部：sidebar.footer.action 列表槽 + 当前登录人（点击打开设置）。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { deskStore, useStoreValue } from './store.js'
@@ -94,8 +94,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
           {tab === 'sessions' && renderSlot('sidebar.workspaces', { wide: false, expandSidebar: toggleSidebar })}
         </div>
         {renderSlot('sidebar.footer.action', { wide: false })}
-        {renderSlot('sidebar.settings', { wide: false })}
-        {desk?.user && <span className="dk-avatar sm" title={`${desk.user.displayName}（${desk.user.username}）`}>{initials(desk.user)}</span>}
+        <div className="dk-account-settings compact">{renderSlot('sidebar.settings', { wide: false })}</div>
       </div>
     )
   }
@@ -132,28 +131,34 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
       </div>
       <div className="dk-side-footer">
         {renderSlot('sidebar.footer.action', { wide: true })}
-        {renderSlot('sidebar.settings', { wide: true })}
-        {desk?.user && (
-          <div className="dk-side-user" title={`${desk.user.username} · 网关 ${desk.gatewayUrl}`}>
-            <span className="dk-avatar">{initials(desk.user)}</span>
-            <div className="dk-grow">
-              <div className="dk-small dk-ellipsis" style={{ fontWeight: 500 }}>
-                {desk.user.displayName}
-              </div>
-              <div className="dk-xs dk-muted dk-ellipsis">
-                {roleLabel(desk.user.role)} · {desk.user.department || '未分配部门'}
-              </div>
-            </div>
-            <span className={`dk-badge ${desk.online ? 'online' : 'offline'}`} style={{ height: 18 }}>
-              {desk.online ? '在线' : '离线'}
-            </span>
-          </div>
-        )}
+        <div className="dk-account-settings">{renderSlot('sidebar.settings', { wide: true })}</div>
         <div className="dk-client-ver" title={clientVersionDetail(desk?.client)}>
           {clientVersionLabel(desk?.client)}
         </div>
       </div>
     </div>
+  )
+}
+
+/** Content of the native settings trigger; its button retains modal and focus handling. */
+export function DeskUserSettingsTrigger({ wide }) {
+  const desk = useStoreValue(deskStore, (s) => s.desk)
+  if (!wide) return <span className="dk-avatar sm" title="打开设置" aria-label="打开设置">{initials(desk?.user)}</span>
+  return (
+    <span className="dk-side-user" title="打开设置" aria-label={`${desk?.user?.displayName || '账号'}，打开设置`}>
+      <span className="dk-avatar">{initials(desk?.user)}</span>
+      <span className="dk-grow">
+        <span className="dk-small dk-ellipsis" style={{ display: 'block', fontWeight: 500 }}>
+          {desk?.user?.displayName || '未登录'}
+        </span>
+        <span className="dk-xs dk-muted dk-ellipsis" style={{ display: 'block' }}>
+          {desk?.user ? `${roleLabel(desk.user.role)} · ${desk.user.department || '未分配部门'}` : '账号与设置'}
+        </span>
+      </span>
+      {desk?.user && <span className={`dk-badge ${desk.online ? 'online' : 'offline'}`} style={{ height: 18 }}>
+        {desk.online ? '在线' : '离线'}
+      </span>}
+    </span>
   )
 }
 

@@ -647,7 +647,7 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
       setOauthOpenUrl(r.authorizeUrl || '')
       if (r.flow === 'authorization_code_paste') {
         setNeedPasteCode(true)
-        setOauthNote('浏览器登录后，把回调页上的授权码（或整段网址）贴到下面。')
+        setOauthNote(channel.oauth?.pasteHint || '浏览器登录后，把回调页上的授权码（或整段网址）贴到下面。')
         setBusy(false)
         return
       }
@@ -710,6 +710,7 @@ function ConnectChannelDialog({ channels, initial, onClose, onDone }) {
       <div className={`dk-dialog${pickModels.length ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()}>
         <h2>{isEdit ? `编辑 ${channel?.label ?? ''}` : initial.addAccount ? `再登录 ${channel?.label ?? ''}` : isSub ? '加入订阅' : '加入模型'}</h2>
         <div className="sub">{isEdit ? '改模型列表和上下文，不必重新登录。凭据保持不变。' : initial.addAccount ? '同一订阅再挂一个账号；额度用完后自动切到下一个。' : subHint}</div>
+        {oauth?.detail && <div className="sub">{oauth.detail}</div>}
         {isEdit && channel?.custom ? (
           <div className="dk-field">
             <label>名称</label>
@@ -1289,7 +1290,7 @@ export function SubscriptionSection() {
         <div>
           {subscribed.length > 0
             ? <><b>{subscribed.map((c) => c.label).join(' / ')}</b> 订阅正在共享给公司（{[...new Set(subscribed.map((c) => c.connectedBy ?? '配置文件'))].join(' / ')} 接入），员工不接触凭据，不需要各自订阅。</>
-            : <>还没有接入订阅通道：管理员可用下方「加入订阅」把一个 Grok / ChatGPT / Claude 订阅共享给全公司。</>}
+            : <>还没有接入订阅通道：管理员可用下方「加入订阅」接入 Grok / ChatGPT / Claude / Google One（Gemini）。</>}
         </div>
         {quotas.map((quota) => (
           <div key={quota.provider}>
