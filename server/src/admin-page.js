@@ -422,7 +422,7 @@ export function renderAdminHtml({ companyName }) {
       <div data-page="updates">
       <section id="kernel">
         <h2>内核</h2>
-        <p class="desc">GitHub Release 发现 → 试打 16 处公司补丁 → 通过才入库 / 发布。员工机登录后后台下载，下次启动再切换。\${isAdmin ? '' : '（总监只读）'}</p>
+        <p class="desc">GitHub Release 发现 → 试打公司补丁 → 通过才入库 / 发布。员工机登录后后台下载，下次启动再切换。锁定 \${esc(kernel.pinVersion || '—')}。\${isAdmin ? '' : '（总监只读）'}</p>
         <div class="kv">
           <div><span>当前</span>\${kernel.current && kernel.current.version ? esc(kernel.current.version) + (kernel.current.sourceTag ? ' · ' + esc(kernel.current.sourceTag) : '') : '随包保底 ' + esc(kernel.pinVersion || '—')}</div>
         </div>

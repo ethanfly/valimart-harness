@@ -109,6 +109,15 @@ test('会话锁 v2：上游 import 直接升级；锚点变了就停手', (t) =>
   const h = fixture(t)
   fs.writeFileSync(h.file, 'export const nothing = 1;\n')
   assert.throws(() => prepareSessionLockDependency({ kernelRoot: h.kernelRoot }), /session-lock-anchor/)
+
+  const addon = fixture(t)
+  fs.writeFileSync(
+    addon.file,
+    'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock";\nif (process.platform === "win32") { await acquireLockHandleWin32(path); }\n',
+  )
+  const before = fs.readFileSync(addon.file, 'utf8')
+  assert.equal(prepareSessionLockDependency({ kernelRoot: addon.kernelRoot }), false)
+  assert.equal(fs.readFileSync(addon.file, 'utf8'), before)
 })
 
 test('flock 标志串：exnb → LOCK_EX|LOCK_NB', () => {

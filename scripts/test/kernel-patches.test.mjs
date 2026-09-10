@@ -20,6 +20,20 @@ const GOAL_RC11 =
 const GOAL_RC12 =
   '\t\t\tif (current.phase === "active" && runtime.activation === "armed") throw new GoalError(`goal "${current.id}" is already active and armed`, "GOAL_INVALID_TRANSITION");\n'
 
+const MARKDOWN_RC13 =
+  '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions\n\t\t\t\t\t\t}, i));'
+const MARKDOWN_RC15 =
+  '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions,\n\t\t\t\t\t\t\tpathImages\n\t\t\t\t\t\t}, i));'
+
+test('assistant markdown：0.1.3 与 0.1.5 的 MarkdownText 都能切到 renderMarkdown 槽', () => {
+  const edit = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1').edits.find((e) => e.name === 'assistant-markdown-slot-render')
+  const old = applyEdit(MARKDOWN_RC13, edit, 'dsh-client-ui-chat')
+  const neu = applyEdit(MARKDOWN_RC15, edit, 'dsh-client-ui-chat')
+  assert.match(old, /renderMarkdown\(\{ text: block\.text, streaming, labels, fileMentions: mentions \}\)/)
+  assert.match(neu, /renderMarkdown\(\{ text: block\.text, streaming, labels, fileMentions: mentions, pathImages \}\)/)
+  assert.equal(old.includes('pathImages'), false)
+})
+
 test('0.1.3 会话落盘：增加 rename 时保留新会话锁使用的 lstat', () => {
   const edit = CODE_PATCHES.find((p) => p.mark === 'company-session-smbfs-rename-v1').edits[0]
   const source = 'import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";\n'

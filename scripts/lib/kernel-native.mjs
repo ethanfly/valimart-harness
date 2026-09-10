@@ -2,11 +2,12 @@
  * 会话写锁的跨平台原生依赖处理。
  *
  * 上游 dsh 0.1.3 的 POSIX 会话锁用 `fs-ext`（NAN 原生模块，装的时候要 node-gyp 现场编译），
- * Windows 走 koffi 命名信号量。
+ * Windows 走 koffi 命名信号量。0.1.5 起 POSIX 改走 `@deepseek-ai/node-addon-system/flock`，不再依赖 fs-ext。
  *   - v1（company-session-posix-flock-v1）：只让 POSIX 加载 fs-ext，Windows 不编译它。
  *   - v2（company-session-lock-v2）：POSIX 优先用编译好的 fs-ext，**没有就用 koffi 直接绑 flock(2)**。
  *     必须这么做：macOS 客户端是在 Windows 构建机上打的包，编不出 darwin 的 fs_ext.node；
  *     而 fs-ext 用 NAN（ABI 绑定），也找不到能用的预编译产物。koffi 是 NAPI，我们本来就随包带了 darwin-x64。
+ *   - 0.1.5+：上游已换成 node-addon-system，不再打 v2。
  *
  * 语义与上游保持一致：非阻塞 `flock(fd, LOCK_EX|LOCK_NB)`，竞争时回调的 error.code 必须是
  * EAGAIN / EWOULDBLOCK（上游据此抛 SessionAlreadyOwnedError），释放靠关闭 fd（flock 随 fd 释放）。
@@ -22,6 +23,7 @@ export const SESSION_LOCK_MARK = 'company-session-lock-v2'
 
 const V1_LINE = 'const flock = process.platform === "win32" ? undefined : companyCreateRequire(import.meta.url)("fs-ext").flock;'
 const UPSTREAM_IMPORT = 'import { flock } from "fs-ext";'
+const UPSTREAM_ADDON_IMPORT = 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock";'
 const REQUIRE_IMPORT = 'import { createRequire as companyCreateRequire } from "node:module";'
 /** 上游 Windows 信号量锁的锚点：文件被改过就停下来，别盲改。 */
 const WINDOWS_ANCHORS = ['if (process.platform === "win32") {', 'await acquireLockHandleWin32(path)']
@@ -116,6 +118,9 @@ export function prepareSessionLockDependency({ kernelRoot, log = () => {} }) {
       if (!source.includes(anchor)) throw new KernelPatchError('windows-session-lock-anchor', file)
     }
     next = source.replace(UPSTREAM_IMPORT, () => `${REQUIRE_IMPORT}\n${FLOCK_IMPL}`)
+  } else if (source.includes(UPSTREAM_ADDON_IMPORT)) {
+    // 0.1.5：POSIX flock 已由上游 node-addon-system 提供，Windows 仍走 koffi 信号量。
+    return false
   } else {
     throw new KernelPatchError('session-lock-anchor', file)
   }
@@ -128,7 +133,7 @@ export function prepareSessionLockDependency({ kernelRoot, log = () => {} }) {
 export function prepareWindowsNativeDependencies({ kernelRoot, platform = process.platform, log = () => {} }) {
   if (platform !== 'win32') return false
   const nativePackage = path.join(kernelRoot, 'node_modules', 'fs-ext', 'package.json')
-  if (!fs.existsSync(nativePackage)) return false // 0.1.2 尚未引入 fs-ext。
+  if (!fs.existsSync(nativePackage)) return false // 0.1.2 尚未引入；0.1.5 改走 node-addon-system。
   const pkg = JSON.parse(fs.readFileSync(nativePackage, 'utf8'))
   if (pkg.name !== 'fs-ext' || pkg.version !== '2.1.1') {
     throw new KernelPatchError('native-dependency-version', `fs-ext@${pkg.version} 尚未验证 Windows 安装兼容性`)

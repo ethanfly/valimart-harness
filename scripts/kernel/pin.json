@@ -1,7 +1,7 @@
 {
-  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-08 从 0.1.2-rc.1 升到 0.1.3-alpha.2：16 处补丁锚点全部干净命中（prepare 已验证）；0.1.5-alpha.1 虽是 alpha 通道最新，但上游发布不完整（dsh-fs-local@^0.1.5-alpha.1 等子包没上 npm，ETARGET），装不了，勿试。",
+  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-10 从 0.1.3-alpha.2 升到 0.1.5-rc.1：prepare 验证 16 处补丁干净命中（MarkdownText 增加 pathImages，已加锚点变体）。0.1.5 起 POSIX 会话锁改走 @deepseek-ai/node-addon-system/flock，不再打 fs-ext v2。0.1.5-alpha.1 仍因发布不完整（子包 ETARGET）勿试。",
   "package": "@deepseek-ai/dsh",
-  "version": "0.1.3-alpha.2",
+  "version": "0.1.5-rc.1",
   "profilePlugins": [
     {
       "name": "dsh-better-sidebar",
