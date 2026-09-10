@@ -18,7 +18,6 @@ const { pathToFileURL } = require('node:url')
 const { createDshWebUrlWatcher, hasLaunchToken, resolveDshWebUrl, sameWebOrigin } = require('./dsh-web-url.cjs')
 const { closePromptToResponse, readDesktopPrefs, writeDesktopPrefs, resolveCloseChoice } = require('./prefs.cjs')
 const { attachImageMenu } = require('./image-menu.cjs')
-const { attachWindowDrag } = require('./window-drag.cjs')
 
 const APP_ID = 'team.ethan.valimart-harness'
 const args = process.argv
@@ -65,6 +64,15 @@ class Log {
   }
 }
 const log = new Log(path.join(logDir, 'desktop.log'))
+
+/** 内核最后几行输出：启动失败时直接写进错误对话框，省得用户去翻日志。 */
+const KERNEL_TAIL_LINES = 12
+let kernelTail = []
+function rememberKernelOutput(chunk) {
+  const lines = String(chunk).split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim())
+  if (!lines.length) return
+  kernelTail = [...kernelTail, ...lines].slice(-KERNEL_TAIL_LINES)
+}
 
 // ---------- 小工具（与 scripts/lib/bootstrap.mjs 同逻辑；主进程是 CJS，不直接 import 那个 ESM）----------
 async function findFreePort(preferred, tries) {
@@ -237,10 +245,12 @@ function startKernel(ready, port) {
   child.stderr.setEncoding('utf8')
   child.stdout.on('data', (d) => {
     log.write('dsh', d)
+    rememberKernelOutput(d)
     webUrl.feed(d)
   })
   child.stderr.on('data', (d) => {
     log.write('dsh:err', d)
+    rememberKernelOutput(d)
     webUrl.feed(d)
   })
   child.on('error', (err) => fatal(new Error(`内核进程无法启动：${err.message}`)))
@@ -412,7 +422,6 @@ async function openMainWindow(url, { attach = false } = {}) {
   mainWin.setMenu(null)
   attachWindowChrome(mainWin)
   attachImageMenu(mainWin, url, { Menu, shell, dialog })
-  if (process.platform === 'win32') attachWindowDrag(mainWin, url, { ipcMain })
   mainWin.webContents.setWindowOpenHandler(({ url: u }) => {
     if (sameWebOrigin(u, url)) return { action: 'allow' }
     openExternal(u)
@@ -536,7 +545,8 @@ async function loadHashMod() {
 }
 
 async function maybeApplyPendingClient() {
-  if (!app.isPackaged) return false
+  // 自更新是 Windows 专属：网关下发的是 NSIS 安装器；macOS 客户端整包替换。
+  if (!app.isPackaged || process.platform !== 'win32') return false
   try {
     const mod = await loadClientUpdateMod()
     const { hashFile } = await loadHashMod()
@@ -622,7 +632,11 @@ async function loadDeskHostUpdateMod(rel) {
  * @returns {Promise<boolean>} true = 客户端更新已应用、进程即将退出，不要再起内核。
  */
 async function preOpenUpdateCheck() {
-  if (!app.isPackaged) return false
+  // 同 maybeApplyPendingClient：客户端整包与内核 tar 都只对 Windows 客户端有意义。
+  if (!app.isPackaged || process.platform !== 'win32') {
+    if (app.isPackaged) log.write('update', `跳过打开前更新检查（${process.platform} 客户端随整包更新）`)
+    return false
+  }
   const desk = readDeskState()
   if (!desk) {
     log.write('update', '没有已登录会话，跳过打开前更新检查')
@@ -727,11 +741,12 @@ async function fatal(err) {
   killTree(bootstrapChild)
   if (splash && !splash.isDestroyed()) splash.hide()
   const live = appLive && mainWin && !mainWin.isDestroyed()
+  const tail = kernelTail.length ? `\n\n内核最后输出：\n${kernelTail.join('\n')}` : ''
   const { response } = await dialog.showMessageBox({
     type: 'error',
     title: live ? 'valimart harness 运行中断' : 'valimart harness 无法启动',
     message: live ? '内核进程意外退出，工作台已关闭。' : 'valimart harness 无法启动',
-    detail: `${err.message}\n\n日志：${log.file}`,
+    detail: `${err.message}${tail}\n\n日志：${log.file}`,
     buttons: live ? ['重新打开', '打开日志目录', '退出'] : ['打开日志目录', '退出'],
     defaultId: live ? 0 : 1,
     cancelId: live ? 2 : 1,

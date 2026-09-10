@@ -5,13 +5,16 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-/** 内核修剪：只删运行期绝不加载的东西。relPath 相对内核前缀根。 */
-export function shouldPrune(relPath) {
+/** 内核修剪：只删运行期绝不加载的东西。relPath 相对内核前缀根。
+ *  targetPlatform/targetArch = 目标客户端平台（默认构建机平台），决定保留哪一份 node-pty 预编译。 */
+export function shouldPrune(relPath, targetPlatform = process.platform, targetArch = process.arch) {
   const p = relPath.replace(/\\/g, '/')
   if (/\.d\.(ts|mts|cts)$/.test(p)) return true
   if (/\.(js|cjs|mjs|d\.ts|d\.mts|d\.cts)\.map$/.test(p)) return true
   const m = /\/node-pty\/prebuilds\/([^/]+)\//.exec(p)
-  if (m && m[1] !== 'win32-x64') return true
+  if (m && m[1] !== `${targetPlatform}-${targetArch}`) return true
+  // 非 Windows 目标：node-pty 的 ConPTY / winpty 产物只有 Windows 会加载
+  if (targetPlatform !== 'win32' && /\/node-pty\/(build\/Release\/conpty|third_party\/conpty)\//.test(p)) return true
   return false
 }
 

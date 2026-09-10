@@ -22,7 +22,16 @@
 }
 
 /* ---------- 外壳 ---------- */
-html.dk-desk-electron { --dk-titlebar-h: 36px; --dk-win-inset: 0px; }
+html.dk-desk-electron {
+  --dk-titlebar-h: 36px;
+  --dk-win-inset: 0px;
+  --dk-caption-top: calc(4px + var(--dk-win-inset));
+  --dk-win-controls-w: 138px;
+  --dk-caption-right: calc(148px + var(--dk-win-inset));
+  --dk-toggle-cluster-w: 60px;
+  --dk-session-actions-right: calc(var(--dk-caption-right) + var(--dk-toggle-cluster-w) + 8px);
+  --dk-caption-reserve: calc(var(--dk-session-actions-right) + 72px);
+}
 html.dk-desk-electron.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset); }
 /* Preserve the workbench's right-panel reservation when sizing the frame. */
 html.dk-desk-electron #root .dk-frame[data-dsh-frame] {
@@ -51,22 +60,7 @@ html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.sessi
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > [role='tablist'] {
   margin-top: 8px;
 }
-/* Keep the upstream export action and its busy state, with a quiet icon button. */
-.dk-frame [data-slot='conversation.session.header'] [class*='_titleRow']:has(button[class*='_sessionLogButton']) {
-  column-gap: 6px;
-  align-items: center;
-}
-.dk-frame [data-slot='conversation.session.header'] [class*='_titleRow']:has(button[class*='_sessionLogButton']) > [class*='_titleCluster'] {
-  display: contents;
-}
-.dk-frame [data-slot='conversation.session.header'] [class*='_titleRow']:has(button[class*='_sessionLogButton']) [class*='_headerActions'] {
-  order: 2;
-}
-.dk-frame [data-slot='conversation.session.header'] [class*='_headerUtilities']:has(button[class*='_sessionLogButton']) {
-  order: 1;
-  margin-left: 0;
-  align-self: center;
-}
+/* Session folder + log sit in the caption row, left of the panel toggles. */
 .dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] {
   position: relative;
   min-width: 28px;
@@ -108,17 +102,35 @@ html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.sessi
   -webkit-app-region: drag;
 }
 html.dk-desk-electron body[data-dsh-sidebar-collapsed] .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
-  margin-right: 210px;
+  margin-right: var(--dk-caption-reserve);
 }
 html.dk-desk-electron body:not(:has([data-dsh-panel-host])) .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
-  margin-right: 138px;
+  margin-right: var(--dk-caption-right);
 }
 html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-main {
+  /* 点击穿透到会话顶栏按钮；不要写成 no-drag。
+     Chromium 会把所有 no-drag 矩形从原生拖区里扣掉，上层再扣一次整条顶栏，
+     会话标题自己的 drag 就到不了系统合成器，窗口只能靠 IPC setPosition，会卡。 */
   pointer-events: none;
-  -webkit-app-region: no-drag;
 }
 html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-title {
   display: none;
+}
+html.dk-desk-electron [data-slot='conversation.session.header.utilities'] {
+  position: fixed;
+  top: 4px;
+  right: var(--dk-session-actions-right);
+  z-index: 1200;
+  height: 28px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+html.dk-desk-electron body:not(:has([data-dsh-panel-host])) [data-slot='conversation.session.header.utilities'] {
+  right: var(--dk-caption-right);
 }
 html.dk-desk-electron button,
 html.dk-desk-electron input,
@@ -133,16 +145,30 @@ html.dk-desk-electron .dk-brand {
   padding: 16px 14px 8px 12px;
   align-items: flex-start;
 }
+html.dk-desk-electron .dk-brand .dk-iconbtn,
+html.dk-desk-electron .dk-rail .dk-iconbtn {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
 html.dk-desk-electron .dk-rail { padding-top: 16px; }
 /* Workbench tabs and toggles share the caption row. Keep the toggle cluster
    fixed in both states, left of the three 46px window controls. */
 html.dk-desk-electron [data-dsh-toggle-cluster] {
-  top: calc(4px + var(--dk-win-inset));
-  right: calc(148px + var(--dk-win-inset));
+  top: var(--dk-caption-top);
+  right: var(--dk-caption-right);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 html.dk-desk-electron body[data-dsh-sidebar-collapsed] [data-dsh-toggle-cluster] {
-  top: calc(4px + var(--dk-win-inset));
-  right: calc(148px + var(--dk-win-inset));
+  top: var(--dk-caption-top);
+  right: var(--dk-caption-right);
+}
+html.dk-desk-electron:has(.dk-overlay) [data-dsh-toggle-cluster],
+html.dk-desk-electron:has(.dk-overlay) [data-slot='conversation.session.header.utilities'] {
+  visibility: hidden;
+  pointer-events: none;
 }
 html.dk-desk-electron [data-dsh-panel]:not([data-dsh-bottom-panel]) {
   top: var(--dk-win-inset);
@@ -156,10 +182,10 @@ html.dk-desk-electron [data-dsh-bottom-panel] { bottom: var(--dk-win-inset); }
 html.dk-desk-electron [data-dsh-panel]:not([data-dsh-bottom-panel]) [class*='_tabBar']:has(> [class*='_tabList']) {
   box-sizing: border-box;
   height: var(--dk-titlebar-h, 36px);
-  padding-right: 210px;
+  padding-right: var(--dk-caption-reserve);
 }
 html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
-  margin-right: max(210px, var(--dsh-sidebar-width, 0px));
+  margin-right: max(var(--dk-caption-reserve), var(--dsh-sidebar-width, 0px));
 }
 /* Both workbenches carry data-dsh-panel. The bottom one must stay anchored
    to bottom:0; giving it a top over-constrains its explicit height. The
@@ -190,10 +216,14 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
   user-select: none;
   z-index: 1100;
   pointer-events: none;
+  /* 整条 36px 交给系统合成器拖窗（含侧栏上方）。pointer-events:none 只让点击落到下层按钮。 */
+  -webkit-app-region: drag;
 }
 .dk-titlebar-side {
   flex: none;
   width: var(--dk-titlebar-side-w, 280px);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
   transition: width 160ms ease;
 }
 .dk-titlebar-main {
@@ -202,7 +232,6 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
   display: flex;
   align-items: center;
   pointer-events: auto;
-  /* Native region on other platforms; Windows preload supplies explicit pointer dragging. */
   -webkit-app-region: drag;
 }
 .dk-titlebar-title {
@@ -841,3 +870,121 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
 .dk-image-preview::backdrop { background: rgb(0 0 0 / 65%); }
 .dk-image-preview > button { display: block; margin: 0 0 12px auto; }
 .dk-image-preview > img { display: block; max-width: 88vw; max-height: 78vh; object-fit: contain; cursor: default; }
+
+/* ============ Mixed 混合模式（T08） ============ */
+
+/* 芯片启用态 + 状态点 */
+.dk-mixed-chip.on { border-color: var(--dk-accent); background: var(--dk-accent-soft); color: var(--dk-accent); }
+.dk-mixed-chip.on:disabled { opacity: 1; }
+.dk-mixed-chip.locked { opacity: .8; }
+.dk-mixed-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dk-accent); animation: dk-mixed-pulse 1.2s ease-in-out infinite; flex: none; }
+.dk-mixed-dot.st-waiting_input { background: var(--dk-warn); }
+.dk-mixed-dot.st-cancelling { background: var(--dk-danger); }
+@keyframes dk-mixed-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* 设置页：角色选择 */
+.dk-mixed-role { padding: 10px 0; border-bottom: 0.5px solid var(--dk-border-soft); }
+.dk-mixed-role:last-child { border-bottom: none; }
+.dk-mixed-role-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.dk-mixed-role-head .k { font-weight: 600; font-size: 13px; }
+.dk-mixed-role .dk-select { width: 100%; margin-top: 2px; }
+.dk-mixed-problem { font-size: 12.5px; color: var(--dk-warn); padding: 2px 0; }
+
+/* 设置页横幅 */
+.dk-mixed-banner { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 10px; }
+.dk-mixed-banner.warn { background: #fff4e5; color: #8a5200; }
+.dk-mixed-banner.err { background: #fdecec; color: #a12622; }
+.dk-mixed-banner.ok { background: #e6f6ec; color: #1f7a45; }
+
+/* 运行面板（dock） */
+.dk-mixed-panel { max-width: 100%; font-size: 13px; }
+.dk-mixed-bar { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--dk-border); border-radius: 10px; background: var(--dk-bg-1); cursor: pointer; }
+.dk-mixed-panel.active .dk-mixed-bar { border-color: color-mix(in srgb, var(--dk-accent) 45%, var(--dk-border)); }
+.dk-mixed-panel.terminal.ok .dk-mixed-bar { border-color: color-mix(in srgb, var(--dk-success) 40%, var(--dk-border)); background: #f2faf5; }
+.dk-mixed-panel.terminal.err .dk-mixed-bar { border-color: color-mix(in srgb, var(--dk-danger) 40%, var(--dk-border)); background: #fdf4f4; }
+.dk-mixed-panel.terminal.muted .dk-mixed-bar { opacity: .85; }
+.dk-mixed-bar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.dk-mixed-status { flex: none; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--dk-bg-2); color: var(--dk-text-2); }
+.dk-mixed-status.s-planning, .dk-mixed-status.s-executing, .dk-mixed-status.s-reviewing, .dk-mixed-status.s-repairing, .dk-mixed-status.s-finalizing { background: var(--dk-accent-soft); color: var(--dk-accent); }
+.dk-mixed-status.s-waiting_input { background: #fff4e5; color: #8a5200; }
+.dk-mixed-status.s-cancelling, .dk-mixed-status.s-blocked, .dk-mixed-status.s-interrupted { background: #fdecec; color: #a12622; }
+.dk-mixed-status.s-succeeded { background: #e6f6ec; color: #1f7a45; }
+.dk-mixed-status.s-cancelled { background: var(--dk-bg-2); color: var(--dk-text-3); }
+.dk-mixed-status.s-queued { background: var(--dk-bg-2); color: var(--dk-text-3); }
+.dk-mixed-goal { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dk-text); }
+.dk-mixed-caret { display: inline-block; transition: transform .15s; color: var(--dk-text-3); }
+.dk-mixed-caret.open { transform: rotate(180deg); }
+
+.dk-mixed-body { border: 1px solid var(--dk-border); border-top: none; border-radius: 0 0 10px 10px; margin-top: -4px; padding: 10px 12px; background: var(--dk-bg); }
+.dk-mixed-panel.collapsed .dk-mixed-body { display: none; }
+.dk-mixed-section { margin-top: 10px; }
+.dk-mixed-section .k { font-weight: 600; font-size: 12.5px; color: var(--dk-text-2); }
+
+/* 阶段条 */
+.dk-mixed-stages { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dk-mixed-stage { font-size: 12px; color: var(--dk-text-3); padding: 1px 8px; border-radius: 999px; background: var(--dk-bg-2); }
+.dk-mixed-stage.done { background: #e6f6ec; color: #1f7a45; }
+.dk-mixed-stage.now { background: var(--dk-accent); color: #fff; font-weight: 600; }
+
+/* 模型标签 */
+.dk-mixed-models { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.dk-mixed-model { font-family: var(--dk-mono); font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--dk-bg-2); color: var(--dk-text-2); }
+
+/* T10 用量（已知 tokens / 覆盖度 / 价格估值；未知不显示为 0） */
+.dk-mixed-usage { margin-top: 8px; padding: 7px 10px; border-radius: 8px; background: var(--dk-bg-1); font-size: 12.5px; }
+.dk-mixed-usage-row { display: flex; align-items: baseline; gap: 8px; padding: 1px 0; }
+.dk-mixed-usage-row .dk-muted { flex: none; min-width: 92px; }
+.dk-mixed-usage-unknown { color: var(--dk-warn); }
+
+/* 存储降级横幅：写链挂起/写失败时独立于 run 记录显示（数据保留，重启恢复） */
+.dk-mixed-storage-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--dk-warn) 45%, transparent);
+  background: color-mix(in srgb, var(--dk-warn) 10%, transparent);
+  color: var(--dk-warn);
+  font-size: 12.5px;
+}
+
+/* 任务列表 */
+.dk-mixed-tasks { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+.dk-mixed-task { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 6px; }
+.dk-mixed-task.sub { padding-left: 20px; }
+.dk-mixed-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-mixed-tstate { flex: none; font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--dk-bg-2); color: var(--dk-text-3); }
+.dk-mixed-tstate.t-running, .dk-mixed-tstate.t-ready { background: var(--dk-accent-soft); color: var(--dk-accent); }
+.dk-mixed-tstate.t-executed, .dk-mixed-tstate.t-accepted { background: #e6f6ec; color: #1f7a45; }
+.dk-mixed-tstate.t-failed, .dk-mixed-tstate.t-blocked, .dk-mixed-tstate.t-interrupted { background: #fdecec; color: #a12622; }
+.dk-mixed-tstate.t-changes_requested { background: #fff4e5; color: #8a5200; }
+.dk-mixed-blocked { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--dk-danger); }
+
+/* 审核 */
+.dk-mixed-verdict { font-weight: 600; }
+.dk-mixed-verdict.v-pass { color: var(--dk-success); }
+.dk-mixed-verdict.v-changes_requested { color: var(--dk-warn); }
+.dk-mixed-verdict.v-blocked { color: var(--dk-danger); }
+.dk-mixed-criterion { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+.dk-mixed-finding { display: flex; gap: 8px; padding: 7px 9px; border-radius: 8px; background: var(--dk-bg-1); margin-top: 6px; font-size: 12.5px; }
+.dk-mixed-finding.blocking { background: #fdf4f4; border: 1px solid color-mix(in srgb, var(--dk-danger) 30%, transparent); }
+.dk-mixed-finding .k { flex: none; font-weight: 600; }
+.dk-mixed-repair { margin-top: 3px; color: var(--dk-warn); }
+
+/* 证据 */
+.dk-mixed-evidence { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.dk-mixed-evrow { display: flex; align-items: center; gap: 8px; }
+.dk-mixed-evtype { font-family: var(--dk-mono); font-size: 11px; }
+.dk-mixed-evview { border: 1px solid var(--dk-border-soft); border-radius: 8px; padding: 8px 10px; background: var(--dk-bg-1); }
+.dk-mixed-evtext { margin: 6px 0 0; padding: 8px 10px; background: var(--dk-bg); border-radius: 6px; font-family: var(--dk-mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+
+/* 其他 */
+.dk-mixed-err { margin-top: 8px; font-size: 12.5px; color: var(--dk-danger); }
+.dk-mixed-queued { margin-top: 8px; font-size: 12px; color: var(--dk-warn); background: #fff4e5; border-radius: 8px; padding: 7px 10px; }
+.dk-mixed-q { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 12.5px; }
+.dk-mixed-qid { font-family: var(--dk-mono); font-size: 11px; color: var(--dk-text-2); }
+.dk-mixed-qtext { color: var(--dk-text); }
+.dk-mixed-q textarea { width: 100%; resize: vertical; min-height: 48px; padding: 6px 8px; border: 1px solid var(--dk-border); border-radius: 8px; background: var(--dk-bg); color: var(--dk-text); font: inherit; }
+.dk-mixed-detail { border: 1px solid var(--dk-border); border-top: none; border-radius: 0 0 10px 10px; margin-top: -4px; padding: 8px 10px; background: var(--dk-bg); }

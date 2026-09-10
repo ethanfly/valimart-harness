@@ -72,6 +72,7 @@
         {
           "id": "mock-echo",
           "name": "Mock Echo",
+          "mixedRoles": { "planner": true, "executor": true, "reviewer": true },
           "contextWindow": 32768,
           "maxTokens": 4096,
           "priceCnyPerM": { "input": 0.5, "output": 1.0, "cachedInput": 0.05 }

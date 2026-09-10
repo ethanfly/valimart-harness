@@ -63,6 +63,19 @@ export const api = {
     saveConfig: (body) => call('POST', '/image/config', body),
     generate: (body) => call('POST', '/image/generate', body, { timeoutMs: 180_000 }),
   },
+  mixed: {
+    config: () => call('GET', '/mixed/config'),
+    saveConfig: (body) => call('POST', '/mixed/config', body),
+    session: (sid) => call('GET', `/sessions/${encodeURIComponent(sid)}/mixed`),
+    setSession: (sid, body) => call('POST', `/sessions/${encodeURIComponent(sid)}/mixed`, body),
+    attach: (sid) => call('POST', `/sessions/${encodeURIComponent(sid)}/mixed/attach`, {}),
+    runs: (sid) => call('GET', `/mixed/runs?sessionId=${encodeURIComponent(sid)}`),
+    run: (runId) => call('GET', `/mixed/runs/${encodeURIComponent(runId)}`),
+    cancel: (runId) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/cancel`, {}),
+    resume: (runId, body) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/resume`, body),
+    rerun: (runId) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/rerun`, {}),
+    evidence: (runId, evidenceId) => call('GET', `/mixed/runs/${encodeURIComponent(runId)}/evidence/${encodeURIComponent(evidenceId)}`),
+  },
   // 网关业务接口透传：/desk/api/gw/<path> → 网关 /api/<path>
   gw: {
     get: (p) => call('GET', `/gw${p}`),

@@ -34,13 +34,32 @@ import {
 } from './upstream-dashscope.js'
 
 export class LlmProxy {
-  constructor({ db, cfg, ledger, catalog, oauth, channels }) {
+  constructor({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution = null }) {
     this.db = db
     this.cfg = cfg
     this.ledger = ledger
     this.catalog = catalog
     this.oauth = oauth
     this.channels = channels
+    this.mixedAttribution = mixedAttribution
+  }
+
+  /**
+   * T10：该用户当前活跃的 mixed attempt 归属 → 账本 extra。
+   * 内部元数据只进本网关账本，绝不注入上游请求体（T10「剥离内部元数据后再请求上游」）。
+   * - 恰好 1 个活跃 attempt → mixed: {runId, stage, attemptId[, taskId]}
+   * - 多个（并发 run）→ mixed: {ambiguous: true, attemptIds}（可见，不悄悄归错）
+   * - 0 个 → 空（普通会话请求不带 mixed 字段）
+   */
+  mixedExtra(user) {
+    if (!this.mixedAttribution || !user) return {}
+    const act = this.mixedAttribution.activeFor(user.id)
+    if (act.length === 1) {
+      const a = act[0]
+      return { mixed: { runId: a.runId, stage: a.stage, attemptId: a.attemptId, ...(a.taskId ? { taskId: a.taskId } : {}) } }
+    }
+    if (act.length > 1) return { mixed: { ambiguous: true, attemptIds: act.map((a) => a.attemptId) } }
+    return {}
   }
 
   authenticate(req) {
@@ -196,6 +215,9 @@ export class LlmProxy {
       completionTokens: usage.completion_tokens,
       cachedTokens: 0,
       costCny: estimateCostCny(model, usage),
+      usageKnown: true,
+      priceKnown: !!model?.priceCnyPerM,
+      ...this.mixedExtra(user),
     })
     sendJson(res, 200, {
       created: Math.floor(Date.now() / 1000),
@@ -221,6 +243,9 @@ export class LlmProxy {
       completionTokens: usage.completion_tokens,
       cachedTokens: 0,
       costCny: estimateCostCny(model, usage),
+      usageKnown: true,
+      priceKnown: !!model?.priceCnyPerM,
+      ...this.mixedExtra(user),
     })
     sendJson(res, 200, {
       created: Math.floor(Date.now() / 1000),
@@ -246,6 +271,9 @@ export class LlmProxy {
         completionTokens: usage?.completion_tokens ?? 0,
         cachedTokens: usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
         costCny: estimateCostCny(model, usage),
+        usageKnown: !!usage,
+        priceKnown: !!model?.priceCnyPerM,
+        ...this.mixedExtra(user),
         ...extra,
       })
     }
@@ -327,6 +355,9 @@ export class LlmProxy {
         completionTokens: usage?.completion_tokens ?? 0,
         cachedTokens: usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
         costCny: cost,
+        usageKnown: !!usage,
+        priceKnown: !!model?.priceCnyPerM,
+        ...this.mixedExtra(user),
         ...extra,
       })
     }
@@ -338,7 +369,9 @@ export class LlmProxy {
     const started = Date.now()
     const stream = body.stream === true
     const finish = (usage, status, extra = {}) => {
-      const cost = estimateCostCny(model, usage)
+      const priceKnown = !!model?.priceCnyPerM
+      const usageKnown = !!usage
+      const cost = usageKnown && priceKnown ? estimateCostCny(model, usage) : (usageKnown ? 0 : null)
       this.ledger.record({
         userId: user.id,
         username: user.username,
@@ -351,6 +384,9 @@ export class LlmProxy {
         completionTokens: usage?.completion_tokens ?? 0,
         cachedTokens: usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
         costCny: cost,
+        usageKnown,
+        priceKnown,
+        ...this.mixedExtra(user),
         ...extra,
       })
     }
@@ -844,6 +880,9 @@ export class LlmProxy {
         completionTokens: usage?.completion_tokens ?? 0,
         cachedTokens: usage?.prompt_cache_hit_tokens ?? 0,
         costCny: estimateCostCny(model, usage),
+        usageKnown: !!usage,
+        priceKnown: !!model?.priceCnyPerM,
+        ...this.mixedExtra(user),
       })
       return { content, usage, latencyMs, model: model.id }
     })

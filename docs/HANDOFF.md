@@ -2,6 +2,18 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 现在在哪（2026-09-10 Mixed 模式）
+
+- [详细计划](superpowers/plans/2026-09-09-mixed-mode-implementation.md)：T01–T10 已在计划中勾完；**T09 于本轮补完 waiting_input 问答**（规划缺关键需求 → 面板按 questionId 回答 → 重规划，25/25 recovery）。
+- 客户端：设置「混合模式」三模型；会话芯片启用 Mixed（与官方 Plan 互斥）；运行面板看阶段/任务/证据/停止/恢复/重跑/用量。
+- 用法：登录公司网关 → 设置保存规划/执行/审核模型（**从公司目录选，不再按启发式灰掉**）→ 会话打开 Mixed → 普通输入框发送。运行中改设置只影响下一次。停止先落盘再收敛。中断后用「继续/重试」，不要当文件重置。
+- T11：新包 `dist/valimart-harness-Setup-0.1.0-20260910.0258.exe`（buildId `0.1.0+0.1.3-alpha.2.20260910-0258.60f45186`，含 zod 链）。`/D` 沙箱 0225→0258 未改正式 Programs；保存 mock-echo 后升级，API 再读仍为三角色（`t11-upgrade-reread.json`）。mac 未覆盖。
+- T09 断网：隔离栈 + mock-echo，杀网关后约 15.6s blocked。mock-echo 现声明三角色，可做离线 Mixed。
+- 未完成：**mac 未覆盖**、**三个不同真模型**（8795/8797 目录只有 pro/flash，其余通道未接入）、计划 A01–A34 多数仍只靠单测不能当 T12 勾完。
+- T09 硬杀续跑（2026-09-10）：隔离栈三角色 `deepseek-v4-flash`，执行中硬杀 → 重启 `interrupted`、无自动重放 → resume 后 succeeded。
+- T12 真模型小任务（2026-09-10）：三角色均为 `deepseek-v4-flash` 时小任务可 succeeded；两真模型分角色时规划 pro / 实施 flash 也可跑通。8795 目录仍只有 pro/flash，不能代替「三个不同真模型」。
+- pin / 内核仍是 DSH **0.1.3-alpha.2**。本轮复跑：Mixed+ledger+bootstrap **158/158**；全量 `npm test` **510 / 503 pass / 6 fail / 1 skip**（仅生图×3、视频×2、oauth-subscribe×1 既有基线，零新增 Mixed 失败）。Playwright Mixed（排除「完整运行」）**5/5**：隔离 3476 + 8795 + `.dsh-mixed-t12e2e`，设置页断言公司目录每个模型在三角色下都可选。3473 旧 T11 实例未动。
+
 ## 现在在哪（2026-09-08 生图插件）
 
 - **DSH 没有现成的、可配 GPT / Qwen / Grok 且走公司网关的生图插件。** awesome-dsh-plugin 的 Vision & Multimodal 是选图 / 预览 / 附件（如 `dsh-image-picker`），官方内核也没有 `image_generate` 工具。公司此前只有团队技能 `grok-imagine`（脚本调网关 `/v1/images/*`）。

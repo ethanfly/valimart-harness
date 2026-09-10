@@ -18,6 +18,7 @@ import { registerOAuthSubscribe, decorateChannels, resolveProviderConfig } from 
 import { setupGeminiProject } from './upstream-gemini.js'
 import { normalizeModels } from './channels.js'
 import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
+import { createModelResolver, roleCapabilities } from './model-resolver.js'
 import { workspacePluginCatalog } from './dsh-plugins.js'
 import { openOrg } from './org.js'
 import { exportBundle, importBundle } from './bundle.js'
@@ -40,7 +41,7 @@ function throwCatalog(err) {
 }
 
 export function registerApi(router, ctx) {
-  const { db, cfg, ledger, tasks, drive, proxy, catalog, presence, channels, knowledge, startedAt, oauth, searchSettings } = ctx
+  const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, mixedAttribution } = ctx
   const kernels =
     ctx.kernels ??
     openKernelCatalog(cfg.dataDir, {
@@ -95,6 +96,7 @@ export function registerApi(router, ctx) {
     user: publicUser(user),
     sessionToken,
     gatewayToken,
+    gatewayInstanceId: instanceId ?? null,
     company: companyView(),
     quota: ledger.quotaView(user, providers()),
     serverTime: new Date().toISOString(),
@@ -195,7 +197,7 @@ export function registerApi(router, ctx) {
 
   router.get('/api/auth/me', async (req, res) => {
     const { user, session } = auth(req)
-    sendJson(res, 200, { user: publicUser(user), company: companyView(), quota: ledger.quotaView(user, providers()), gatewayTokenActive: myGatewayTokenActive(session), serverTime: new Date().toISOString() })
+    sendJson(res, 200, { user: publicUser(user), company: companyView(), quota: ledger.quotaView(user, providers()), gatewayTokenActive: myGatewayTokenActive(session), gatewayInstanceId: instanceId ?? null, serverTime: new Date().toISOString() })
   })
 
   router.post('/api/auth/gateway-token', async (req, res) => {
@@ -218,7 +220,95 @@ export function registerApi(router, ctx) {
   const modelsSignature = () => JSON.stringify(companyView().models)
   router.post('/api/presence', async (req, res) => {
     const { user, session } = auth(req)
-    sendJson(res, 200, { ok: true, serverTime: new Date().toISOString(), gatewayTokenActive: myGatewayTokenActive(session), quota: ledger.quotaView(user, providers()), modelsSignature: modelsSignature() })
+    sendJson(res, 200, { ok: true, serverTime: new Date().toISOString(), gatewayTokenActive: myGatewayTokenActive(session), quota: ledger.quotaView(user, providers()), modelsSignature: modelsSignature(), gatewayInstanceId: instanceId ?? null })
+  })
+
+  // ---------- Mixed 混合模式：模型目录 + 唯一 resolver（T02）----------
+  // 客户端三路由选择器消费本接口：runtimeModelId 是唯一权威（/v1 线上传的 id），
+  // capabilitiesRevision 用于目录刷新后明确失效已保存路由；conflicts 非空时目录存在重复/碰撞，
+  // 相关模型不可选（不静默挑第一个）。
+  router.get('/api/mixed/catalog', async (req, res) => {
+    auth(req)
+    const resolver = createModelResolver({ catalog: models() })
+    const modelsView = [...resolver.index.values()].map(({ compat: _c, upstreamModel: _u, ...m }) => ({
+      ...m,
+      runtimeModelId: m.id,
+      mixedRoles: roleCapabilities(m),
+    }))
+    sendJson(res, 200, {
+      gatewayInstanceId: instanceId ?? null,
+      capabilitiesRevision: resolver.capabilitiesRevision,
+      models: modelsView,
+      conflicts: resolver.conflicts,
+    })
+  })
+
+  // ---------- Mixed 用量归属（T10）----------
+  // 宿主在 attempt 开始/结束时登记「活跃 attempt」；llm-proxy 记账时按用户时间窗关联，
+  // run/task/stage/attempt 维度只进账本 extra（不注入上游请求体）。
+  router.post('/api/mixed/attribution', async (req, res) => {
+    const { user } = auth(req)
+    if (!mixedAttribution) throw new HttpError(503, 'mixed 归属未启用', 'not_enabled')
+    const body = await readJson(req)
+    const startedAt = Number.isFinite(Number(body.startedAt)) ? Number(body.startedAt) : undefined
+    const r = mixedAttribution.open(user.id, {
+      runId: body.runId,
+      taskId: body.taskId,
+      stage: body.stage,
+      attemptId: body.attemptId,
+      startedAt,
+    })
+    if (!r.ok) throw new HttpError(400, '归属参数不合法：' + r.reason, 'bad_attribution')
+    sendJson(res, 200, { ok: true })
+  })
+  router.post('/api/mixed/attribution/close', async (req, res) => {
+    const { user } = auth(req)
+    if (!mixedAttribution) throw new HttpError(503, 'mixed 归属未启用', 'not_enabled')
+    const body = await readJson(req)
+    mixedAttribution.close(user.id, { attemptId: body.attemptId })
+    sendJson(res, 200, { ok: true })
+  })
+  // run 级用量聚合（分页/详情读取能力）：只回归属本人的条目；
+  // 缺 usage/price 的条目如实标 usageKnown/priceKnown=false，合计只算已知部分——未知不显示为 0。
+  router.get('/api/mixed/usage', async (req, res) => {
+    const { user } = auth(req)
+    const url = parseUrl(req)
+    const runId = String(url.searchParams.get('runId') ?? '')
+    if (!/^run-[0-9a-f]{16,32}$/.test(runId)) throw new HttpError(400, 'runId 不合法', 'bad_runId')
+    const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit') ?? 200)))
+    const cursor = Math.max(0, Number(url.searchParams.get('cursor') ?? 0))
+    const all = ledger.entriesSince(Date.now() - 31 * 86400_000, (e) => e.userId === user.id && e.mixed && !e.mixed.ambiguous && e.mixed.runId === runId)
+    const desc = [...all].sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+    const sum = (ks) => desc.reduce((s, e) => s + (e.usageKnown ? ks.reduce((x, k) => x + (e[k] ?? 0), 0) : 0), 0)
+    const byStage = {}
+    for (const e of desc) {
+      const st = e.mixed.stage ?? 'unknown'
+      const o = (byStage[st] ??= { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, costCny: 0 })
+      o.requests++
+      if (!e.usageKnown) continue
+      o.promptTokens += e.promptTokens ?? 0
+      o.completionTokens += e.completionTokens ?? 0
+      o.cachedTokens += e.cachedTokens ?? 0
+      o.costCny += e.costCny ?? 0
+    }
+    const costKnown = desc.filter((e) => e.usageKnown && e.priceKnown)
+    sendJson(res, 200, {
+      runId,
+      total: desc.length,
+      entries: desc.slice(cursor, cursor + limit),
+      nextCursor: cursor + limit < desc.length ? cursor + limit : null,
+      totals: {
+        requests: desc.length,
+        promptTokens: sum(['promptTokens']),
+        completionTokens: sum(['completionTokens']),
+        cachedTokens: sum(['cachedTokens']),
+        costCny: Math.round(costKnown.reduce((s, e) => s + (e.costCny ?? 0), 0) * 10000) / 10000,
+      },
+      byStage: Object.fromEntries(Object.entries(byStage).map(([k, v]) => [k, { ...v, costCny: Math.round(v.costCny * 10000) / 10000 }])),
+      attempts: [...new Set(desc.map((e) => e.mixed.attemptId))].sort(),
+      unknownRequests: desc.filter((e) => !e.usageKnown).length,
+      priceUnknownRequests: desc.filter((e) => e.usageKnown && !e.priceKnown).length,
+    })
   })
 
   // ---------- 搜索供应商凭据 ----------
@@ -318,7 +408,9 @@ export function registerApi(router, ctx) {
     const { user } = auth(req)
     requireAdmin(user)
     if (!channels) throw new HttpError(500, '通道模块未启用')
-    sendJson(res, 200, channels.removeCustom(req.params.id))
+    const removed = channels.removeCustom(req.params.id)
+    console.log(`[gateway] ${user.username} 删除自定义端点 ${removed.id}`)
+    sendJson(res, 200, { ...removed, channels: channels.view(), models: models().map(({ compat: _c, upstreamModel: _u, ...m }) => m) })
   })
 
   router.post('/api/channels/:id/discover-models', async (req, res) => {
@@ -1074,11 +1166,23 @@ export function registerApi(router, ctx) {
     ])
     sendJson(res, 200, { ...result, costCny: ledger.entriesSince(Date.now() - 60_000, (e) => e.userId === user.id).at(-1)?.costCny ?? 0 })
   })
+  // 分页读取（T10）：cursor=从新到旧的偏移，nextCursor 为空 = 没有更多；旧调用方（不传 cursor/limit）行为不变。
   router.get('/api/ledger', async (req, res) => {
     const { user } = auth(req)
-    const days = Number(parseUrl(req).searchParams.get('days') ?? 7)
+    const params = parseUrl(req).searchParams
+    const days = Number(params.get('days') ?? 7)
     const since = Date.now() - days * 86400_000
-    const entries = ledger.entriesSince(since, (e) => user.role === 'admin' || e.userId === user.id)
-    sendJson(res, 200, { days, entries: entries.slice(-500).reverse() })
+    const limit = Math.min(1000, Math.max(1, Number(params.get('limit') ?? 500)))
+    const cursor = Math.max(0, Number(params.get('cursor') ?? 0))
+    const all = ledger.entriesSince(since, (e) => user.role === 'admin' || e.userId === user.id)
+    const desc = [...all].sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+    sendJson(res, 200, {
+      days,
+      total: desc.length,
+      cursor,
+      limit,
+      entries: desc.slice(cursor, cursor + limit),
+      nextCursor: cursor + limit < desc.length ? cursor + limit : null,
+    })
   })
 }

@@ -10,7 +10,6 @@ files:
   - dsh-web-url.cjs
   - prefs.cjs
   - image-menu.cjs
-  - window-drag.cjs
   - splash.html
   - close-prompt.html
   - close-prompt-preload.js

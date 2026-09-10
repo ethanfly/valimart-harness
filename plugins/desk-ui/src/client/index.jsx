@@ -6,6 +6,10 @@ import css from './styles.css'
 import { DeskFrame, DeskLayoutController, ThemePresenter } from './layout.jsx'
 import { DeskSidebar, DeskUserSettingsTrigger } from './sidebar.jsx'
 import { AccountSection, ColleaguesSection, DesktopSection, KnowledgeSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
+import { MixedSection } from './mixed-settings.jsx'
+import { makeMixedChip } from './mixed-mode.jsx'
+import { makeMixedRunPanel } from './mixed-run-panel.jsx'
+import { startMixedPolling } from './mixed-store.js'
 import { ImageGenSection, makeImageChip } from './image-gen.jsx'
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
@@ -41,7 +45,7 @@ export function apply(ctx) {
   // The export plugin owns its click handler, progress state and dialog.
   // Add a tooltip to its icon-only presentation without replacing the button.
   ctx.effect(() => {
-    const selector = '.dk-frame [data-slot="conversation.session.header.utilities"] button[class*="_sessionLogButton"]'
+    const selector = '[data-slot="conversation.session.header.utilities"] button[class*="_sessionLogButton"]'
     const label = '下载会话日志'
     const sync = () => {
       for (const button of document.querySelectorAll(selector)) {
@@ -180,6 +184,7 @@ export function apply(ctx) {
     { id: 'desk-subscription', order: 35, label: '订阅', component: SubscriptionSection },
     { id: 'desk-knowledge', order: 40, label: '技能与知识', component: KnowledgeSection },
     { id: 'desk-image', order: 42, label: '生图', component: ImageGenSection },
+    { id: 'desk-mixed', order: 43, label: 'Mixed 混合', component: MixedSection },
     { id: 'desk-desktop', order: 45, label: '桌面', component: DesktopSection },
   ]
   ctx.effect(
@@ -199,17 +204,28 @@ export function apply(ctx) {
   // ---- 输入框工具行：「文件」芯片（本机文件 → 会话工作目录 _attachments/ → @ 引用）----
   const FileChip = makeFileChip(ctx)
   const ImageChip = makeImageChip(ctx)
+  const MixedChip = makeMixedChip()
+  const MixedRunPanel = makeMixedRunPanel()
   ctx.effect(
     () => ctx.slots.inject('conversation.input.left', () => [
       ctx.slots.register({ name: 'conversation.input.left', id: 'desk-files', order: 10, label: '文件' }, FileChip),
       ctx.slots.register({ name: 'conversation.input.left', id: 'desk-image', order: 11, label: '生图' }, ImageChip),
+      ctx.slots.register({ name: 'conversation.input.left', id: 'desk-mixed', order: 12, label: 'Mixed' }, MixedChip),
     ]),
     'desk-ui: composer file and image chips',
   )
+  // ---- Mixed 运行面板（输入框上方 dock：阶段/任务/模型/审核/证据/停止恢复）----
+  ctx.effect(
+    () => ctx.slots.inject('conversation.input.dock', () =>
+      ctx.slots.register({ name: 'conversation.input.dock', id: 'desk-mixed-run', order: 10 }, MixedRunPanel),
+    ),
+    'desk-ui: mixed run panel',
+  )
 
-  // ---- 登录态 / 任务轮询 ----
+  // ---- 登录态 / 任务轮询 + Mixed 轮询（活动 1s / 空闲 5s / 隐藏停 / 聚焦同步 / 退避 15s） ----
   ctx.effect(() => {
     const stop = startPolling()
+    const stopMixed = startMixedPolling()
     const unsub = deskStore.subscribe(() => {
       const s = deskStore.get()
       // 花名册加载失败会静默返回：等 retry 窗口到期后把 _peopleRequested 复位，让下一轮轮询重试（否则要登出才能恢复）
@@ -224,6 +240,7 @@ export function apply(ctx) {
     })
     return () => {
       stop()
+      stopMixed()
       unsub()
     }
   }, 'desk-ui: polling')

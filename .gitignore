@@ -18,6 +18,14 @@ plugins/desk-ui/lib/client.js
 .DS_Store
 Thumbs.db
 
+# 本地探针 / 验收落盘（不入库）
+/tmp-*.mjs
+/tmp-*.cjs
+/docs/evidence/mixed/
+/e2e/artifacts/
+/scripts/tmp-*.mjs
+/scripts/evidence-*.mjs
+
 # 安装包构建产物
 /build/
 dist/

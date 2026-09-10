@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { isSeedAdmin, loadConfig, modelCatalog, shouldSeedDriveSamples } from './config.js'
 import { Db, ROLE_LABELS } from './db.js'
 import { Ledger } from './ledger.js'
+import { MixedAttribution } from './mixed-attribution.js'
 import { Drive } from './drive.js'
 import { Tasks } from './tasks.js'
 import { LlmProxy } from './llm-proxy.js'
@@ -34,6 +35,7 @@ export function createGateway(overrides = {}) {
   const db = new Db(cfg.dataDir)
   const instanceId = loadInstanceId(cfg.dataDir)
   const ledger = new Ledger(db, cfg)
+  const mixedAttribution = new MixedAttribution() // T10：mixed attempt 用量归属（内存时间窗）
   const tasksRef = { current: undefined }
   const drive = new Drive(db.driveRoot, (taskId) => tasksRef.current?.get(taskId))
   const tasks = new Tasks(db, drive)
@@ -43,7 +45,7 @@ export function createGateway(overrides = {}) {
   const knowledge = new Knowledge({ drive, tasks, db }) // 第四层通道：检索「公司里有没有人做过」
   const catalog = () => modelCatalog(cfg)
   const oauth = new OAuthSubscribe({ cfg, channels })
-  const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth, channels })
+  const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution })
 
   // 在线状态：登录会话心跳（客户端本机 host 每 30s 一次）
   const lastSeen = new Map()
@@ -71,6 +73,7 @@ export function createGateway(overrides = {}) {
     drive,
     proxy,
     catalog,
+    instanceId,
     presence,
     channels,
     searchSettings,
@@ -82,6 +85,7 @@ export function createGateway(overrides = {}) {
     prepareInstaller,
     oauth,
     fetchModels,
+    mixedAttribution,
   })
   registerAdminPage(router, { cfg })
   router.get('/v1/models', (req, res) => proxy.handleModels(req, res))

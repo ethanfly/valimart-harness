@@ -270,14 +270,30 @@ export function ColleaguesSection() {
 function ChannelTable({ channels, canEdit, onChanged }) {
   const [dialog, setDialog] = useState(null) // { channel } | { kind: 'subscription' | 'key' }
   const [busy, setBusy] = useState(null)
+  const refreshCatalog = async () => {
+    await api.gw.get('/auth/me') // 让本机 host 刷新模型路由
+    onChanged?.()
+  }
   const disconnect = async (c) => {
     if (!window.confirm(`断开通道「${c.label}」？其模型会从公司目录里消失。`)) return
     setBusy(c.id)
     try {
       await api.gw.post(`/channels/${c.id}/disconnect`, {})
       toast(`已断开 ${c.label}`, 'success')
-      await api.gw.get('/auth/me') // 让本机 host 刷新模型路由
-      onChanged?.()
+      await refreshCatalog()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+  const removeCustom = async (c) => {
+    if (!window.confirm(`删除自定义端点「${c.label}」？通道和模型会一起从公司目录里消失，不能恢复。`)) return
+    setBusy(c.id)
+    try {
+      await api.gw.delete(`/channels/${encodeURIComponent(c.id)}`)
+      toast(`已删除 ${c.label}`, 'success')
+      await refreshCatalog()
     } catch (err) {
       toast(err.message, 'error')
     } finally {
@@ -347,16 +363,29 @@ function ChannelTable({ channels, canEdit, onChanged }) {
                       <button className="dk-btn sm" onClick={() => setDialog({ channel: c, addAccount: true })}>
                         再登录
                       </button>
-                      <button className="dk-btn sm ghost" disabled={busy === c.id} onClick={() => disconnect(c)}>
-                        断开
-                      </button>
+                      {c.custom ? (
+                        <button className="dk-btn sm ghost" disabled={busy === c.id} onClick={() => removeCustom(c)}>
+                          删除
+                        </button>
+                      ) : (
+                        <button className="dk-btn sm ghost" disabled={busy === c.id} onClick={() => disconnect(c)}>
+                          断开
+                        </button>
+                      )}
                     </div>
                   ) : c.connected ? (
                     <span className="dk-xs dk-muted">配置文件接入</span>
                   ) : (
-                    <button className="dk-btn sm" onClick={() => setDialog({ channel: c })}>
-                      接入
-                    </button>
+                    <div className="dk-ch-actions">
+                      <button className="dk-btn sm" onClick={() => setDialog({ channel: c })}>
+                        接入
+                      </button>
+                      {c.custom ? (
+                        <button className="dk-btn sm ghost" disabled={busy === c.id} onClick={() => removeCustom(c)}>
+                          删除
+                        </button>
+                      ) : null}
+                    </div>
                   )}
                 </td>
               )}

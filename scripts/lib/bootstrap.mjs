@@ -268,11 +268,96 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
   }
   const r = linkJunction(path.join(root, 'node_modules', '@deepseek-ai'), flatDir)
   log(`node_modules/@deepseek-ai → ${flatDir} (${r})`)
+  linkZodForPlugins({ kernel, dshHome, root, log })
   fs.mkdirSync(path.join(dshHome, 'desk'), { recursive: true })
   return { profileDir, flatDir }
 }
 
+/**
+ * Mixed desk-host 从真实插件路径 import 'zod'，Node 沿
+ * <appDir>/plugins/desk-host → <appDir>/node_modules/zod 解析。
+ * 全新 DSH_HOME 不会在 profiles/node_modules 下 hoist zod；它在
+ * <kernel.root>/node_modules/zod（dsh bundle 嵌套）。只查 profiles 会静默跳过，
+ * 安装版首次启动直接炸。
+ */
+export function locateZod({ kernel, dshHome, root } = {}) {
+  const candidates = [
+    dshHome && path.join(dshHome, 'profiles', 'node_modules', 'zod'),
+    kernel?.root && path.join(kernel.root, 'node_modules', 'zod'),
+    kernel?.root && path.join(path.dirname(kernel.root), 'zod'),
+    root && path.join(root, 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', 'zod'),
+  ].filter(Boolean)
+  return candidates.find((p) => fs.existsSync(path.join(p, 'package.json'))) || null
+}
+
+export function linkZodForPlugins({ kernel, dshHome, root, log = noop }) {
+  const src = locateZod({ kernel, dshHome, root })
+  const mixedPresent = Boolean(root && fs.existsSync(path.join(root, 'plugins', 'desk-host', 'lib', 'mixed', 'contracts.js')))
+  if (!src) {
+    if (mixedPresent && kernel?.root) {
+      throw new Error(`缺少 zod：Mixed desk-host 需要内核 hoisted zod（已查 kernel.root/node_modules/zod 与 profiles/node_modules/zod）`)
+    }
+    return 'skipped'
+  }
+  const rz = linkJunction(path.join(root, 'node_modules', 'zod'), src)
+  log(`node_modules/zod → ${src} (${rz})`)
+  if (dshHome) {
+    const profileZod = path.join(dshHome, 'profiles', 'node_modules', 'zod')
+    if (path.resolve(src) !== path.resolve(profileZod)) {
+      const rp = linkJunction(profileZod, src)
+      log(`profiles/node_modules/zod → ${src} (${rp})`)
+    }
+  }
+  return rz
+}
+
 // ---------- 开发模式 ----------
+
+/**
+ * Windows 构建机打的 kernel.tar 里每个文件都是 0644（NTFS 没有 unix 权限位），
+ * 但 macOS/Linux 上 node-pty 的 `prebuilds/<plat>-<arch>/spawn-helper` 和 ripgrep 的 `bin/rg`
+ * 是要被直接 exec 的——少了 +x，终端和文件搜索会直接报 EACCES。
+ * 解压后按路径把该有 +x 的补回来；幂等，Windows 上是 no-op。
+ * @returns {number} 补了多少个
+ */
+/** 内核里需要可执行位的文件（相对内核前缀）：ripgrep 的 bin/rg、node-pty 的 spawn-helper、脚本。 */
+export function shouldExecKernelFile(rel) {
+  return /(^|\/)(bin|\.bin)\/[^/]+$/.test(rel) || /(^|\/)spawn-helper$/.test(rel) || /\.(sh|command)$/.test(rel)
+}
+
+export function chmodKernelExecutables(kernelPrefix, log = noop) {
+  if (process.platform === 'win32') return 0
+  const shouldExec = shouldExecKernelFile
+  let fixed = 0
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const p = path.join(dir, e.name)
+      if (e.isSymbolicLink()) continue
+      if (e.isDirectory()) {
+        walk(p)
+        continue
+      }
+      const rel = path.relative(kernelPrefix, p).replace(/\\/g, '/')
+      if (!shouldExec(rel)) continue
+      try {
+        if ((fs.statSync(p).mode & 0o111) === 0o111) continue
+        fs.chmodSync(p, 0o755)
+        fixed++
+      } catch {
+        /* 只读挂载 / 权限不足：交给上层报错，别在这里中断启动 */
+      }
+    }
+  }
+  if (fs.existsSync(kernelPrefix)) walk(kernelPrefix)
+  if (fixed) log(`补可执行位 ${fixed} 个（spawn-helper / bin/rg 等）`)
+  return fixed
+}
 
 /**
  * 下次启动切换：校验 kernel-next 的 tar sha256 与补丁后再原子替换 targetPrefix。
@@ -302,6 +387,7 @@ export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = 
     fs.mkdirSync(staging, { recursive: true })
     const r = spawnSync(findTar(), ['-xf', paths.tar, '-C', staging], { encoding: 'utf8', windowsHide: true })
     if (r.status !== 0) throw new Error(r.stderr || r.error?.message || 'tar')
+    chmodKernelExecutables(staging, log)
     const kernel = locateKernel(staging)
     if (!kernel?.bin || !fs.existsSync(kernel.bin)) throw new Error('no-bin')
     pinSkillsRoot({ kernelPrefix: staging, kernel, skillsDir, log })
@@ -480,6 +566,7 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
       clearAppDir(appDir)
       throw new Error(`解压内核失败（${r.status ?? r.signal ?? r.error?.message}）：${(r.stderr || '').trim()}`)
     }
+    chmodKernelExecutables(kernelPrefix, log)
     for (const d of ['plugins', 'profile', 'scripts']) fs.cpSync(path.join(payloadDir, d), path.join(appDir, d), { recursive: true })
     fs.writeFileSync(stateFile, JSON.stringify({ buildId: payload.buildId, extractedAt: new Date().toISOString() }, null, 2) + '\n')
     log({ step: 'extract', status: 'ok', detail: `内核 ${payload.kernel.version}` })
@@ -496,7 +583,7 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
   const profileName = 'desk-app'
   const profileDir = path.join(dshHome, 'profiles', profileName)
   const patchFile = path.join(appDir, 'profile', 'cordis.patch.yml')
-  if (fresh || update.applied || profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir: path.join(appDir, 'plugins') }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai'))) {
+  if (fresh || update.applied || profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir: path.join(appDir, 'plugins') }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai')) || !fs.existsSync(path.join(appDir, 'node_modules', 'zod', 'package.json'))) {
     log({ step: 'profile', status: 'start', detail: '安装工作台配置（desk-app）' })
     ensureProfile({ profileName, dshHome, root: appDir, pluginsDir: path.join(appDir, 'plugins'), patchFile, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
     log({ step: 'profile', status: 'ok' })

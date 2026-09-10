@@ -504,7 +504,7 @@ export function renderAdminHtml({ companyName }) {
               <td class="\${c.connected ? 'ok' : 'muted'}">\${esc(c.connected ? '已接' : '未接')}\${c.accountCount > 1 ? '<div class="muted" style="font-size:12px">' + c.accountCount + ' 个账号</div>' : ''}</td>
               <td>\${c.models.length ? '<div class="ch-models" title="' + esc(c.models.join(', ')) + '">' + c.models.map((id) => '<span class="chip mono">' + esc(id) + '</span>').join('') + '</div>' : '<span class="muted">' + esc(c.hint) + '</span>'}</td>
               <td class="muted">\${c.source === 'config' ? '服务端配置' : c.source === 'runtime' ? '<div class="ch-who"><span>' + esc(c.connectedBy || '') + '</span><span>' + esc(fmtTime(c.connectedAt)) + '</span></div>' : '—'}</td>
-              <td>\${isAdmin ? (c.connected ? (c.source === 'runtime' ? '<div class="ch-actions"><button data-edit="' + esc(c.id) + '">编辑</button><button data-more="' + esc(c.id) + '">再登录</button><button class="danger" data-disc="' + esc(c.id) + '">断开</button></div>' : '') : '<div class="ch-actions"><button data-conn="' + esc(c.id) + '">接入</button></div>') : ''}</td>
+              <td>\${isAdmin ? (c.connected ? (c.source === 'runtime' ? '<div class="ch-actions"><button data-edit="' + esc(c.id) + '">编辑</button><button data-more="' + esc(c.id) + '">再登录</button>' + (c.custom ? '<button class="danger" data-cdelch="' + esc(c.id) + '">删除</button>' : '<button class="danger" data-disc="' + esc(c.id) + '">断开</button>') + '</div>' : '') : '<div class="ch-actions"><button data-conn="' + esc(c.id) + '">接入</button>' + (c.custom ? '<button class="danger" data-cdelch="' + esc(c.id) + '">删除</button>' : '') + '</div>') : ''}</td>
             </tr>\`).join('')}
           </tbody>
         </table>
@@ -728,6 +728,10 @@ export function renderAdminHtml({ companyName }) {
     document.querySelectorAll('[data-disc]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('断开后该通道的模型立刻从全员目录下架，确定？')) return;
       try { await api('POST', '/api/channels/' + encodeURIComponent(b.dataset.disc) + '/disconnect'); toast('已断开'); renderMain(); } catch (err) { toast(err.message, true); }
+    }));
+    document.querySelectorAll('[data-cdelch]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('删除自定义端点后，通道和模型会一起从公司目录消失，不能恢复。确定？')) return;
+      try { await api('DELETE', '/api/channels/' + encodeURIComponent(b.dataset.cdelch)); toast('已删除'); renderMain(); } catch (err) { toast(err.message, true); }
     }));
     const kadd = $('#kadd');
     if (kadd) kadd.addEventListener('submit', async (e) => {

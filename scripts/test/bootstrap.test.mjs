@@ -99,6 +99,9 @@ test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bun
   const nestedPeer = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-tools')
   fs.mkdirSync(nestedPeer, { recursive: true })
   fs.writeFileSync(path.join(nestedPeer, 'package.json'), '{"name":"@deepseek-ai/dsh-tools"}\n')
+  const nestedZod = path.join(kernelRoot, 'node_modules', 'zod')
+  fs.mkdirSync(nestedZod, { recursive: true })
+  fs.writeFileSync(path.join(nestedZod, 'package.json'), '{"name":"zod","version":"4.0.0"}\n')
   assert.deepEqual(profilePluginBundles({ root: kernelRoot }), ['dsh-better-sidebar'])
   // 没有内核 root（旧调用/测试桩）时静默返回空，不炸
   assert.deepEqual(profilePluginBundles({ bin: 'unused' }), [])
@@ -127,6 +130,9 @@ test('ensureProfile：全新 DSH_HOME 没有扁平回退目录时，从内核物
   fs.mkdirSync(nested, { recursive: true })
   fs.writeFileSync(path.join(nested, 'package.json'), '{"name":"@deepseek-ai/dsh-tools"}\n')
   fs.writeFileSync(path.join(kernelRoot, 'package.json'), '{"name":"@deepseek-ai/dsh"}\n')
+  const nestedZod = path.join(kernelRoot, 'node_modules', 'zod')
+  fs.mkdirSync(nestedZod, { recursive: true })
+  fs.writeFileSync(path.join(nestedZod, 'package.json'), '{"name":"zod","version":"4.0.0"}\n')
   const root = path.join(dir, 'root')
   const pluginsDir = path.join(root, 'plugins')
   for (const p of ['desk-host', 'desk-ui', 'desk-image']) fs.mkdirSync(path.join(pluginsDir, p), { recursive: true })
@@ -148,6 +154,28 @@ test('ensureProfile：全新 DSH_HOME 没有扁平回退目录时，从内核物
   assert.ok(fs.existsSync(path.join(flat, 'dsh-tools', 'package.json')))
   assert.ok(fs.existsSync(path.join(flat, 'dsh', 'package.json')))
   assert.ok(fs.lstatSync(path.join(root, 'node_modules', '@deepseek-ai')).isSymbolicLink())
+  assert.ok(fs.lstatSync(path.join(root, 'node_modules', 'zod')).isSymbolicLink(), '全新 DSH_HOME 也要从内核嵌套 zod 链到 appDir')
+  assert.ok(fs.existsSync(path.join(dshHome, 'profiles', 'node_modules', 'zod', 'package.json')))
+})
+
+test('ensureProfile：有 kernel.root 但找不到 zod 必须失败，不能静默跳过', () => {
+  const dir = tmp()
+  const dshHome = path.join(dir, 'dsh')
+  const kernelRoot = path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  fs.writeFileSync(path.join(kernelRoot, 'package.json'), '{"name":"@deepseek-ai/dsh"}\n')
+  fs.mkdirSync(path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai'), { recursive: true })
+  const root = path.join(dir, 'root')
+  const pluginsDir = path.join(root, 'plugins')
+  for (const p of ['desk-host', 'desk-ui', 'desk-image']) fs.mkdirSync(path.join(pluginsDir, p), { recursive: true })
+  fs.mkdirSync(path.join(pluginsDir, 'desk-host', 'lib', 'mixed'), { recursive: true })
+  fs.writeFileSync(path.join(pluginsDir, 'desk-host', 'lib', 'mixed', 'contracts.js'), 'export {}\n')
+  const patchFile = path.join(dir, 'cordis.patch.yml')
+  fs.writeFileSync(patchFile, "gatewayUrl: 'http://x:1'\n")
+  assert.throws(
+    () => ensureProfile({ profileName: 'desk-nozod', dshHome, root, pluginsDir, patchFile, kernel: { root: kernelRoot }, selfHeal: false, log: () => {} }),
+    /缺少 zod/,
+  )
 })
 
 test('pinSkillsRoot：戳记一致但补丁文件缺失 → 走重打分支，KernelPatchError 包成 PATCH_FAIL <code>', (t) => {

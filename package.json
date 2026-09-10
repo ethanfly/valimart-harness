@@ -20,6 +20,7 @@
     "desktop": "node scripts/launch.mjs --desktop",
     "dev": "node scripts/launch.mjs --with-server --desktop",
     "dist:client": "node scripts/build-payload.mjs && node scripts/build-client-installer.mjs",
+    "dist:client:mac": "node scripts/build-mac-client.mjs",
     "dist:gateway": "node scripts/build-gateway-installer.mjs",
     "dist:gateway:linux": "node scripts/build-gateway-linux.mjs",
     "dist": "npm run dist:client && npm run dist:gateway",

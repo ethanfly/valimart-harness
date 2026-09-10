@@ -25,12 +25,13 @@ import { fetchClientUpdate, resolveClientPendingDir, resolvePayloadDir } from '.
 import { syncSearchCredentials } from './search-key.js'
 import { clientPublicInfo, readLocalPayload } from '../../../scripts/lib/client-update.mjs'
 import { discoverGateways } from './lan-discover.js'
+import { createMixedHost } from './mixed/host.js'
 import { portFromUrl } from '../../../scripts/lib/lan-protocol.mjs'
 import { gitBranchesForWorkspaces } from '../../../scripts/lib/git-head.mjs'
 import { resolveModelInput } from '../../../scripts/lib/model-input.mjs'
 
 export const name = 'desk-host'
-export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry']
+export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry', 'agents', 'subagents']
 
 export const Config = z.object({
   /** 默认网关地址（登录界面可改）。 */
@@ -61,6 +62,27 @@ export function apply(ctx, config) {
   if (!state.data.gatewayUrl || !state.loggedIn) state.data.gatewayUrl = config.gatewayUrl
   state.save()
   const gateway = new GatewayClient(state)
+  // Mixed 混合模式（T07 本机 API + T08 生产桥接运行）：本机状态/目录/证据/本机 API + 会话桥接。
+  // 惰性 open（首个 mixed 请求才付存储初始化成本）；桥接按「Mixed 已启用 + agent 存活」挂到父会话
+  // （内核 AgentRegistry 公开 get(sessionId)，见 dsh-agent "Live agents"；2s 兜底轮询 + attach ping）。
+  const mixed = createMixedHost({
+    stateDir,
+    getLogin: () => ({ loggedIn: state.loggedIn, user: state.data.user }),
+    fetchCatalog: () => gateway.get('/api/mixed/catalog'),
+    gatewayInstanceId: () => state.data.gatewayInstanceId ?? null,
+    profileId: 'desk-host',
+    sessionExists: (sid) => !!ctx.sessions?.get?.(sid),
+    agents: ctx.agents,
+    subagents: ctx.subagents,
+    sessionCwd: (sid) => ctx.sessions?.get?.(sid)?.header?.cwd ?? null,
+    // 与 configureLlmRoute 的 routeIdOf 同一派生（providerId 前缀 + 厂商名净化）
+    providerIdOf: (route) => `${config.providerId}-${String(route?.catalogProvider ?? 'default').replace(/[^A-Za-z0-9_-]/g, '_')}`,
+    gateway, // T10：用量归属上报 + run 用量读取
+    logger: { info: log, warn: (m) => log(m), error: (m) => log(m) },
+  })
+  // 登录后后台同步模型目录（含 gatewayInstanceId → ownerKey 解析）；失败不阻塞登录。
+  const mixedCatalogRefresh = () =>
+    mixed.ready().then(() => mixed.modelRoutes?.refresh?.()).catch((e) => log(`mixed 模型目录同步失败: ${e.message}`))
   const mirror = new DriveMirror({ root: state.data.driveDir, gateway, state, log })
   const produced = new ProducedIndex(stateDir)
   const credential = credentialRef(config.credentialName)
@@ -226,7 +248,18 @@ export function apply(ctx, config) {
     await ensureWorkspaces()
   }
 
+  /**
+   * 自更新只在 Windows 客户端上做：网关下发的是 Windows NSIS 安装器（/api/client/download），
+   * 内核 tar 也是网关构建机（Linux/Windows）平台的产物——在 macOS 上套用会把客户端搞坏。
+   * mac 客户端整包替换更新（重新打包 → 覆盖 /Applications 里的 .app）。
+   */
+  const SELF_UPDATE_PLATFORM = process.platform === 'win32'
+
   function scheduleKernelUpdate() {
+    if (!SELF_UPDATE_PLATFORM) {
+      log('内核更新: skip 平台不支持（macOS 客户端随整包更新）')
+      return
+    }
     fetchKernelUpdate({
       gateway,
       pendingDir: resolvePendingDir(),
@@ -236,6 +269,10 @@ export function apply(ctx, config) {
   }
 
   function scheduleClientUpdate() {
+    if (!SELF_UPDATE_PLATFORM) {
+      log('客户端更新: skip 平台不支持（macOS 客户端随整包更新）')
+      return
+    }
     const local = readLocalPayload(resolvePayloadDir())
     if (!local?.buildId) {
       log('客户端更新: skip no-local-build')
@@ -286,6 +323,7 @@ export function apply(ctx, config) {
     } catch (err) {
       log(`公司盘同步失败: ${err.message}`)
     }
+    mixedCatalogRefresh() // 后台：Mixed 模型目录 + owner 身份
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
     scheduleKernelUpdate()
     scheduleClientUpdate()
@@ -738,6 +776,22 @@ export function apply(ctx, config) {
             const origin = req.headers['origin']
             if (origin && (!req.headers['host'] || String(new URL(origin).host) !== String(req.headers['host']))) {
               return json(res, 403, { error: { message: '跨源请求被拒绝', code: 'bad_origin' } })
+            }
+            // Mixed 混合模式（T07 API + T08 attach）：/mixed/* 与 /sessions/:id/mixed(/attach) → 本机 mixed API（登录/owner/revision/限额在 API 内）
+            if (rel === '/mixed' || rel.startsWith('/mixed/') || /^\/sessions\/[^/]+\/mixed(\/attach)?$/.test(rel)) {
+              let mapi
+              try {
+                mapi = await mixed.ready()
+              } catch (e) {
+                return json(res, e?.httpStatus ?? 503, { error: { message: e.message, code: e.code ?? 'storage_unhealthy' } })
+              }
+              const out = await mapi.handle({
+                method,
+                path: rel + url.search,
+                headers: req.headers,
+                req: method === 'GET' || method === 'HEAD' ? null : req,
+              })
+              return json(res, out.status, out.body)
             }
             if (method === 'GET' && rel === '/state') return json(res, 200, publicDesk())
             if (method === 'GET' && rel === '/workspace-git') {

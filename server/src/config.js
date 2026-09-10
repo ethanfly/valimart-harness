@@ -142,15 +142,32 @@ export function loadConfig(overrides = {}) {
   return cfg
 }
 
+/** 跨上游撞 id 时给后出现的条目加 --<provider>，避免目录/选择器把两边都丢掉。 */
+function uniqueCatalogId(rawId, providerId, taken) {
+  if (!taken.has(rawId)) return rawId
+  let n = 0
+  let id
+  do {
+    id = n === 0 ? `${rawId}--${providerId}` : `${rawId}--${providerId}-${n}`
+    n += 1
+  } while (taken.has(id))
+  return id
+}
+
 /** 模型目录：拉平所有上游的模型，附带上游信息（不含密钥）。 */
 export function modelCatalog(cfg) {
   const out = []
+  const taken = new Set()
   for (const up of Object.values(cfg.upstreams ?? {})) {
     if (up.kind !== 'mock' && !up.resolvedKey) continue // 未配置密钥的上游不对外提供
     for (const m of up.models ?? []) {
+      const rawId = String(m.id ?? '').trim()
+      if (!rawId) continue
+      const id = uniqueCatalogId(rawId, up.id, taken)
+      taken.add(id)
       out.push({
-        id: m.id,
-        name: m.name ?? m.id,
+        id,
+        name: m.name ?? rawId,
         provider: up.id,
         providerLabel: up.label ?? up.id,
         contextWindow: m.contextWindow ?? 128000,
@@ -158,9 +175,14 @@ export function modelCatalog(cfg) {
         reasoningEfforts: m.reasoningEfforts ?? false,
         input: resolveModelInput(m),
         vision: resolveModelInput(m).includes('image'),
+        ...(m.mixedRoles && typeof m.mixedRoles === 'object'
+          ? { mixedRoles: m.mixedRoles }
+          : up.kind === 'mock'
+            ? { mixedRoles: { planner: true, executor: true, reviewer: true } }
+            : {}),
         compat: { ...(up.compat ?? {}), ...(m.compat ?? {}) },
         priceCnyPerM: m.priceCnyPerM ?? { input: 0, output: 0, cachedInput: 0 },
-        upstreamModel: m.upstreamModel ?? m.id,
+        upstreamModel: m.upstreamModel ?? rawId,
       })
     }
   }

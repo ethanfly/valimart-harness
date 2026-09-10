@@ -42,3 +42,20 @@ test('modelCatalog / desk-host 把 input 带给内核', () => {
   assert.match(host, /resolveModelInput/)
   assert.match(host, /input: resolveModelInput/)
 })
+
+test('modelCatalog：跨上游重复 id 分流，两边都可选，上游仍用原 id', () => {
+  const cat = modelCatalog({
+    upstreams: {
+      ethanapi: { id: 'custom-ethanapi', label: 'EthanApi', kind: 'openai-compatible', resolvedKey: 'x', models: [{ id: 'qwen3.8-27b', name: 'Qwen3.8 27b' }] },
+      vllm: { id: 'custom-vllm', label: 'vllm', kind: 'openai-compatible', resolvedKey: 'x', models: [{ id: 'qwen3.8-27b', name: 'Qwen3.8 27b' }] },
+    },
+  })
+  const first = cat.find((m) => m.provider === 'custom-ethanapi')
+  const second = cat.find((m) => m.provider === 'custom-vllm')
+  assert.equal(first.id, 'qwen3.8-27b')
+  assert.equal(first.upstreamModel, 'qwen3.8-27b')
+  assert.equal(second.id, 'qwen3.8-27b--custom-vllm')
+  assert.equal(second.upstreamModel, 'qwen3.8-27b')
+  assert.equal(second.name, 'Qwen3.8 27b')
+  assert.notEqual(first.id, second.id)
+})

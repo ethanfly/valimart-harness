@@ -241,6 +241,26 @@ test('同一通道多账号：额度用尽切到下一个', async () => {
   assert.ok(acme.accounts.some((a) => a.status === 'exhausted'))
 })
 
+test('删除自定义端点会整条通道消失；内置通道不能删', async () => {
+  const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
+  const token = login.json.sessionToken
+  const created = await api('POST', '/api/channels', {
+    token,
+    body: { label: '待删端点', baseUrl: `${fakeUrl}/v1`, credential: 'key-ok', models: 'to-delete-model' },
+  })
+  assert.equal(created.status, 200, created.json.error?.message)
+  const id = created.json.channel.id
+  assert.equal(created.json.channel.custom, true)
+  const gone = await api('DELETE', `/api/channels/${id}`, { token })
+  assert.equal(gone.status, 200, gone.json.error?.message)
+  const list = await api('GET', '/api/channels', { token })
+  assert.equal(list.json.channels.some((c) => c.id === id), false)
+  const me = await api('GET', '/api/auth/me', { token })
+  assert.equal(me.json.company.models.some((m) => m.id === 'to-delete-model'), false)
+  const builtin = await api('DELETE', '/api/channels/acme', { token })
+  assert.equal(builtin.status, 409)
+})
+
 test('插件列表兼容 DSH plugin inventory', async () => {
   const login = await api('POST', '/api/auth/login', { body: { username: 'boss', password: 'boss123456', device: 'test' } })
   const r = await api('GET', '/api/plugins', { token: login.json.sessionToken })

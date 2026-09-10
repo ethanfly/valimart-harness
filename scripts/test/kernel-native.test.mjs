@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { prepareWindowsNativeDependencies } from '../lib/kernel-native.mjs'
+import { prepareWindowsNativeDependencies, prepareSessionLockDependency, flockFlagsToOperation, SESSION_LOCK_MARK } from '../lib/kernel-native.mjs'
 import { npmEnvironment, npmInvocation } from '../lib/npm-cli.mjs'
 
 function fixture(t) {
@@ -65,6 +65,98 @@ test('Windows npm rebuild：fs-ext 不编译/加载，其他依赖安装脚本�
   assert.equal(fs.readFileSync(path.join(other, 'installed'), 'utf8'), 'yes')
   const session = await import(pathToFileURL(f.file).href)
   assert.equal(await session.lock('test'), 'windows-lock:test')
+})
+
+test('会话锁 v2：v1 → koffi 兜底、幂等、语法可加载', (t) => {
+  const f = fixture(t)
+  // 手工造 v1 状态（真实内核前缀就是这一步的产物）
+  fs.writeFileSync(
+    f.file,
+    'import { createRequire as companyCreateRequire } from "node:module";\n' +
+      '// company-session-posix-flock-v1: Windows uses the upstream koffi semaphore.\n' +
+      'const flock = process.platform === "win32" ? undefined : companyCreateRequire(import.meta.url)("fs-ext").flock;\n',
+  )
+  const v1 = fs.readFileSync(f.file, 'utf8')
+  assert.ok(v1.includes('company-session-posix-flock-v1'))
+  assert.equal(prepareSessionLockDependency({ kernelRoot: f.kernelRoot }), true)
+  const v2 = fs.readFileSync(f.file, 'utf8')
+  assert.ok(v2.includes(SESSION_LOCK_MARK))
+  assert.ok(v2.includes('companyPosixFlock'))
+  assert.ok(v2.includes('koffi.load'))
+  assert.ok(!v2.includes('company-session-posix-flock-v1'))
+  // createRequire 只声明一次
+  assert.equal(v2.split('import { createRequire as companyCreateRequire } from "node:module";').length, 2)
+  // 幂等
+  assert.equal(prepareSessionLockDependency({ kernelRoot: f.kernelRoot }), false)
+  assert.equal(fs.readFileSync(f.file, 'utf8'), v2)
+  // 语法
+  const check = spawnSync(process.execPath, ['--check', f.file], { encoding: 'utf8', windowsHide: true })
+  assert.equal(check.status, 0, check.stderr)
+})
+
+test('会话锁 v2：上游 import 直接升级；锚点变了就停手', (t) => {
+  const f = fixture(t)
+  fs.writeFileSync(f.file, 'import { flock } from "fs-ext";\nif (process.platform === "win32") { await acquireLockHandleWin32(path); }\n')
+  assert.equal(prepareSessionLockDependency({ kernelRoot: f.kernelRoot }), true)
+  const out = fs.readFileSync(f.file, 'utf8')
+  assert.ok(out.includes('import { createRequire as companyCreateRequire } from "node:module";'))
+  assert.ok(out.includes(SESSION_LOCK_MARK))
+  assert.ok(!out.includes('import { flock } from "fs-ext";'))
+
+  const g = fixture(t)
+  fs.writeFileSync(g.file, 'import { flock } from "fs-ext";\n') // 没有 Windows 锚点
+  assert.throws(() => prepareSessionLockDependency({ kernelRoot: g.kernelRoot }), /windows-session-lock-anchor/)
+  const h = fixture(t)
+  fs.writeFileSync(h.file, 'export const nothing = 1;\n')
+  assert.throws(() => prepareSessionLockDependency({ kernelRoot: h.kernelRoot }), /session-lock-anchor/)
+})
+
+test('flock 标志串：exnb → LOCK_EX|LOCK_NB', () => {
+  assert.equal(flockFlagsToOperation('exnb'), 6)
+  assert.equal(flockFlagsToOperation('ex'), 2)
+  assert.equal(flockFlagsToOperation('shnb'), 5)
+  assert.equal(flockFlagsToOperation('un'), 8)
+})
+
+test('会话锁 v2：koffi 兜底真的调 flock(2)，竞争返回 EAGAIN', async (t) => {
+  const f = fixture(t)
+  // 假的 koffi：记录调用，可控返回值与 errno
+  const koffiDir = path.join(f.kernelRoot, 'node_modules', 'koffi')
+  fs.mkdirSync(koffiDir, { recursive: true })
+  fs.writeFileSync(path.join(koffiDir, 'package.json'), JSON.stringify({ name: 'koffi', version: '3.2.1', main: 'index.js' }))
+  fs.writeFileSync(
+    path.join(koffiDir, 'index.js'),
+    `const state = { result: 0, errno: 0, calls: [] };
+module.exports = {
+  load: (p) => { state.calls.push(['load', p]); return { func: (def) => { state.calls.push(['func', def]); return (fd, op) => { state.calls.push(['flock', fd, op]); return state.result; }; } }; },
+  errno: () => state.errno,
+  __state: state,
+};
+`,
+  )
+  prepareSessionLockDependency({ kernelRoot: f.kernelRoot })
+  fs.appendFileSync(f.file, '\nexport { flock };\n')
+  const koffi = (await import(pathToFileURL(path.join(koffiDir, 'index.js')).href)).default
+  const before = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  try {
+    const mod = await import(`${pathToFileURL(f.file).href}?t=${Date.now()}`)
+    assert.equal(typeof mod.flock, 'function')
+    assert.equal(koffi.__state.calls[0][0], 'load')
+    // 成功：LOCK_EX|LOCK_NB = 6
+    await new Promise((resolve, reject) => mod.flock(7, 'exnb', (err) => (err ? reject(err) : resolve())))
+    assert.deepEqual(koffi.__state.calls.at(-1), ['flock', 7, 6])
+    // 竞争：flock 返回 -1、errno=35（macOS EAGAIN）→ error.code 必须是 EAGAIN
+    koffi.__state.result = -1
+    koffi.__state.errno = 35
+    const err = await new Promise((resolve) => mod.flock(7, 'exnb', resolve))
+    assert.equal(err.code, 'EAGAIN')
+    assert.equal(err.errno, 35)
+    // 内核里 0.1.3 的 fs-ext 只传 "exnb"，不会用阻塞模式
+    assert.equal(flockFlagsToOperation('exnb') & 4, 4)
+  } finally {
+    Object.defineProperty(process, 'platform', before)
+  }
 })
 
 // 显式指定已准备的真实内核，验证 native 模块和跨进程锁；普通离线测试不下载内核。

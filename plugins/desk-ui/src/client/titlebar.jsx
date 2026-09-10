@@ -61,17 +61,17 @@ export function DeskTitlebar({ sidebarWidth }) {
           <BrandMark size={13} />
           <span>{PRODUCT_NAME}</span>
         </span>
-        <div className="dk-titlebar-controls">
-          <button type="button" className="dk-winbtn" aria-label="最小化" onClick={() => shell.minimize()}>
-            <IconWinMin />
-          </button>
-          <button type="button" className="dk-winbtn" aria-label={state.maximized ? '还原' : '最大化'} onClick={() => shell.maximize()}>
-            {state.maximized ? <IconWinRestore /> : <IconWinMax />}
-          </button>
-          <button type="button" className="dk-winbtn close" aria-label="关闭" onClick={() => shell.close()}>
-            <IconWinClose />
-          </button>
-        </div>
+      </div>
+      <div className="dk-titlebar-controls">
+        <button type="button" className="dk-winbtn" aria-label="最小化" onClick={() => shell.minimize()}>
+          <IconWinMin />
+        </button>
+        <button type="button" className="dk-winbtn" aria-label={state.maximized ? '还原' : '最大化'} onClick={() => shell.maximize()}>
+          {state.maximized ? <IconWinRestore /> : <IconWinMax />}
+        </button>
+        <button type="button" className="dk-winbtn close" aria-label="关闭" onClick={() => shell.close()}>
+          <IconWinClose />
+        </button>
       </div>
     </header>
   )

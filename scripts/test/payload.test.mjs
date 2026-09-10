@@ -11,8 +11,15 @@ test('shouldPrune：只删类型声明、source map 与其他平台的 node-pty 
   assert.equal(shouldPrune('node_modules\\x\\lib\\index.d.ts.map'), true)
   assert.equal(shouldPrune('node_modules/x/lib/index.js.map'), true)
   assert.equal(shouldPrune('node_modules/x/lib/index.mjs.map'), true)
-  assert.equal(shouldPrune('node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds/darwin-arm64/pty.node'), true)
-  assert.equal(shouldPrune('node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds/win32-x64/conpty.node'), false)
+  // Windows 客户端目标
+  assert.equal(shouldPrune('node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds/darwin-arm64/pty.node', 'win32', 'x64'), true)
+  assert.equal(shouldPrune('node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds/win32-x64/conpty.node', 'win32', 'x64'), false)
+  // macOS Intel 客户端目标：留 darwin-x64，删 win32 / linux / arm64
+  assert.equal(shouldPrune('node_modules/node-pty/prebuilds/darwin-x64/pty.node', 'darwin', 'x64'), false)
+  assert.equal(shouldPrune('node_modules/node-pty/prebuilds/win32-x64/pty.node', 'darwin', 'x64'), true)
+  assert.equal(shouldPrune('node_modules/node-pty/prebuilds/darwin-arm64/pty.node', 'darwin', 'x64'), true)
+  assert.equal(shouldPrune('node_modules/node-pty/build/Release/conpty/conpty.dll', 'darwin', 'x64'), true)
+  assert.equal(shouldPrune('node_modules/node-pty/third_party/conpty/1.23.251008001/win10-x64/conpty.dll', 'darwin', 'x64'), true)
   assert.equal(shouldPrune('node_modules/x/lib/index.js'), false)
   assert.equal(shouldPrune('node_modules/x/LICENSE'), false)
   assert.equal(shouldPrune('node_modules/x/README.md'), false)
