@@ -79,6 +79,7 @@ SectionEnd
   assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr)
   for (const [args, expectedExit, expectedStarts] of [
     [['/S'], 0, 1],
+    [['/S', '--updated'], 0, 1],
     [['/S', '--force-run'], 0, 1],
     [['/S', '--force-run', '--fail-install'], 2, 0],
   ]) {

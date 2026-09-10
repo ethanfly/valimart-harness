@@ -3,6 +3,7 @@
  * 1) 静默安装到沙箱目录（NSIS /D=，必须放最后且不能加引号）。
  *    注意：$LOCALAPPDATA 是 NSIS 内置常量，改环境变量无效；旧写法会装进正式
  *    %LOCALAPPDATA%\Programs\valimart-harness 并因 runAfterFinish 拉起正式客户端。
+ *    /D= 仍会改写开始菜单快捷方式，装完必须拨回正式目录。
  * 2) 校验 resources/payload（payload.json buildId / 运行时 node / kernel.tar / 插件齐全）；
  * 3) 用临时 DSH_HOME + 临时 app-dir 启动安装版客户端（不同 userData，不跟正式实例抢锁）；
  * 4) 校验宿主 HTTP 就绪、Mixed 本机 API 可达；
@@ -24,6 +25,37 @@ const SANDBOX = `C:\\Users\\ethan\\.dsh-nsis-${STAMP}`
 const DSH_HOME = path.join(SANDBOX, 'dsh-home')
 const APP_DIR = path.join(SANDBOX, 'app-dir')
 const OFFICIAL_DIR = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'valimart-harness')
+const OFFICIAL_EXE = path.join(OFFICIAL_DIR, 'valimart harness.exe')
+const SHORTCUT_NAME = 'valimart harness.lnk'
+
+function officialShortcutPaths() {
+  return [
+    path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', SHORTCUT_NAME),
+    path.join(process.env.USERPROFILE || '', 'Desktop', SHORTCUT_NAME),
+  ]
+}
+
+/** /D= 沙箱安装仍会改写开始菜单 .lnk；装完拨回正式客户端，避免下次自动更新打开旧沙箱。 */
+function restoreOfficialShortcuts() {
+  if (!fs.existsSync(OFFICIAL_EXE)) return
+  const paths = officialShortcutPaths().map((p) => `'${p.replace(/'/g, "''")}'`).join(', ')
+  const target = OFFICIAL_EXE.replace(/'/g, "''")
+  const workDir = OFFICIAL_DIR.replace(/'/g, "''")
+  const ps = [
+    `$sh = New-Object -ComObject WScript.Shell`,
+    `foreach ($p in @(${paths})) {`,
+    `  if (Test-Path -LiteralPath $p) {`,
+    `    $s = $sh.CreateShortcut($p)`,
+    `    $s.TargetPath = '${target}'`,
+    `    $s.WorkingDirectory = '${workDir}'`,
+    `    $s.Save()`,
+    `  }`,
+    `}`,
+  ].join('; ')
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', ps], { windowsHide: true, encoding: 'utf8' })
+  if (result.status !== 0) console.log(`[verify] 恢复正式快捷方式失败: ${(result.stderr || result.stdout || '').trim()}`)
+  else console.log('[verify] 已把开始菜单/桌面快捷方式拨回正式安装目录')
+}
 const PORT_LO = 3470
 const PORT_HI = 3479
 const cleanup = process.argv.includes('--cleanup')
@@ -123,10 +155,12 @@ if (skipInstall) {
   fs.mkdirSync(installDir, { recursive: true })
   console.log(`\n== 静默安装（NSIS /D=${installDir}）`)
   // /D 必须最后、不能加引号。改 LOCALAPPDATA 环境变量对 NSIS 内置 $LOCALAPPDATA 无效。
+  // --no-desktop-shortcut 只能挡住桌面；开始菜单仍会被改写，装完立刻把正式快捷方式拨回去。
   const bat = path.join(SANDBOX, 'install.bat')
-  fs.writeFileSync(bat, `@echo off\r\n"${installer}" /S /D=${installDir}\r\n`, { encoding: 'utf8' })
+  fs.writeFileSync(bat, `@echo off\r\n"${installer}" /S --no-desktop-shortcut /D=${installDir}\r\n`, { encoding: 'utf8' })
   const r = spawnSync(process.env.ComSpec, ['/c', bat], { stdio: 'inherit', windowsHide: true, timeout: 300_000 })
   assert('NSIS 静默安装退出 0', r.status === 0, { status: r.status })
+  restoreOfficialShortcuts()
   const isolated = fs.existsSync(path.join(installDir, 'valimart harness.exe'))
   assert('安装落入 /D 沙箱（未写正式 Programs）', isolated, {
     sandboxExe: path.join(installDir, 'valimart harness.exe'),

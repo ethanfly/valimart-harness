@@ -143,7 +143,10 @@ export function shouldFetchClientUpdate(current, localBuildId, pending, local = 
 }
 
 export function silentInstallArgs() {
-  return ['/S', '--force-run']
+  // --updated：让 NSIS 等旧进程退出再换文件。不传 --force-run，避免走
+  // electron-builder 的 StartApp（打开开始菜单快捷方式；沙箱 /D= 装过会把
+  // .lnk 指到旧目录，更新完看起来像没启动）。
+  return ['/S', '--updated']
 }
 
 export function shouldApplyClientUpdate(pending, { packaged, exeExists, sha, localBuildId, localInstallerVersion } = {}) {
@@ -163,7 +166,7 @@ export function defaultClientPendingDir(appDir) {
 }
 
 /**
- * 安装版启动时：hash 核对通过则拉起 Setup.exe /S --force-run，由调用方随后退出进程。
+ * 安装版启动时：hash 核对通过则拉起 Setup.exe /S --updated，由调用方随后退出进程。
  * 安装器完成文件替换后启动新版，不能让旧进程提前 app.relaunch()。
  * spawn / hashFile 注入，方便单测且桌面主进程不必再复制判定。
  */

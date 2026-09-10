@@ -189,7 +189,18 @@ test('shouldApplyClientUpdate：仅安装版且 hash 对才应用；开发版不
   const ok = shouldApplyClientUpdate(pending, { packaged: true, exeExists: true, sha: pending.sha256, localBuildId: 'old' })
   assert.equal(ok.apply, true)
   assert.deepEqual(ok.args, silentInstallArgs())
-  assert.deepEqual(silentInstallArgs(), ['/S', '--force-run'])
+  assert.deepEqual(silentInstallArgs(), ['/S', '--updated'])
+})
+
+test('静默更新拉起刚写入 $INSTDIR 的 exe，不打开可能被沙箱 /D= 改掉的快捷方式', () => {
+  const nsh = fs.readFileSync(path.join(repo, 'desktop/build/installer.nsh'), 'utf8')
+  const launch = nsh.split(/\r?\n/).find((line) => line.includes('ExecShellAsUser'))
+  assert.ok(launch, 'customInstall 必须调用 ExecShellAsUser')
+  assert.match(launch, /\$appExe/)
+  assert.doesNotMatch(launch, /\$launchLink/)
+  const verify = fs.readFileSync(path.join(repo, 'scripts/verify-installer-nsis.mjs'), 'utf8')
+  assert.match(verify, /restoreOfficialShortcuts/)
+  assert.match(verify, /--no-desktop-shortcut/)
 })
 
 test('openClientCatalog：入库、发布、回滚、员工视图', (t) => {
@@ -355,10 +366,10 @@ test('applyPendingClientUpdate：安装版 hash 对则静默安装，并要求�
   })
   assert.equal(r.applied, true)
   assert.equal(r.buildId, '0.1.0+new')
-  assert.deepEqual(r.args, ['/S', '--force-run'])
+  assert.deepEqual(r.args, ['/S', '--updated'])
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].file, exe)
-  assert.deepEqual(spawned[0].args, ['/S', '--force-run'])
+  assert.deepEqual(spawned[0].args, ['/S', '--updated'])
   assert.equal(spawned[0].opts.detached, true)
 })
 
