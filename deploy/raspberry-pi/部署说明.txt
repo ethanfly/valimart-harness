@@ -1,0 +1,116 @@
+valimart harness 公司网关 · ARM64（树莓派 / 飞牛 OS ARM 版）部署包
+========================================================================
+生成时间：2026-09-10（第二版，已按真机实测修正）
+打包机器：ethan 的开发机（Windows）
+
+★ 本版已在真机跑通 ★
+  设备：飞牛 OS ARM 版（Debian 12 / aarch64 / 4 核 / 1.8 GB 内存）
+  地址：http://10.56.41.60:8790       容器：Up (healthy)
+  落地：应用 /vol1/1000/harness/valimart-gateway   数据 /vol1/1000/harness/data
+  已从另一台 Windows 机器实测：/health ok、管理页 HTTP 200
+
+本版修正了第一版三个会卡住的问题（都是真机上踩出来的）：
+  ① Dockerfile 第一行的 `# syntax=docker/dockerfile:1` → 飞牛的 docker 代理返回 401，已删
+  ② compose 的 `../..` 相对路径 → 会挂错一级导致容器找不到 /app/server/src/index.js，
+     已改成 .env 里显式指定 APP_DIR（绝对路径）
+  ③ deploy.sh 现在自动探测 docker 是否需要 sudo
+
+
+一、本包内容
+------------------------------------------------------------------------
+valimart-harness-gateway-arm64.tar.gz   ← 整包（拖到树上解压即可）
+valimart-gateway\                       ← 同一份内容，散文件形式
+  server\                    服务端源码（不含开发数据 data/、不含演示账号）
+  server\config.local.json   已填好 publicUrl=http://10.56.41.60:8790（换机器要改）
+  scripts\                   服务端运行期依赖的仓内脚本
+  plugins\desk-ui\src\client\assets\   管理页品牌图（缺了管理页 logo 空白）
+  deploy\                    Dockerfile / docker-compose.yml / .env.example / deploy.sh
+  package.json               版本标记
+_参考文档\
+  部署手册.md                              详细版（含真机实测的排障表）
+  2026-09-10-网关树莓派-ARM64-可行性.md     评估依据（含代码行号）
+部署说明.txt                                本文件
+
+
+二、部署（三步）
+------------------------------------------------------------------------
+① 放到树上并解压
+
+   mkdir -p /vol1/1000/harness && cd /vol1/1000/harness
+   tar -xzf valimart-harness-gateway-arm64.tar.gz     # 解出 valimart-gateway/
+
+② ★ 先解决基础镜像（国内直连 Docker Hub 不通，这步不做会一直卡住）★
+
+   sudo docker pull docker.m.daocloud.io/library/node:25-slim
+   sudo docker tag docker.m.daocloud.io/library/node:25-slim node:25-slim
+
+   或者在飞牛面板里配好「镜像加速」再往下走。
+
+③ 一键脚本
+
+   cd /vol1/1000/harness/valimart-gateway/deploy
+   chmod +x deploy.sh
+   ./deploy.sh 10.56.41.60                            # 数据目录默认用 <应用目录>/data
+   # 指定数据目录（推荐放 SSD 卷）：
+   ./deploy.sh 10.56.41.60 /vol1/1000/harness/data
+
+   脚本会：写 server/config.local.json（publicUrl 换成你给的地址）→ 写 deploy/.env
+   （APP_DIR + GATEWAY_DATA）→ 建数据目录 → 自动决定是否用 sudo → docker compose
+   up -d --build → 等健康检查 → 打印下一步。
+
+   手动做也可以，见 deploy/README.md。
+
+
+三、部署后自查
+------------------------------------------------------------------------
+docker compose ps                                     # 期望 Up (healthy)
+curl -s http://127.0.0.1:8790/health                  # 期望 ok:true product:valimart-harness
+docker exec valimart-gateway node -p "process.arch"   # 期望 arm64
+docker exec valimart-gateway sh -c "ls /data"         # 期望 gateway.sqlite
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8790/admin   # 期望 200
+
+然后浏览器打开 http://<树莓派IP>:8790/admin
+   首次会引导设公司名 + 初始管理员账号（本包关了播种，没有 boss/boss123456 这类演示账号）。
+   接着在管理页「模型」页接入 DeepSeek / OpenAI / Anthropic 或订阅通道——
+   不配这一步，员工客户端登录后模型菜单是空的。
+
+员工客户端（Windows）登录页「公司网关」填 http://<树莓派IP>:8790。
+
+
+四、必须知道的坑（都是实测踩到的）
+------------------------------------------------------------------------
+1. docker 需要 sudo。飞牛上普通用户不在 docker 组，deploy.sh 会自动加 sudo；
+   手动执行请用 sudo docker compose ...。
+2. 基础镜像拉不动 docker.io。见上面第②步；Dockerfile 也支持
+   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:25-slim。
+3. APP_DIR 必须显式写绝对路径（.env 里）。用 ../.. 这类相对路径会在
+   「散文件」和「tar 解包」两种布局下挂错一级，容器报
+   Cannot find module '/app/server/src/index.js'。
+4. server/config.local.json 必须在 up 之前是「文件」，否则 Docker 会建同名目录，服务起不来。
+5. 数据目录放 SSD/NVMe，别放 SD 卡；容器删了数据不丢的前提是挂了 /data 卷。
+6. Docker bridge 下局域网自动发现（UDP 18790 组播）基本失效，客户端手填 IP 即可；
+   本包配置已 lanDiscover: false。
+7. 别在树莓派上点管理页的「内核试打补丁 / 发布」——要 npm 装原生依赖，ARM64 未验证且很慢。
+   内核构建继续在 x64 机器上做，再从那边发布到这台网关。
+8. 员工客户端只有 Windows 版；树莓派上只跑服务端。
+
+
+五、日常操作
+------------------------------------------------------------------------
+cd /vol1/1000/harness/valimart-gateway/deploy
+sudo docker compose logs -f --tail 100    # 日志
+sudo docker compose restart               # 改完 config.local.json 后重启
+sudo docker compose down                  # 停止（数据在 /data，不丢）
+sudo docker compose up -d                 # 起
+
+备份：
+sudo docker exec valimart-gateway node scripts/backup-gateway.mjs --data-dir /data --out /data/backups/latest.zip
+
+升级：解压新包覆盖 valimart-gateway/（数据目录在包外，不受影响），再 up -d --build。
+
+
+六、开发机上可跑的验收（不依赖 Docker）
+------------------------------------------------------------------------
+node scripts/test/gateway-deploy-dryrun.mjs
+用「生产式配置」在本机拉起网关，验 /health、needsSetup（确认没播种演示账号）、
+管理页品牌图、sqlite 落盘、不污染源码目录。11/11 通过。

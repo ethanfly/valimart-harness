@@ -1,0 +1,11 @@
+{
+  "host": "0.0.0.0",
+  "port": 8790,
+  "publicUrl": "http://CHANGE-ME-树莓派IP或主机名:8790",
+  "dataDir": "/data",
+  "seedAdmin": false,
+  "seedUsers": [],
+  "seedDriveSamples": false,
+  "packaged": true,
+  "lanDiscover": false
+}

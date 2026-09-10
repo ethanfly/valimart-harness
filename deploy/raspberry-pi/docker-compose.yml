@@ -1,0 +1,66 @@
+# valimart harness 公司网关 · 树莓派 / 飞牛 OS ARM 版（Docker）
+#
+# 用法：
+#   cd <解包目录>/deploy
+#   cp .env.example .env      # 改 GATEWAY_DATA 和 APP_DIR
+#   docker compose up -d --build
+#
+# 默认可以直接跑 deploy.sh 一步到位：./deploy.sh <树莓派IP>
+#
+# 说明：
+#   - APP_DIR（.env 里指定）是应用根目录，只读挂进 /app：改代码 = git pull + compose restart
+#   - 数据在 GATEWAY_DATA（.env 里指定），挂进 /data：容器删了数据还在
+#   - APP_DIR/server/config.local.json 单独挂载，改完只需重启容器（不用重新 build）
+#   - 这是 ARM64 部署（树莓派原生执行，不模拟）。镜像按宿主机架构构建，
+#     在树莓派上拉到的就是 linux/arm64；Dockerfile 里有架构自检，架构不对会直接失败。
+#   - 基础镜像拉不动时（国内直连 docker.io 不通）见 README「排障」一节。
+#
+# 注意：宿主机仓库里的 node_modules 是 Windows 上装的，容器用不上——服务端本来零 npm
+# 依赖，缺 node_modules 也不影响启动，所以不要去"修"这个目录。
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: valimart-harness-gateway:arm64
+    container_name: valimart-gateway
+    restart: unless-stopped
+    working_dir: /app
+
+    volumes:
+      # 应用根目录：必须显式指定（.env 的 APP_DIR）。
+      # 不要用 ../.. 这种相对层级——散文件形式和 tar 解包形式的层级不同，容易挂错一级。
+      - ${APP_DIR:?请在 .env 里设置 APP_DIR（应用根目录）}:/app:ro
+      # 配置覆盖层：会遮住 /app/server/config.local.json（宿主机上那份仍在）
+      - ${APP_DIR:?}/server/config.local.json:/app/server/config.local.json:ro
+      # 数据目录：换成飞牛上的 SSD 卷路径，别放 SD 卡
+      - ${GATEWAY_DATA:?请在 .env 里设置 GATEWAY_DATA}:/data
+
+    environment:
+      NODE_ENV: production
+      DESK_GATEWAY_PACKAGED: "1"
+      DESK_GATEWAY_DATA: /data
+      # 上游密钥（只放服务端）。留空则用管理页「模型通道」或 config.local.json
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ANYSEARCH_API_KEY: ${ANYSEARCH_API_KEY:-}
+
+    ports:
+      - "${GATEWAY_PORT:-8790}:8790"
+      # 局域网发现信标（UDP 18790）。Docker bridge 下广播/组播基本出不来，
+      # 映射也未必够——客户端自动发现大概率不生效，用 http://<树莓派IP>:8790 手动填；
+      # 不想要这个功能就在 config.local.json 里加 "lanDiscover": false。
+      - "18790:18790/udp"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8790/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
