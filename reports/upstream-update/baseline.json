@@ -1,0 +1,250 @@
+{
+  "target": {
+    "label": "本项目（二次开发方，company-desk / company-harness）",
+    "path": "E:/orcaWorkspace/company-harness",
+    "accessStatus": "ok",
+    "gitStatus": {
+      "isGitRepo": true,
+      "root": "E:/orcaWorkspace/company-harness",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://git.ethan.team/ethanfly/company-harness.git",
+          "role": "公司主机自有仓库（fetch/push 同一 URL）",
+          "credentialsInUrl": false
+        }
+      ],
+      "totalCommits": 56,
+      "submodules": [],
+      "lastLocalFetch": {
+        "ref": "refs/remotes/origin/main",
+        "fetchedTip": "a6adcb9707bd7ab9924960d7625ea3ff111e1df5",
+        "fetchedTipDate": "2026-09-08 01:18:26 +0800",
+        "fetchedAtFileMtime": "2026-09-08 10:19:32 +0800",
+        "note": "本地 HEAD 领先该最后一次 fetch 到的 origin/main 尖端 12 个提交（a6adcb9 是 HEAD 的祖先）；git.ethan.team 远端当前状态未验证（本轮未 git fetch）"
+      }
+    },
+    "branch": "main",
+    "commit": {
+      "hash": "94b9a2c6d6e5af83428be0a13ebc12e8c1501b04",
+      "date": "2026-09-10 14:58:59 +0800",
+      "subject": "feat: Mixed 混合模式、桌面顶栏整理，并清掉本地验收落盘"
+    },
+    "workingTreeChanges": {
+      "summary": "19 个已修改（M）+ 4 个未跟踪（??），共 23 条，均为基线时点已存在的既有改动，非本任务产生",
+      "modifiedCount": 19,
+      "untrackedCount": 4,
+      "modified": [
+        "desktop/build/installer.nsh",
+        "e2e/desktop-chrome.spec.js",
+        "e2e/sidebar-toggle-align.spec.js",
+        "plugins/desk-ui/src/client/index.jsx",
+        "plugins/desk-ui/src/client/layout.jsx",
+        "plugins/desk-ui/src/client/sidebar.jsx",
+        "plugins/desk-ui/src/client/styles.css",
+        "plugins/desk-ui/src/client/workspace-git.js",
+        "scripts/kernel/patches.mjs",
+        "scripts/kernel/pin.json",
+        "scripts/lib/client-update.mjs",
+        "scripts/lib/kernel-native.mjs",
+        "scripts/test/client-relaunch.test.mjs",
+        "scripts/test/client-update.test.mjs",
+        "scripts/test/kernel-native.test.mjs",
+        "scripts/test/kernel-patches.test.mjs",
+        "scripts/test/workspace-git-badge.test.mjs",
+        "scripts/verify-installer-nsis.mjs",
+        "server/src/admin-page.js"
+      ],
+      "untracked": [
+        "e2e/mixed-dock-align.spec.js",
+        "plugins/desk-ui/src/client/workspace-folder-menu.js",
+        "reports/",
+        "scripts/test/workspace-folder-menu.test.mjs"
+      ],
+      "note": "以上清单为既有工作区改动；本任务产物 reports/upstream-update/ 列入 untracked 的 reports/ 下，后续比较（diff/merge-base 类）应排除本任务报告文件"
+    },
+    "thisTaskArtifacts": [
+      "reports/upstream-update/baseline.json",
+      "reports/upstream-update/impact.json",
+      "reports/upstream-update/assessment.md",
+      "reports/upstream-update/decision.json"
+    ],
+    "kernelPin": {
+      "file": "scripts/kernel/pin.json",
+      "package": "@deepseek-ai/dsh",
+      "version": "0.1.5-rc.1",
+      "headVersion": "0.1.3-alpha.2",
+      "note": "工作树 2026-09-10 由 0.1.3-alpha.2 升至 0.1.5-rc.1（未提交）；prepare 验证 16 处补丁干净命中；0.1.5 起 POSIX 会话锁改走 @deepseek-ai/node-addon-system/flock。HEAD 提交仍 pin 0.1.3-alpha.2。"
+    },
+    "package": {
+      "name": "company-desk",
+      "version": "0.1.0",
+      "description": "企业交付工作台（valimart harness）— 基于 @deepseek-ai/dsh 内核（内置公司补丁）的公司网关服务端与桌面客户端"
+    }
+  },
+  "upstream": {
+    "label": "上游项目（TDHarness-coding，@deepseek-ai/dsh 内核源码仓的 coding 变体）",
+    "path": "E:/orcaWorkspace/TDHarness-coding",
+    "accessStatus": "ok",
+    "gitStatus": {
+      "isGitRepo": true,
+      "root": "E:/orcaWorkspace/TDHarness-coding",
+      "remotes": [
+        {
+          "name": "origin",
+          "url": "https://github.com/398894496-arch/TDHarness-coding.git",
+          "role": "上游主仓（2026-09-03 发布；公开，MIT；DeepSeek Harness 官方仓不收外部 PR）",
+          "credentialsInUrl": false
+        },
+        {
+          "name": "fork",
+          "url": "https://github.com/ethanfly/TDHarness-coding.git",
+          "role": "ethanfly 的 fork，本项目回贡献 PR 的提交来源",
+          "credentialsInUrl": false
+        }
+      ],
+      "totalCommits": 7,
+      "submodules": [],
+      "lastLocalFetch": {
+        "ref": "refs/remotes/origin/main",
+        "fetchedTip": "d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9",
+        "fetchedAt": "2026-09-10 13:14:05 +0800",
+        "fetchedAtFileMtime": "2026-09-10 13:14:11 +0800",
+        "note": "本地 git 快照止于 2026-09-10 13:14 的 fetch（fast-forward 到 d02046a）；本轮未 git fetch。线上 HEAD 另经 GitHub REST 核验（见 onlineVerification）。"
+      }
+    },
+    "branch": "main",
+    "commit": {
+      "hash": "d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9",
+      "date": "2026-09-09 09:25:19 -0700",
+      "subject": "Pin text files to LF with .gitattributes"
+    },
+    "workingTreeChanges": {
+      "summary": "clean（0 条改动）",
+      "modifiedCount": 0,
+      "untrackedCount": 0,
+      "modified": [],
+      "untracked": []
+    },
+    "thisTaskArtifacts": [],
+    "kernelPin": {
+      "file": "kernel.yml",
+      "id": "0.1.1-rc.2",
+      "package": "@deepseek-ai/dsh",
+      "candidate": "0.1.1-rc.2",
+      "note": "上游 pin 停在 0.1.1-rc.2，落后本项目工作树 pin 0.1.5-rc.1 多个版本线"
+    },
+    "onlineVerification": {
+      "method": "HTTPS 只读（GitHub REST + 网页），非 git fetch",
+      "checkedAt": "2026-09-10T17:05:53+08:00",
+      "commitsMain": {
+        "url": "https://api.github.com/repos/398894496-arch/TDHarness-coding/commits/main",
+        "httpStatus": 200,
+        "sha": "d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9",
+        "matchesLocalHead": true
+      },
+      "pullsPage": {
+        "url": "https://github.com/398894496-arch/TDHarness-coding/pulls?q=is%3Apr",
+        "httpStatus": 200,
+        "openCount": 5,
+        "closedCount": 2,
+        "open": [
+          { "number": 13, "title": "Add a 0.1.2-gated render slot for assistant markdown (P8)", "author": "ethanfly", "state": "open" },
+          { "number": 12, "title": "Add a 0.1.2-gated patch restoring Session.events for older presets (P7)", "author": "ethanfly", "state": "open" },
+          { "number": 11, "title": "Stop coding setup from pinning company skill roots (C4)", "author": "ethanfly", "state": "open" },
+          { "number": 10, "title": "Add a kernel bump dry-run script (C5)", "author": "ethanfly", "state": "open" },
+          { "number": 9, "title": "Let the patch set apply on 0.1.1-rc.2, 0.1.2-rc.1 and 0.1.3-alpha.2", "author": "ethanfly", "state": "open" }
+        ],
+        "closedMerged": [
+          { "number": 5, "title": "Fix C2: refuse mapped and SUBST workspaces before ACL grants", "author": "jiangjc-xidian", "state": "merged", "merged": "2026-09-09" },
+          { "number": 3, "title": "Fix C1: verify actual sandbox path checks and kernel wiring", "author": "jiangjc-xidian", "state": "merged", "merged": "2026-09-08" }
+        ],
+        "note": "PR 页动态筛选项 Loading 失败，但列表正文可读；CI 门禁（action_required）细节本轮未逐条打开 Actions 页核验"
+      }
+    },
+    "forkBranchRefs": [
+      { "ref": "refs/remotes/fork/main", "tip": "95e8204", "isAncestorOfOriginMain": true, "note": "PR #3（C1 沙箱路径行为证明）已并入 origin/main（本地 + 线上均确认）" },
+      { "ref": "refs/remotes/fork/kernel-0.1.2-compat", "tip": "f2da8af", "isAncestorOfOriginMain": false, "note": "PR #9，线上仍 open（2026-09-10 17:05 网页核验）" },
+      { "ref": "refs/remotes/fork/prove-bump", "tip": "2d90fe3", "isAncestorOfOriginMain": false, "note": "PR #10，线上仍 open" },
+      { "ref": "refs/remotes/fork/setup-coding-subset", "tip": "70ce5f9", "isAncestorOfOriginMain": false, "note": "PR #11，线上仍 open" },
+      { "ref": "refs/remotes/fork/session-events-alias", "tip": "0c165b1", "isAncestorOfOriginMain": false, "note": "PR #12，线上仍 open" },
+      { "ref": "refs/remotes/fork/assistant-markdown-slot", "tip": "afebe9b", "isAncestorOfOriginMain": false, "note": "PR #13，线上仍 open" }
+    ]
+  },
+  "ancestry": {
+    "derivationClaim": "任务声明：本项目基于 TDHarness-coding 二次开发。另据本仓 docs/upstream-pr/2026-09-09-tdharness-pr-candidates.md（2026-09-09，ethan + agent）：两仓同源——上游 2026-09-03 发布时从公司产品的补丁器蒸馏（其补丁注释仍见 scripts/p-product-base/...），pin 停在 0.1.1-rc.2；当时本仓已演进到 0.1.3-alpha.2；共享的 11 个代码 mark + 3 类预设 mark 内容当时 diff 验证逐行一致。真正的增量在版本演进 + 工具链 + 3 个新 mark。",
+    "evidence": [
+      "本仓 docs/upstream-pr/2026-09-09-tdharness-pr-candidates.md：明确写『两仓同源』，给出上游 URL（github.com/398894496-arch/TDHarness-coding）、收录规则与 fork→issue→PR 贡献流程",
+      "本仓 package.json description 自述『基于 @deepseek-ai/dsh 内核（内置公司补丁）』，并有 scripts/kernel/（pin.json / patches.mjs / install-kernel.mjs / kernel-native.mjs 等）对上游内核版本做 pin + 锚点补丁管理",
+      "上游克隆含 refs/remotes/fork/*（ethanfly fork）共 5 条 PR 分支，与 2026-09-09 会话提交的 PR #9–#13 一一对应；fork/main(95e8204) 是 origin/main(d02046a) 的祖先（#3 已合并），其余 5 条未合并——与个人记忆『CI 全卡在 action_required 首贡献者门禁』及本轮 GitHub 网页（5 Open / 2 Closed）一致",
+      "内核版本线：上游 kernel.yml pin=0.1.1-rc.2 < 本仓工作树 pin.json=0.1.5-rc.1（2026-09-10 由 0.1.3-alpha.2 升级），方向与『本仓领先、上游为蒸馏基线』相符",
+      "个人记忆 _office/ethan/_memory/01-projects/tdharness-上游PR筛选.md（2026-09-10）记录了 fork ethanfly → 上游 398894496-arch 的 PR 提交实录",
+      "scripts/kernel/patches.mjs 头部自述：『源自 TDHarness-coding（MIT）的 patches/apply-kernel-patches.js，已内置到本仓库，不再需要那个仓库』"
+    ],
+    "commonAncestor": {
+      "determined": false,
+      "value": null,
+      "reason": "两个本地仓库对象史互不相通：upstream HEAD d02046a 在 target 仓不存在（git cat-file -e 退出码 128），target HEAD 94b9a2c 在 upstream 仓不存在（退出码 1），git merge-base 退出码 128（Not a valid commit name）。本轮未 git fetch/pull，无法把上游对象引入本仓计算真正的 git 共同祖先。共同祖先无法确定，明确标注为空值。"
+    },
+    "notes": [
+      "target 的 origin 是公司主机 git.ethan.team/ethanfly/company-harness，与 GitHub 上游不共享 git 对象史——『同源』是代码级同源（补丁器蒸馏、mark 逐行一致），不是 git remote 意义上的 fork；因此两仓之间不存在可计算的 merge-base",
+      "fork 分支合并状态：本地 refs（2026-09-10 13:14 fetch）+ 本轮 GitHub 网页核验（2026-09-10 17:05）；#3/#5 已合并，#9–#13 仍 open",
+      "上游仓库无 package.json（NO-PACKAGE-JSON），它是内核源码仓（kernel.yml/overlays/patches/runtime），不是 npm 应用项目；版本基线以 kernel.yml 为准"
+    ]
+  },
+  "limitations": {
+    "generatedAt": "2026-09-10T17:05:53+08:00",
+    "task": "t1 记录双方项目与版本基线（本轮为复核刷新，不实施实际更新）",
+    "previousRound": {
+      "generatedAt": "2026-09-10T16:24:41+08:00",
+      "note": "本轮复核确认 target HEAD / upstream 本地 HEAD / 工作树 / pin / 无共同祖先 与上一轮一致；新增 GitHub 线上 HEAD 与 PR 列表的 HTTPS 核验"
+    },
+    "boundary": {
+      "executed": [
+        "静态分析：package.json / pin.json / kernel.yml / 上游 PR 报告 / 公司盘个人记忆的只读比对",
+        "只读 git 检查：rev-parse / branch / log / status / remote / submodule / describe / cat-file / merge-base / rev-list / for-each-ref / merge-base --is-ancestor / FETCH_HEAD mtime",
+        "HTTPS 只读：GET https://api.github.com/repos/398894496-arch/TDHarness-coding/commits/main（200，sha=d02046a）；GET GitHub pulls 页（200，5 open / 2 closed merged）"
+      ],
+      "notExecuted": [
+        "git fetch / pull / checkout / reset / stash（本轮全部未执行）",
+        "任何对上游目录 E:/orcaWorkspace/TDHarness-coding 的写入",
+        "合并与冲突验证（未实施实际更新）",
+        "构建（npm run build / build-client / installer 等）",
+        "测试与运行验证（node --test / playwright / 桌面端启动等）",
+        "git.ethan.team 线上状态的实时核验（未 fetch）",
+        "GitHub Actions 门禁页逐条 Approve 状态核验"
+      ]
+    },
+    "readCommands": [
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git rev-parse --is-inside-work-tree; git rev-parse --show-toplevel", "exitCode": 0, "summary": "true；根 E:/orcaWorkspace/company-harness" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git branch --show-current; git rev-parse HEAD; git log -1 --format='%H %ci %s'", "exitCode": 0, "summary": "main；94b9a2c6d6e5af83428be0a13ebc12e8c1501b04，2026-09-10 14:58:59 +0800" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git remote -v", "exitCode": 0, "summary": "origin https://git.ethan.team/ethanfly/company-harness.git（fetch/push 同 URL，URL 无凭据）" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git status --porcelain=v1", "exitCode": 0, "summary": "23 条：19 M + 4 ??（既有改动，清单见 target.workingTreeChanges）" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git submodule status", "exitCode": 0, "summary": "空输出，无子模块" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git describe --all --long; git rev-list --count HEAD", "exitCode": 0, "summary": "heads/main-0-g94b9a2c；56 个提交" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git cat-file -e d02046a...^{commit}; git merge-base <target-HEAD> <upstream-HEAD>", "exitCode": 128, "summary": "Not a valid object name / Not a valid commit name——上游对象不在本仓，共同祖先不可计算" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git merge-base --is-ancestor a6adcb9 HEAD; git rev-list --count a6adcb9..HEAD", "exitCode": 0, "summary": "exit 0（是祖先）；本地领先 12 个提交" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git show HEAD:scripts/kernel/pin.json | 抽 version", "exitCode": 0, "summary": "HEAD pin=0.1.3-alpha.2；工作树 pin=0.1.5-rc.1" },
+      { "cwd": "E:/orcaWorkspace/company-harness", "command": "git ls-files 计数 + 与上游 33 文件求交", "exitCode": 0, "summary": "target 284 跟踪文件；交集={.gitignore, README.md}" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "git rev-parse --is-inside-work-tree / --show-toplevel; git branch --show-current; git rev-parse HEAD; git log -1", "exitCode": 0, "summary": "true；根 E:/orcaWorkspace/TDHarness-coding；main；d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9，2026-09-09 09:25:19 -0700" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "git remote -v", "exitCode": 0, "summary": "origin=https://github.com/398894496-arch/TDHarness-coding.git，fork=https://github.com/ethanfly/TDHarness-coding.git（URL 均无凭据）" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "git status --porcelain=v1; git submodule status; git describe --all --long", "exitCode": 0, "summary": "clean（0 条）；无子模块；heads/main-0-gd02046a" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "git for-each-ref; git rev-list --count HEAD", "exitCode": 0, "summary": "main=d02046a，origin/main=d02046a，fork/main=95e8204 + 5 条 fork PR 分支；共 7 个提交" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "git merge-base --is-ancestor <fork-branch> HEAD（6 条分支逐一）", "exitCode": "0/1/1/1/1/1", "summary": "fork/main 是 origin/main 祖先（#3 已合并）；5 条 PR 分支均非祖先（未合并）" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "读 .git/logs/refs/remotes/origin/main 与 .git/FETCH_HEAD", "exitCode": 0, "summary": "最后一次 fetch 于 2026-09-10 13:14:05 +0800，fast-forward 至 d02046a；FETCH_HEAD mtime 2026-09-10 13:14:11" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "Test-Path package.json; 读 kernel.yml", "exitCode": 0, "summary": "NO-PACKAGE-JSON；id/candidate=0.1.1-rc.2，package=@deepseek-ai/dsh" },
+      { "cwd": "E:/orcaWorkspace/TDHarness-coding", "command": "git cat-file -e 94b9a2c...", "exitCode": 1, "summary": "target HEAD 不在上游对象库" },
+      { "method": "HTTPS", "command": "GET https://api.github.com/repos/398894496-arch/TDHarness-coding/commits/main", "exitCode": 0, "summary": "HTTP 200，sha=d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9，与本地 HEAD 一致" },
+      { "method": "HTTPS", "command": "GET https://github.com/398894496-arch/TDHarness-coding/pulls?q=is%3Apr", "exitCode": 0, "summary": "HTTP 200；5 Open（#9–#13 ethanfly）+ 2 Closed merged（#5/#3）" }
+    ],
+    "sensitiveDataPolicy": "所有远程 URL 均无内嵌凭据（无 user:token），按原样记录；未读取任何 $DSH_HOME/.credentials.yaml 等敏感配置，亦未将其写入本报告；reflog 中出现的个人邮箱未复制进报告。",
+    "unknowns": [
+      { "item": "git 共同祖先（commonAncestor）", "status": "无法确定", "reason": "两仓本地对象史不相通且本轮未 git fetch；仅能给出代码级同源证据（见 ancestry.evidence）" },
+      { "item": "GitHub 上游线上当前 HEAD", "status": "已核验（本轮 HTTPS）", "reason": "commits/main sha 与本地 d02046a 一致（2026-09-10 17:05）；此后线上若再前进则本核验过期" },
+      { "item": "PR #9–#13 开/关/合并状态", "status": "已核验（本轮 HTTPS 列表）", "reason": "5 条仍 open；CI action_required 细节未逐条打开 Actions" },
+      { "item": "target origin（git.ethan.team）远端当前状态", "status": "未验证", "reason": "未 git fetch；最后一次 fetch 的 origin/main=a6adcb9 为 2026-09-08，本地 HEAD 领先其 12 个提交" },
+      { "item": "本仓自上游蒸馏的确切派生提交", "status": "无法确定", "reason": "两仓无共同 git 历史，派生关系只有文档与代码证据，无 commit 级锚点" },
+      { "item": "上游 package.json", "status": "不存在", "reason": "上游为内核源码仓（kernel.yml 制），无 package.json；版本基线取 kernel.yml" }
+    ]
+  }
+}

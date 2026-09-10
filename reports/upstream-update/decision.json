@@ -1,0 +1,172 @@
+{
+  "task": "t3 形成更新可行性结论与实施建议",
+  "generatedAt": "2026-09-10T17:05:53+08:00",
+  "previousRound": {
+    "generatedAt": "2026-09-10T16:55:20+08:00",
+    "note": "本轮复核刷新：线上 HEAD 经 HTTPS 核验仍为 d02046a；PR #9–#13 仍 open；verdict 不变；r-09 由 medium/not-verified 下调为 low-medium/partial；未实施实际更新"
+  },
+  "verdict": "conditional",
+  "verdictLabel": "附条件更新",
+  "summary": "两仓 git 对象史互不相通（merge-base 不可计算），整仓更新/合并不可行，更新只能是选择性代码移植+文档参照。上游增量（d8ffc77..d02046a，6 提交）唯一功能价值是 C1/C2 沙箱预检 v1→v2（补齐本仓 mapped/SUBST 工作区预检缺口，对应高风险 r-01）；另有低成本卫生项 .gitattributes（r-04）。本轮 HTTPS 已确认 GitHub main=d02046a 且 PR #9–#13 仍 open。满足 B2–B4（B1 实施前再核）后建议实施选择性吸收（P1 卫生项 + P2 sandbox v2 backport），C3 相关项与 prove CI 暂缓；本仓内核 pin 0.1.5-rc.1 领先上游 0.1.1-rc.2，不存在依赖级追版本需求。本次未合并、未构建、未部署。",
+  "asOf": {
+    "targetHead": { "hash": "94b9a2c6d6e5af83428be0a13ebc12e8c1501b04", "date": "2026-09-10 14:58:59 +0800", "workingTree": "19 M + 4 ??（含本任务 reports/ 与并发新增 e2e/mixed-dock-align.spec.js）" },
+    "upstreamSnapshot": {
+      "head": "d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9",
+      "localFetchedAt": "2026-09-10T13:14:05+08:00",
+      "workingTree": "clean",
+      "onlineStatus": "已核验（HTTPS GET commits/main HTTP 200，sha=d02046a，2026-09-10T17:05:53+08:00，与本地 HEAD 一致）",
+      "pulls": "5 Open（#9–#13 ethanfly）+ 2 Closed merged（#5 C2、#3 C1）"
+    },
+    "commonAncestor": { "determined": false, "value": null, "reason": "两仓本地对象史互不相通（merge-base 退出码 128）且本轮未 git fetch；同源为代码级（补丁器蒸馏），非 git fork" }
+  },
+  "baselineRefs": [
+    "reports/upstream-update/baseline.json#target（HEAD 94b9a2c、pin.json 0.1.5-rc.1 工作树值 / HEAD 0.1.3-alpha.2、工作树 19M+4??）",
+    "reports/upstream-update/baseline.json#upstream（本地 HEAD d02046a、kernel.yml pin 0.1.1-rc.2、onlineVerification 17:05 HTTPS、forkBranchRefs 5 条 PR 仍 open）",
+    "reports/upstream-update/baseline.json#ancestry（共同祖先无法确定；代码级同源证据）",
+    "reports/upstream-update/baseline.json#limitations.unknowns"
+  ],
+  "riskRefs": [
+    "reports/upstream-update/impact.json#risks/r-01（high：sandbox v1↔v2 分叉，本仓缺 mapped/SUBST 预检；本轮复核 MARK 仍分叉）",
+    "reports/upstream-update/impact.json#risks/r-02（medium：PowerShell 5.1+Add-Type 硬依赖，受限环境拒绝全部本地工作区）",
+    "reports/upstream-update/impact.json#risks/r-03（medium：C3 安全评审未闭环，本仓持有相同 privilege-shaped patch）",
+    "reports/upstream-update/impact.json#risks/r-04（low-medium：无 .gitattributes，至少 8 文件 CRLF 翻转警告）",
+    "reports/upstream-update/impact.json#risks/r-05（low：PR #9–#13 线上仍 open，与本地未提交改动同源）",
+    "reports/upstream-update/impact.json#risks/r-06（low：C2 已知局限随 backport 带入）",
+    "reports/upstream-update/impact.json#risks/r-07（low：C8 rg exit-2 映射同源隐患）",
+    "reports/upstream-update/impact.json#risks/r-08（low：dev node_modules 未受管已打补丁内核副本）",
+    "reports/upstream-update/impact.json#risks/r-09（low-medium/partial：本轮 HTTPS 已确认线上 main=d02046a，实施前窗口仍可能前进）",
+    "reports/upstream-update/impact.json#risks/r-10（none：无文本冲突——排除性结论，不得据此推断功能兼容；交集 2/33 vs 284）",
+    "reports/upstream-update/impact.json#classifications（directlyAbsorbable abs-1/abs-2；requiresManualAdaptation adapt-1/adapt-2；undetermined und-1/und-2/und-3）"
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "condition": "实施前再核 GitHub commits/main；若已前进则重跑增量分析",
+      "detail": "本轮 HTTPS（2026-09-10 17:05）已确认线上 main=d02046a、#9–#13 仍 open。B1 不再阻塞本可行性结论，但仍是吸收执行前的再确认（r-09/und-2）。",
+      "riskRefs": ["r-09", "und-2"],
+      "blocksVerdict": false,
+      "blocksAbsorbExecution": true
+    },
+    {
+      "id": "B2",
+      "condition": "本仓未提交改动先落地（commit/stash），reports/ 与本任务产物分离",
+      "detail": "19 M + 4 ??（含并发新增 e2e/mixed-dock-align.spec.js 与本任务 reports/）未提交；其中至少 8 个文件已现 CRLF 翻转警告，任何吸收都会与之纠缠（r-04/r-05）。",
+      "riskRefs": ["r-04", "r-05"],
+      "blocksVerdict": false,
+      "blocksAbsorbExecution": true
+    },
+    {
+      "id": "B3",
+      "condition": "目标机 PowerShell 5.1 + Add-Type 预检（仅 sandbox v2 backport 需要）",
+      "detail": "ConstrainedLanguage/管控策略禁 Add-Type 的机器上 probe 必然失败→拒绝全部本地工作区，相对 v1 是行为降级；受限环境须先与上游讨论 probe 失败降级语义，不得默认 backport（r-02）。",
+      "riskRefs": ["r-02"],
+      "blocksVerdict": false,
+      "blocksAbsorbExecution": true
+    },
+    {
+      "id": "B4",
+      "condition": "dev 工作区 node_modules 内核副本（0.1.5-rc.1 已含 v1 mark）来源与角色定性",
+      "detail": "非 package-lock 成员（@deepseek-ai 条目数=0）、仓根无完整前缀布局；若为实际运行内核根，backport 必须对其全新重装+重打补丁（v1 mark 在位，legacy 守卫硬失败）（r-08/und-3）。",
+      "riskRefs": ["r-08", "und-3"],
+      "blocksVerdict": false,
+      "blocksAbsorbExecution": true
+    },
+    {
+      "id": "B5",
+      "condition": "prove CI 引入前确认自托管 CI runner 可用性（可选项门槛）",
+      "detail": "target 无 .github，私有仓在 git.ethan.team，runner 可用性未验证（adapt-2）；不可用则跳过。",
+      "riskRefs": ["adapt-2"],
+      "blocksVerdict": false,
+      "blocksAbsorbExecution": false
+    }
+  ],
+  "updateSequence": [
+    { "phase": "P0", "items": ["B1：实施前再核 GitHub commits/main（必要时重跑 t2 分析，标注新 as-of）", "B2：落地 19 M + 4 ??（独立提交或 stash 列表，reports/ 不入该提交）", "备份：git tag pre-upstream-absorb-20260910 @ 94b9a2c、git status 快照、~/.company-desk/kernel 前缀整目录快照、node_modules/@deepseek-ai 副本快照、记录 pin.json 值 0.1.5-rc.1 与 16 处补丁干净命中基线"], "producesCodeChange": false },
+    { "phase": "P1", "items": ["吸收 .gitattributes（abs-1，d02046a 8 行）：加文件→git add --renormalize .→独立提交→git diff --stat 复核归一 diff 面（binary 标记 png/jpg 已覆盖）", "BUGS.md C1/C2 完成记录与 C2b/C3/C8 开放项仅作知识参照存档（abs-2）"], "producesCodeChange": true, "independentCommit": true },
+    { "phase": "P2", "items": ["sandbox v2 backport（adapt-1）：①patches/lib/network-path.js 8 个 helper 按 target HELPERS 模板机制移植（CJS→ESM 或字符串嵌入）", "②MARK v1→v2 + 与上游同形 legacy 守卫（v1-only 前缀硬失败分支）", "③对 0.1.5-rc.1 重验 materializeAclGrant 两处锚点（npm run kernel 全新前缀流水线，含 node --check）", "④全部既有前缀（~/.company-desk/kernel + dev 副本）全新重装后重打补丁", "⑤PowerShell 环境预检与安装文档化（B3）", "⑥参照 prove-unc/prove-windows-drives fixture 方式补 target 侧行为测试", "⑦文档如实记录 C2 局限（r-06：junction 不解析/30s 重映射窗口/precheck 非隔离证明）"], "producesCodeChange": true, "prerequisites": ["B1", "B2", "B3", "B4"] },
+    { "phase": "P3", "items": ["（可选）prove CI 四 job 改写为本仓约定（pin.json 源、~/.company-desk/kernel 前缀）后引入"], "prerequisites": ["B5"] },
+    { "phase": "P4", "items": ["跑完 assessment.md §10 构建/测试清单并留档", "C3（r-03）、C8（r-07）列入观察跟踪，不阻塞", "按『target 补丁器为权威+定期向上游 PR』策略更新回贡献基线（r-05；#9–#13 仍 open）"] }
+  ],
+  "integrationApproach": {
+    "method": "选择性代码移植（selective backport）+ 文档参照；明确排除 git merge/rebase（两仓无共同祖先，不可行）",
+    "directlyAbsorbable": [
+      { "id": "abs-1", "item": ".gitattributes（d02046a）", "precondition": "B2 满足；实施前再核 B1；renormalize diff 与未提交改动分离，独立提交" },
+      { "id": "abs-2", "item": "BUGS.md C1/C2/C2b/C3/C8 记录（知识参照）", "precondition": "无" }
+    ],
+    "requiresManualAdaptation": [
+      { "id": "adapt-1", "item": "sandbox v2 backport 至 scripts/kernel/patches.mjs", "precondition": "B1–B4 全部满足；禁止以『无文本冲突』推断可合并（r-10）" },
+      { "id": "adapt-2", "item": "prove CI 引入（可选）", "precondition": "B5（自托管 runner 可用）" }
+    ],
+    "explicitlyExcluded": [
+      "内核版本 bump（上游 pin 0.1.1-rc.2 更旧，无追版本语义）",
+      "C3 相关 patch 改动（等上游裁决，r-03/und-1）",
+      "C8 matcher 收紧（等上游收敛结论，r-07）",
+      "overlays/solo.yml（不适用于本仓 profile 体系）"
+    ]
+  },
+  "customizationProtection": [
+    "target-only 代码 mark：company-assistant-markdown-slot-v1（PR #13 同源）、company-session-events-alias-v1（PR #12 同源）——backport 只触碰 sandbox mark 及其 helper，不得覆盖",
+    "editVariants/applyEdit 锚点变体机制（PR #9 同源，含 0.1.5-rc.1 MarkdownText pathImages 变体）——v2 新锚点变体沿用该机制承载",
+    "scripts/lib/kernel-native.mjs 会话锁适配层（fs-ext v1/v2 + 0.1.5 flock 跳过逻辑）——上游 patcher 无此层，不可整体替换",
+    "预设 pin 扩展：company-think / company-think-eval 的 instr-root（上游只处理 standard/code）",
+    "profile/cordis.patch.yml（官方外壳关闭、公司网关路由、默认 danger-full-access）——与上游 overlays/solo.yml 不相关",
+    "产品层超集：Mixed 混合模式 + 公司网关 30+ 模块 + 插件体系 + 安装包 pin（WinSW 2.12.0 / node v25.2.1 linux-x64 含 sha256）——与上游增量零交集",
+    "同步策略：以 target 补丁器为权威 + 定期向上游 PR（本仓领先多版本线且 variants 机制更完整；#9–#13 仍 open）"
+  ],
+  "rollback": {
+    "preUpdateBackup": [
+      "git tag pre-upstream-absorb-20260910 于 HEAD 94b9a2c",
+      "未提交改动以独立中间提交或 stash 列表保存（B2），记录 git status --porcelain 快照",
+      "~/.company-desk/kernel 前缀整目录快照（robocopy /MIR）",
+      "node_modules/@deepseek-ai 副本快照（B4 定性前不处置）",
+      "记录 pin.json 值（0.1.5-rc.1）与补丁干净命中基线（16 处）"
+    ],
+    "rollBackPerItem": "每个吸收项独立提交→可独立 git revert；renormalize 提交单独回退不影响功能提交；不得保留半迁移状态（B3 受限环境发现即整体回退 P2）",
+    "kernelLayer": "备份前缀快照恢复，或现有流水线全新重装旧 pin（0.1.5-rc.1）+ 重打 v1 补丁；内核更新链 kernel-next 校验失败回退旧内核机制存在（scripts/kernel/update.mjs + bootstrap），对本场景适用性未验证",
+    "dataLayer": "无需数据回退：本增量 0 内核版本变化，会话 jsonl/sqlite/账本数据格式零变化",
+    "constraints": ["回退操作不得触碰运行中前缀（locate.mjs refuseLivePrefix 纪律）", "P1 与 P2 分开提交，卫生 diff 与功能 diff 不纠缠"]
+  },
+  "buildTestChecklistNotRun": [
+    "npm run kernel:check（backport 前后各一次）",
+    "npm run kernel（全新前缀安装 0.1.5-rc.1 + 锚点补丁 + node --check）",
+    "PowerShell 5.1 有界探测（Add-Type P/Invoke，B3）",
+    "新增 target 侧 sandbox v2 行为测试（fixture 方式，含 UNC 拒绝/本地放行/临时 SUBST 拒绝负向对照）",
+    "npm test（node --test server/test/*.test.js scripts/test/*.test.mjs）",
+    "npm run build（esbuild 客户端 bundle）",
+    "npm run test:e2e（playwright 全量 spec）",
+    "npm run dev / 桌面端启动冒烟（本地固定盘 workspace-write 行为不变；有条件时验证 mapped 盘被拒）",
+    "npm run dist:client / npm run dist:gateway（发布前）",
+    "git diff --stat 复核 renormalize 归一 diff 面 + 抽样行尾抽查"
+  ],
+  "checksPerformed": [
+    "t1/t2 继承并本轮复核：两仓只读 git（rev-parse/branch/log/status --porcelain/remote/submodule/describe/cat-file/merge-base/rev-list/for-each-ref/merge-base --is-ancestor/ls-files 交集）；只读文件读取（patches/*、BUGS.md、kernel.yml、patcher、已装内核 mark 定位 node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js L543）；只读计算（两仓文件树交集 33 vs 284、lockfile @deepseek-ai 条目数=0）",
+    "本轮 HTTPS：GET https://api.github.com/repos/398894496-arch/TDHarness-coding/commits/main → 200 sha=d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9",
+    "本轮 HTTPS：GET GitHub pulls 页 → 5 Open（#9–#13）+ 2 Closed merged（#5/#3）",
+    "本轮：读 package.json 脚本段，确认构建/测试清单引用的脚本名真实存在（kernel/kernel:check/kernel:prepare/test/test:e2e/build/dist:*/dev）",
+    "本轮：HEAD pin.json=0.1.3-alpha.2 vs 工作树 pin.json=0.1.5-rc.1",
+    "本轮：target MARK=company-sandbox-local-unc-v1；upstream MARK=company-sandbox-local-drive-v2 + legacy 守卫 L477–478",
+    "本轮：抽查 git diff CRLF 警告（至少 8 个未提交文件）"
+  ],
+  "checksNotRun": [
+    "git fetch / pull / checkout / reset / stash（本轮未执行）",
+    "任何试合并（git merge / rebase / diff --merge）——两仓无共同祖先",
+    "安装依赖（npm install）",
+    "构建（npm run build / dist:* / installer）",
+    "运行项目脚本（install-kernel.mjs / kernel:prepare / node --test / playwright / 桌面端启动 / launch.mjs）",
+    "PowerShell 5.1 Add-Type 驱动探测（运行类）",
+    "真实 NTFS ACL / mapped 盘 / SUBST 行为验证",
+    "git add --renormalize 行尾归一写操作",
+    "git.ethan.team 远端当前状态实时核验",
+    "GitHub Actions 门禁页逐条 Approve 状态"
+  ],
+  "limitations": [
+    "结论覆盖 2026-09-10 实际取得的证据：上游快照 d02046a（本地 13:14 fetch + 17:05 HTTPS 核验仍为线上 main）、目标 HEAD 94b9a2c 及各自工作树；核验之后的线上变化不在覆盖范围（r-09）",
+    "宿主命令核验只证明交付物结构完整（四文件存在、JSON 可解析、verdict 取值合法、actualUpdatePerformed=false），不代表上游更新兼容性已通过任何运行验证",
+    "本次未合并、未构建、未部署、未运行任何项目脚本；assessment.md 与 decision.json 是建议，不是已执行更新的证明",
+    "风险中仅 r-10 为静态 verified、r-09/r-05 为 partial，其余 not-verified；v2 backport 工作清单全部未执行",
+    "共同祖先无法确定，同源为代码级而非 git fork；增量窗口以首次发布提交 d8ffc77 为基线并明确标注",
+    "本仓 origin 远端当前状态未验证（最后 fetch origin/main=a6adcb9 为 HEAD 祖先，本地领先 12 提交）",
+    "本机指纹检测不覆盖其他机器/编辑器的并发修改"
+  ],
+  "actualUpdatePerformed": false
+}

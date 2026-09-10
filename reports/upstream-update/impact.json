@@ -1,0 +1,438 @@
+{
+  "task": "t2 分析上游增量与定制兼容风险",
+  "generatedAt": "2026-09-10T17:05:53+08:00",
+  "previousRound": {
+    "generatedAt": "2026-09-10T16:50:04+08:00",
+    "note": "本轮复核：增量窗口、mark 分叉、三分类与风险条目内容不变；仅刷新 as-of、工作树计数、r-09/und-2 的线上核验状态。未实施实际更新。"
+  },
+  "inputs": {
+    "baseline": "reports/upstream-update/baseline.json（t1 产物）",
+    "upstreamRepo": "E:/orcaWorkspace/TDHarness-coding",
+    "targetRepo": "E:/orcaWorkspace/company-harness"
+  },
+
+  "comparisonBasis": {
+    "type": "snapshot-diff（明确标注的快照差异分析）",
+    "commonAncestor": {
+      "determined": false,
+      "value": null,
+      "reason": "沿用 t1 baseline.json 结论：两仓本地 git 对象史互不相通（上游 d02046a 不在本仓、本仓 94b9a2c 不在上游仓，merge-base 退出码 128），本轮未 git fetch/pull，无法引入上游对象计算真正的共同祖先。『同源』是代码级同源（上游 2026-09-03 首次发布时从公司补丁器蒸馏，补丁注释仍引用 scripts/p-product-base/apply-kernel-patches.js），不是 git fork。"
+    },
+    "incrementWindow": {
+      "definition": "因无共同祖先，增量窗口定义为：上游首次发布提交 d8ffc77（2026-09-03 03:45 -0700，蒸馏基线）之后到上游本地快照 HEAD d02046a（2026-09-09 09:25 -0700）之间的全部 6 个提交",
+      "commitsInWindow": ["dbbd81c", "6128f12", "0e4ae6f", "95e8204(#3, C1)", "3e15cb3(#5, C2)", "d02046a"],
+      "note": "其中 dbbd81c/6128f12/0e4ae6f 为发布当日追加（README 英文化/CI/截图/中文页），属增量但判定为不影响功能吸收（详见 upstreamChanges.byFile）"
+    },
+    "upstreamSnapshot": {
+      "head": "d02046aa0eaf73969c6016fbf5b2ba6efc28a9c9",
+      "branch": "main",
+      "workingTree": "clean（0 改动，t1 已核）",
+      "asOf": "本地 git 快照止于 2026-09-10 13:14 +0800 的 fetch；本轮 HTTPS 核验 GitHub commits/main sha=d02046a（2026-09-10 17:05 +0800），与本地 HEAD 一致；PR #9–#13 仍 open、#3/#5 已 merged",
+      "kernelPin": "kernel.yml: id/candidate = 0.1.1-rc.2（未变）",
+      "packageJson": "无（NO-PACKAGE-JSON，内核 pin 配方仓：kernel.yml/overlays/patches/runtime/scripts）"
+    },
+    "targetSnapshot": {
+      "head": "94b9a2c6d6e5af83428be0a13ebc12e8c1501b04",
+      "branch": "main",
+      "workingTree": "19 M + 4 ??（均为基线时点既有改动，非本任务产生；含 reports/ 与 e2e/mixed-dock-align.spec.js；影响单独计入 localCustomizations.uncommitted）",
+      "kernelPin": "scripts/kernel/pin.json: 0.1.5-rc.1（工作树值；HEAD 值为 0.1.3-alpha.2 —— 升级本身未提交）",
+      "installedKernel": "node_modules/@deepseek-ai/dsh = 0.1.5-rc.1（已打 v1 公司补丁，见 risks r-08）"
+    },
+    "method": [
+      "只读 git：上游 log/ls-tree/diff（d8ffc77..d02046a 逐提交 stat 与补丁文件 diff）、target status/diff/ls-files/ls-tree；两仓 HEAD 文件树交集计算（33 个上游文件 vs 284 个 target 跟踪文件）",
+      "代码级同源核验：逐 mark 比对两补丁器（上游 patches/apply-kernel-patches.js vs target scripts/kernel/patches.mjs）——13 个代码 mark 中 10 个同名同义；仅 sandbox mark 分叉（v1 vs v2），target 多 2 个代码 mark",
+      "读已装内核：node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js 第 543 行确认 v1 mark 已注入",
+      "读双方构建/依赖声明：上游 kernel.yml/BUGS.md/prove.yml/setup.*，target package.json/package-lock.json/installer/pins.json/scripts/install-kernel.mjs",
+      "全程只读静态分析：未试合并、未装依赖、未构建、未运行任何项目脚本",
+      "本轮 HTTPS 只读核验：GitHub commits/main sha=d02046a（与本地一致）；pulls 页 5 Open（#9–#13）+ 2 Closed merged（#3/#5）"
+    ]
+  },
+
+  "upstreamChanges": {
+    "commits": [
+      { "hash": "dbbd81c", "date": "2026-09-03 03:58 -0700", "author": "ZhengFeihong", "subject": "Rewrite README and PRODUCT as English-only pages.", "kind": "docs", "filesChanged": 3, "absorptionRelevance": "无（README/NOTICE/PRODUCT 文档）" },
+      { "hash": "6128f12", "date": "2026-09-03 04:09 -0700", "author": "ZhengFeihong", "subject": "List claimable holes and add Task issues plus prove CI.", "kind": "ci+docs", "filesChanged": 9, "absorptionRelevance": "低（BUGS.md 缺陷清单、prove.yml CI、issue 模板；C5/C6/C7/C8 开放项与本仓相关，见 risks）" },
+      { "hash": "0e4ae6f", "date": "2026-09-03 05:23 -0700", "author": "ZhengFeihong", "subject": "Add desk screenshots and Chinese extra pages.", "kind": "docs", "filesChanged": 10, "absorptionRelevance": "无（截图/中文页）" },
+      { "hash": "95e8204", "date": "2026-09-08 09:55 -0700", "author": "jiangjc-xidian", "subject": "Add C1 sandbox path behavior proof using shared kernel helpers (#3)", "kind": "functional", "filesChanged": 7, "absorptionRelevance": "高：把内联沙箱 helper 抽成 patches/lib/network-path.js（单一事实源）；UNC 判定改为归一化反斜杠检查并排除 \\\\?\\X:\\ 命名空间本地路径；新增 prove-unc.js 行为证明 + prove.yml CI job（Node 22，ubuntu+windows 矩阵）" },
+      { "hash": "3e15cb3", "date": "2026-09-09 09:17 -0700", "author": "jiangjc-xidian", "subject": "Fix C2: refuse mapped and SUBST workspaces before ACL grants (#5)", "kind": "functional", "filesChanged": 12, "absorptionRelevance": "高（本增量的功能核心）：mark 由 company-sandbox-local-unc-v1 升级为 company-sandbox-local-drive-v2；helper 增加 Windows 驱动探测（PowerShell 5.1 + Add-Type 调 QueryDosDeviceW/GetDriveTypeW），mapped（DRIVE_REMOTE/Mup/LanmanRedirector/WebDavRedirector）与 SUBST（\\\\??\\ 设备目标）工作区在 materializeAclGrant 首个原操作之前即被拒绝；probe 失败=拒绝（新错误码 COMPANY_WORKSPACE_PROBE_FAILED，绝不推定 local）；成功 local 分类按盘符缓存 30s；补丁器新增 legacy 守卫（v1-only 前缀硬失败 PATCH_FAIL=legacy-sandbox-patch，须装全新 pin 前缀）；新增 prove-windows-drives.js（含临时 SUBST 映射实建/拆除）；BUGS.md 记 C2 完成与 C2b 遗留（Linux CIFS、junction 不解析、30s 重映射竞态）" },
+      { "hash": "d02046a", "date": "2026-09-09 09:25 -0700", "author": "ZhengFeihong", "subject": "Pin text files to LF with .gitattributes", "kind": "repo-hygiene", "filesChanged": 1, "absorptionRelevance": "中（与本仓行尾现状直接相关，见 risks r-04）：新增 8 行 .gitattributes（* text=auto eol=lf；*.jpg/*.png binary）" }
+    ],
+    "functionalCore": {
+      "c1": {
+        "what": "沙箱路径检查的行为证明体系：patches/lib/network-path.js 为唯一 helper 源，嵌入补丁器与被 prove-unc.js 共同使用；拒绝 UNC（正反斜杠）、放行本地 Windows/POSIX 根、在最小 fixture 上施加真实补丁验证 grant 前拒绝，含负向对照",
+        "files": ["patches/lib/network-path.js", "scripts/prove-unc.js", "scripts/prove-patches.js", ".github/workflows/prove.yml"],
+        "greenLine": "node scripts/prove-unc.js → UNC_PROVE_OK=1（无需 KERNEL_PREFIX，CI 双平台 Node 22）"
+      },
+      "c2": {
+        "what": "mapped/SUBST 驱动根在 ACL grant 之前被拒绝；probe 失败/超时/畸形响应一律 COMPANY_WORKSPACE_PROBE_FAILED；v1→v2 迁移须全新前缀（补丁器显式拒绝 v1-only 前缀）",
+        "files": ["patches/lib/network-path.js", "patches/apply-kernel-patches.js", "scripts/prove-windows-drives.js", "BUGS.md"],
+        "greenLine": "node scripts/prove-windows-drives.js → WINDOWS_DRIVE_UNIT_OK=1；Windows 上另建临时 SUBST 映射 → WINDOWS_DRIVE_PROVE_OK=1",
+        "runtimeRequirement": "Windows PowerShell 5.1 且 Add-Type 可用（有界隐藏探测，无 WMI、不解析本地化输出）",
+        "knownLimits": "30s 缓存窗口内的重映射不被观察；不解析目录 junction；是 precheck 而非并发重映射防护或 NTFS 隔离证明（BUGS.md C2b）"
+      }
+    },
+    "byFile": {
+      "changed": {
+        "patches/apply-kernel-patches.js": "d8ffc77..d02046a 净变化 213 行 diff：内联 helper（-28 行）→ require('./lib/network-path') + sandboxPathHelperSource() 嵌入；MARK v1→v2；legacy 守卫（+5 行）；preset pin 区未动",
+        "patches/lib/network-path.js": "新增（C1 +46 → C2 扩至 138 行）：8 个 helper（UNC 归一化判定、盘符提取、P/Invoke 探测、驱动分类、30s 缓存、hint/assert/grantError）",
+        "scripts/prove-unc.js": "新增（C1 +133，C2 改 69）",
+        "scripts/prove-windows-drives.js": "新增（C2 +143）",
+        "scripts/prove-patches.js": "改（C1 18 行、C2 4 行：gold 前缀上跑 patched 内核方法验证）",
+        ".github/workflows/prove.yml": "改（C1 +12、C2 +2：unc job 双平台矩阵 + prove-windows-drives 步骤）",
+        "BUGS.md": "改（C2 记入 Completed；C2b/C3/C4/C5/C6/C7/C8 开放项）",
+        ".gitattributes": "新增（d02046a，8 行）",
+        "CONTRIBUTING.md/README.md/docs/*": "文档增补（C1/C2 步骤、截图、中文页）"
+      },
+      "unchangedSinceFirstPublish": ["kernel.yml（仍 pin 0.1.1-rc.2，未随增量 bump）", "overlays/solo.yml", "runtime/win-junction-shim.cjs", "runtime/mac-no-translocate.sh", "scripts/setup.sh", "scripts/setup.ps1", "scripts/prove-scan.sh", "LICENSE", "NOTICE.md"]
+    },
+    "renamesAndDeletions": "增量窗口内无文件级重命名与删除（逐提交 stat 均为 A/M；apply-kernel-patches.js 内的内联 helper 移除是文件内重构，非文件删除）。对 target 无路径失效影响。"
+  },
+
+  "localCustomizations": {
+    "kernelLayer": {
+      "description": "target 的内核集成是与上游分叉后的超集：pin 0.1.5-rc.1（领先上游 pin 0.1.1-rc.2 多个版本线）+ 内置补丁器 + 原生依赖适配 + 版本更新流水线",
+      "evidence": [
+        "scripts/kernel/patches.mjs 头部自述：『源自 TDHarness-coding（MIT）的 patches/apply-kernel-patches.js，已内置到本仓库，不再需要那个仓库』",
+        "docs/HANDOFF.md L45：『内核由仓库自己安装打补丁（scripts/install-kernel.mjs），不再依赖 TDHarness-coding 仓库』",
+        "13 个代码补丁条目 + 4 组预设 pin（skills v1/v2、web-fetch v1/v2、instr-root v1）；pin.json 注释：2026-09-10 升 0.1.5-rc.1 后 prepare 验证 16 处补丁干净命中",
+        "scripts/lib/kernel-native.mjs：会话写锁原生依赖适配（fs-ext v1/v2；0.1.5 起上游改走 @deepseek-ai/node-addon-system/flock，本仓不再打 v2）",
+        "scripts/kernel/update.mjs：discover（GitHub tag dsh-v*）/prepare（指定版本 tar+sha256）/publish；bootstrap 下次启动应用 kernel-next，校验失败回退旧内核"
+      ]
+    },
+    "uncommitted": {
+      "note": "19 M + 4 ?? 全部为基线时点既有改动（t1 记录；含本任务 reports/ 与并发未跟踪 e2e/mixed-dock-align.spec.js），对本更新分析的影响按域归类如下；这些改动未提交，任何『与上游对齐』动作都会与其纠缠",
+      "kernelRelated": [
+        "scripts/kernel/pin.json：0.1.3-alpha.2 → 0.1.5-rc.1（工作树；HEAD 仍是 0.1.3-alpha.2）",
+        "scripts/kernel/patches.mjs：assistant-markdown-slot-render 增加 0.1.5-rc.1 锚点变体（MarkdownText 新增 pathImages 属性）——与未合并 PR #13 同源的本地能力",
+        "scripts/lib/kernel-native.mjs + scripts/test/kernel-native.test.mjs：0.1.5 检测 node-addon-system/flock import 后跳过 v2 补丁",
+        "scripts/test/kernel-patches.test.mjs：新增 0.1.3/0.1.5 双锚点变体测试"
+      ],
+      "desktopAndUi": [
+        "plugins/desk-ui/src/client/{index.jsx,layout.jsx,sidebar.jsx,styles.css,workspace-git.js}：桌面顶栏/布局整理（HEAD 提交主题的延续）",
+        "plugins/desk-ui/src/client/workspace-folder-menu.js + scripts/test/workspace-folder-menu.test.mjs：未跟踪新文件（文件夹菜单）",
+        "e2e/{desktop-chrome.spec.js,sidebar-toggle-align.spec.js}：配套 e2e 调整",
+        "e2e/mixed-dock-align.spec.js：未跟踪（Mixed 运行条对齐，并发产物，与本更新分析无关）"
+      ],
+      "installerAndUpdate": [
+        "scripts/lib/client-update.mjs：静默更新参数 /S --force-run → /S --updated（避开 electron-builder StartApp 走旧 .lnk 的坑）",
+        "desktop/build/installer.nsh：更新后直接重开 $appExe 而非 $launchLink（/D= 沙箱安装残留快捷方式风险）",
+        "scripts/verify-installer-nsis.mjs + scripts/test/{client-update,client-relaunch}.test.mjs：配套校验/测试"
+      ],
+      "server": ["server/src/admin-page.js：2 行微调"]
+    },
+    "productLayer": [
+      "Mixed 混合模式（plugins/desk-host/lib/mixed/* 17 模块 + server/src/mixed-* + e2e/mixed-*，HEAD 提交 94b9a2c）",
+      "公司网关 server/src/*（llm-proxy/oauth/drive/tasks/knowledge/ledger 等 30+ 模块）",
+      "客户端插件体系 plugins/{desk-host,desk-ui,desk-image} + profile/cordis.patch.yml（官方外壳关闭、全模型走公司网关、默认 danger-full-access）",
+      "桌面/网关安装包（electron-builder + NSIS；installer/pins.json 锁 WinSW 2.12.0 + node v25.2.1 linux-x64 含 sha256）",
+      "e2e 套件（10 个 spec）与 server 测试（30+ 文件）"
+    ]
+  },
+
+  "overlaps": {
+    "samePathFiles": [
+      {
+        "path": ".gitignore",
+        "verdict": "同名不同文：上游 9 行（prefix/、.tdh-coding-prefix/、node_modules/、.env*、*.pass、*.key、web-runtime.err），target 31 行（node_modules/、server/data/ 凭据区、构建产物等）。仅 node_modules/ 与 .DS_Store 语义重合。无文本冲突；吸收价值=参考上游对内核前缀目录的忽略规则（target 前缀在 ~/.company-desk/kernel 仓外，实际无需）"
+      },
+      {
+        "path": "README.md",
+        "verdict": "同名不同文：上游 2.8KB 英文发布页，target 26KB 中文产品文档。零内容重叠，无冲突，无吸收需求"
+      }
+    ],
+    "codeLevelOverlap": {
+      "patcherFork": {
+        "upstreamFiles": ["patches/apply-kernel-patches.js", "patches/lib/network-path.js"],
+        "targetFiles": ["scripts/kernel/patches.mjs", "scripts/lib/kernel-native.mjs"],
+        "relation": "上游文件是公司补丁器的蒸馏件（补丁注释仍引用 scripts/p-product-base/apply-kernel-patches.js）；2026-09-08/09 的 C1/C2 之后两者开始分叉。这是两个仓唯一有实质代码关系的重叠",
+        "sharedMarksIdentical": [
+          "company-skill-custom-trusted-v1", "company-skill-get-custom-trusted-v1", "company-skill-root-eacces-v1",
+          "company-fs-unc-acl-v1", "company-fs-unc-replace-v1", "company-goal-resume-armed-v1",
+          "company-win-junction-mklink-v3（already 含 v2）", "company-win-junction-mklink-v4",
+          "company-glob-missing-root-v1", "company-session-smbfs-rename-v1"
+        ],
+        "divergedMarks": [
+          "sandbox：上游 company-sandbox-local-drive-v2（含 lib/network-path.js 驱动探测 helper + legacy 守卫）vs target company-sandbox-local-unc-v1（仅字面 UNC 前缀检查的内联 helper）——本增量的核心分叉",
+          "target-only 代码 mark：company-assistant-markdown-slot-v1（对应未合并 PR #13）、company-session-events-alias-v1（对应未合并 PR #12）",
+          "target-only 机制：editVariants/applyEdit 锚点变体（对应未合并 PR #9）、kernel-native 会话锁 v1/v2（上游 patcher 无此层，上游靠 runtime shim/overlay）",
+          "target-only 预设 pin 扩展：company-think / company-think-eval 的 instr-root（上游只处理 standard/code）"
+        ]
+      },
+      "renamesDeletionsImpact": "上游增量无文件重命名/删除；target 侧影响共同代码的改动仅工作树的 anchor 变体扩展（patches.mjs）。无路径失效风险。",
+      "callRelations": [
+        "target 调用链：npm run kernel → scripts/install-kernel.mjs → kernel-prepare.mjs（npm 装 pinned 版本进独立前缀 ~/.company-desk/kernel）→ kernel/patches.mjs applyKernelPatches（锚点式打补丁+node --check 语法校验）→ locate.mjs refuseLivePrefix 防误伤运行中前缀；启动链 launch.mjs/bootstrap.mjs → prefix/bin 的 dsh CLI；内核升级链 kernel/update.mjs（GitHub tag dsh-v* + sha256 + kernel-next 回退）",
+        "upstream 调用链：scripts/setup.sh（npm install -g @deepseek-ai/dsh@$(kernel.yml) --prefix ~/.tdh-coding-prefix + 拒活前缀）→ patches/apply-kernel-patches.js（require lib/network-path）→ dsh --patch overlays/solo.yml；CI prove.yml 走 prove-unc/prove-windows-drives/prove-scan/prove-patches",
+        "结论：两仓运行时互相独立闭环，均不引用对方仓库（target 仅在 README/文档与 PR 贡献流程上引用上游 URL）；更新吸收只能是代码移植或文档参照，不存在依赖级吸收"
+      ]
+    }
+  },
+
+  "coverage": {
+    "dependencies": {
+      "status": "analyzed",
+      "findings": [
+        "上游无 package.json/lockfile（kernel.yml pin 配方仓）：本增量引入 0 个新 npm 依赖、0 个版本变更、0 个锁文件变化；target 的 package.json 与 package-lock.json（lockfileVersion 3；devDependencies 仅 @playwright/test ^1.55.0、esbuild ^0.25.0、mdast-util-from-markdown ^2.0.3）不受本次更新影响",
+        "内核版本线：上游 kernel.yml 仍 pin 0.1.1-rc.2（未随增量 bump；C5 prove-bump 开放、PR #10 未合并）；target pin 0.1.5-rc.1（工作树，未提交）。方向确认：target 领先，本次上游增量不含任何 target 缺失的内核版本",
+        "上游 C2 引入新运行时环境依赖：Windows PowerShell 5.1 + Add-Type（P/Invoke）。若 backport，该依赖落到 target 的桌面端机器环境（见 risks r-02）",
+        "观察项：target dev 工作区 node_modules 含未受管的 @deepseek-ai/* 0.1.5-rc.1 内核副本（package-lock 中 0 条 deepseek 条目、仓根无 bin/dsh.cmd 的完整前缀布局），且已打 v1 补丁（见 risks r-08）"
+      ]
+    },
+    "build": {
+      "status": "analyzed",
+      "findings": [
+        "上游构建=setup.sh/setup.ps1（npm -g --prefix 装 pinned 内核+打补丁）+ GitHub Actions prove（Node 22，ubuntu+windows 矩阵，装一次性 gold 前缀后验证 mark）。与 target 构建链零文件交集",
+        "target 构建链（esbuild 客户端 bundle / electron-builder 桌面壳 / NSIS 网关与客户端安装包 / WinSW 2.12.0 与 node v25.2.1 linux-x64 二进制 pin 含 sha256）不受本增量任何改动影响；无构建要求变化",
+        "行尾：target 无 .gitattributes（git ls-files 确认），且本任务只读 git diff 已对 8 个工作树文件报 'LF will be replaced by CRLF' 警告——上游 d02046a 的 LF pin 正是针对该问题，吸收价值与迁移成本见 risks r-04"
+      ]
+    },
+    "interfacesAndBehavior": {
+      "status": "analyzed",
+      "findings": [
+        "dsh CLI/协议接口：上游增量不改内核版本、不改 dsh CLI、不改 preset/profile 配置 schema——target 依赖的内核接口面（dsh CLI、agent.cordis.yml 预设、profile overlay）零变化",
+        "若 backport sandbox v2，target 行为变化面：① mapped 网络盘/SUBST 别名工作区在 ACL grant 之前即被拒（v1 只查字面 UNC，mapped 盘会穿过预检进入 grant 阶段，通常以 grant 失败诊断收尾）；② 新错误码 COMPANY_WORKSPACE_PROBE_FAILED（probe 失败=拒绝，v1 无此路径）；③ grant 入口同步 PowerShell 探测（成功 local 按盘符缓存 30s，拒绝/失败不缓存）；④ v1→v2 必须全新前缀安装（补丁器 legacy 守卫拒绝 v1-only 前缀；target 已装前缀含 v1 mark，直接升级会因锚点已被 v1 改写而硬失败）",
+        "回退风险：PowerShell Add-Type 受限（ConstrainedLanguage/管控策略）环境下，probe 失败将拒绝全部本地工作区——v1 无此依赖、本地盘恒放行。target 当前真实工作区（E:\\orcaWorkspace\\... 本地固定盘）backport 后预期行为不变，但未经运行验证",
+        "target 默认权限预设 danger-full-access（profile/cordis.patch.yml）下，workspace-write 沙箱路径检查仍是实际生效的边界，C2 缺口对 target 不是纯理论问题"
+      ]
+    },
+    "dataAndConfig": {
+      "status": "analyzed",
+      "findings": [
+        "内核配置格式：agent.cordis.yml 预设 YAML 结构与 target 的 4 组预设 pin 锚点（skills v1/v2、fetch v1/v2、instr-root v1）在本增量中零变化（上游 patcher 的 preset 区 d8ffc77..d02046a 未动）",
+        "overlay：上游 overlays/solo.yml（默认 workspace-write/approval never）未变且不适用于 target（target 用 profile/cordis.patch.yml：官方外壳关闭+公司网关路由+danger-full-access）；无格式迁移",
+        "数据格式：会话 jsonl、sqlite、账本等 target 数据面与上游增量零交集（上游不改内核版本，内核数据格式不可能随本增量变化）",
+        ".gitattributes 为仓库级配置（git 行尾策略），非运行时数据；吸收时注意 target 需自行扩展 binary 标记（*.png 已覆盖 assets 与 docs/evidence，*.jpg 覆盖截图）"
+      ]
+    }
+  },
+
+  "classifications": {
+    "directlyAbsorbable": [
+      {
+        "id": "abs-1",
+        "item": ".gitattributes（d02046a，8 行）",
+        "why": "独立仓库卫生文件，与 target 代码零耦合，无锚点/版本依赖；直接加文件即可吸收",
+        "caveat": "吸收动作包含一次性行尾归一（git add --renormalize .）会产生大 diff，须独立提交；binary 标记按 target 资产核对（png/jpg 已覆盖）；归一后状态未验证（本任务不执行）"
+      },
+      {
+        "id": "abs-2",
+        "item": "BUGS.md 的 C1/C2 完成记录与 C2b/C3/C8 开放项（作为知识参照）",
+        "why": "文档性质；C1/C2 的 green line 与运行要求是 target 后续 backport 决策的直接输入；无代码耦合",
+        "caveat": "只作参照存档，不需要文件级合并（target 无 BUGS.md 对应文件）"
+      }
+    ],
+    "requiresManualAdaptation": [
+      {
+        "id": "adapt-1",
+        "item": "sandbox v2 backport：把 patches/lib/network-path.js 移植进 target 补丁器（scripts/kernel/patches.mjs）",
+        "workList": [
+          "helper 源移植（CJS→ESM 或保持字符串嵌入方式，与 target 的 HELPERS 模板机制对齐）",
+          "MARK v1→v2 + legacy 守卫（target 的 applyKernelPatches 循环需加与上游同形的 v1-only 拒绝分支）",
+          "对 0.1.5-rc.1 源码重验 materializeAclGrant 两处锚点（v1 已验证干净命中，v2 改 helper 不改 call site，但必须重跑 prepare 验证）",
+          "全部已存在前缀（~/.company-desk/kernel 及 dev 工作区 node_modules 副本）需全新重装 0.1.5-rc.1 后重打补丁（legacy 守卫硬失败）",
+          "目标机 PowerShell 5.1 + Add-Type 环境预检与文档化（ConstrainedLanguage 风险）",
+          "补 target 侧行为测试（参照 prove-unc/prove-windows-drives 的 fixture 方式写进 scripts/test/）"
+        ],
+        "whyNotDirect": "锚点按 0.1.5-rc.1 版本化、模块系统不同（CJS vs ESM）、前缀迁移、环境依赖预检——任何一步缺失都会导致硬失败或静默行为错误；禁止以『无文本冲突』推断可合并"
+      },
+      {
+        "id": "adapt-2",
+        "item": "prove CI 引入（可选）：.github/workflows/prove.yml 的 unc/drives/scan/patches 四 job",
+        "whyNotDirect": "target 无 .github（私有仓在自托管 git.ethan.team，CI runner 可用性未验证）；且 prove 脚本绑定上游 prefix 布局（~/.tdh-coding-prefix）与 kernel.yml pin 源，需改写为 target 的 pin.json/前缀约定"
+      }
+    ],
+    "undetermined": [
+      {
+        "id": "und-1",
+        "item": "C3 安全评审裁决（trustedHost 技能目录 + UNC DACL 跳过两个 privilege-shaped patch）",
+        "reason": "上游未闭环（BUGS.md 仍列为 Claim these）；target 持有完全相同的 mark 且是公司 SMB 场景的主要使用者；裁决（keep/narrow/split）出来前无法判定 target 是否需要跟进修改"
+      },
+      {
+        "id": "und-2",
+        "item": "fork PR #9–#13 的 CI 门禁细节与此后线上是否再前进",
+        "reason": "本轮 HTTPS 已确认 main HEAD=d02046a、#9–#13 仍 open、#3/#5 已 merged（2026-09-10 17:05）。未逐条打开 Actions 核验 action_required；核验之后线上若再前进，增量窗口需重跑"
+      },
+      {
+        "id": "und-3",
+        "item": "target dev 工作区 node_modules 中 @deepseek-ai 0.1.5-rc.1 副本的准确来源与运行时角色",
+        "reason": "不在 package-lock、仓根无完整前缀布局；可能是 dev 便利安装或 staging 残留；若它是实际运行内核根，backport 时必须一并处理（含 v1 mark）"
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "r-01",
+      "title": "sandbox 补丁 v1↔v2 分叉：target 仍带 C2 已修复的 mapped/SUBST 预检缺口",
+      "type": "semantic-compatibility",
+      "severity": "high",
+      "evidence": [
+        "target scripts/kernel/patches.mjs L43（MARK='company-sandbox-local-unc-v1'）、L49-77（内联 v1 helper，仅字面 UNC 前缀检查）",
+        "target node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js L543（v1 mark 已注入当前 0.1.5-rc.1 安装）",
+        "upstream 95e8204（C1）/3e15cb3（C2）：MARK='company-sandbox-local-drive-v2' + patches/lib/network-path.js 驱动探测 + legacy 守卫",
+        "upstream BUGS.md『C2. Refuse mapped and SUBST drive roots before ACL grants』Completed 段"
+      ],
+      "impact": "target 沙箱对 mapped 网络盘/SUBST 别名工作区无 grant 前拒绝（v1 只拦字面 UNC）；该缺口是上游本次增量唯一的功能性修复，target 不吸收则持续暴露；两补丁器自此分叉，后续每次上游更新都增加再分叉成本",
+      "recommendation": "立项 backport（见 adapt-1 工作清单）；短期可先做一次目标机 PowerShell 环境预检与 mapped 盘使用面盘点，决定 backport 优先级",
+      "uncertainty": "v2 helper 在 0.1.5-rc.1 内核上的行为未经任何运行验证（锚点重验、全新前缀、probe 时序都未做）；mapped 盘在 target 用户群中的实际使用率未量化",
+      "verificationStatus": "not-verified（静态比对）"
+    },
+    {
+      "id": "r-02",
+      "title": "v2 backport 引入 PowerShell 5.1 + Add-Type 运行时硬依赖，受限环境下可能拒绝全部本地工作区",
+      "type": "semantic-compatibility",
+      "severity": "medium",
+      "evidence": [
+        "upstream patches/lib/network-path.js L27-56（Add-Type -TypeDefinition 编译 TdhDriveProbe P/Invoke 类，15s 超时）",
+        "upstream BUGS.md C2『Runtime: Windows PowerShell 5.1 with Add-Type must be available…』与 C2 失败语义『probe failures are never cached… COMPANY_WORKSPACE_PROBE_FAILED』"
+      ],
+      "impact": "ConstrainedLanguage/管控策略禁 Add-Type 的机器上，probe 必然失败 → 所有工作区（含纯本地盘）被拒，workspace-write 整体不可用——相对 v1（本地盘恒放行）是行为降级；这是 backport 决策的最大变量",
+      "recommendation": "backport 前在目标机实测 powershell Add-Type 可用性并写入安装文档；若确有限制环境，需与上游讨论 probe 失败降级语义（偏离上游语义的本地变体必须显式记录）",
+      "uncertainty": "本 dev 机（Windows 11）的 PowerShell 语言模式未验证（本任务只读约束未执行探测命令）；dsh 沙箱子进程是否继承受限环境未验证",
+      "verificationStatus": "not-verified（未执行任何 PowerShell 探测）"
+    },
+    {
+      "id": "r-03",
+      "title": "C3 安全评审未闭环：target 持有与上游完全相同的两个 privilege-shaped patch",
+      "type": "security-semantic",
+      "severity": "medium",
+      "evidence": [
+        "upstream BUGS.md C3（Claim these）：company-skill-get-custom-trusted-v1/company-skill-custom-trusted-v1（custom 技能目录 trustedHost:true 走 Node fs 绕过工作区沙箱）与 company-fs-unc-acl-v1（非 UNC 路径 ACCESS_DENIED 也跳过 DACL 复制）",
+        "target scripts/kernel/patches.mjs L141-192（skill custom trusted 两补丁）、L196-233（fs-unc-acl 补丁）——mark 与语义相同"
+      ],
+      "impact": "上游把这两个补丁标记为需要安全裁决（keep/narrow/split coding vs share）；target 是公司 SMB 共享的主要使用者，若裁决为 narrow，target 需跟进改动；裁决前 target 持续携带同一未评审风险",
+      "recommendation": "跟踪 C3 PR 裁决（不阻塞本次更新分析）；裁决后按结论评估 target 跟进项",
+      "uncertainty": "C3 无裁决（本地快照视角仍开放）；上游裁决是否考虑公司 SMB 场景（target 的主要用例）未知",
+      "verificationStatus": "not-verified（静态比对）"
+    },
+    {
+      "id": "r-04",
+      "title": "target 无 .gitattributes，工作树已现 CRLF 翻转风险；吸收上游 d02046a 有一次性归一成本",
+      "type": "repo-hygiene",
+      "severity": "low-medium",
+      "evidence": [
+        "upstream d02046a .gitattributes：* text=auto eol=lf + *.jpg/*.png binary（8 行）",
+        "target git ls-files 无 .gitattributes；本任务只读 git diff 对 8 个文件输出 'warning: in the working copy of … LF will be replaced by CRLF the next time Git touches it'（installer.nsh、desktop-chrome.spec.js、sidebar-toggle-align.spec.js、pin.json、kernel-native.mjs、client-relaunch.test.mjs、verify-installer-nsis.mjs、admin-page.js）",
+        "被警告的 8 个文件恰在 19 个未提交修改之中——下次 git add 即发生整文件行尾改写"
+      ],
+      "impact": "不吸收：CRLF 翻转继续污染 diff（未提交改动尤其危险，可能与功能 diff 纠缠）；吸收：一次性归一 diff（全部跟踪文本文件行尾统一），须独立提交且归一后未经验证",
+      "recommendation": "吸收（abs-1）：加 .gitattributes + git add --renormalize .，独立提交，不混功能改动；提交前与未提交的 19 文件改动分离处理",
+      "uncertainty": "renormalize 后的实际 diff 面未验证（本任务不执行写操作）；自托管 git 服务端对行尾的处理未验证",
+      "verificationStatus": "not-verified（未执行归一）"
+    },
+    {
+      "id": "r-05",
+      "title": "未合并 PR #9–#13 与本地未提交改动同源，后续对齐方向存在策略风险",
+      "type": "process",
+      "severity": "low",
+      "evidence": [
+        "baseline.json forkBranchRefs：fork/main(95e8204) 已并入；kernel-0.1.2-compat(f2da8af)/prove-bump(2d90fe3)/setup-coding-subset(70ce5f9)/session-events-alias(0c165b1)/assistant-markdown-slot(afebe9b) 5 条未合并（本地缓存视角，CI 卡 action_required）",
+        "target 工作树 patches.mjs 的 0.1.5 锚点变体（L94-104）与 PR #13 同源；variants 机制与 PR #9 同源",
+        "upstream 6128f12 引入的 C5/C6/C7 开放项与 PR #10(prove-bump)/#11(setup-coding-subset) 对应"
+      ],
+      "impact": "若上游先合并这些 PR 而 target 又独立演进，补丁器将出现『双方都有但形态不同』的三方分叉，backport/PR 都需要重做；若 target 先行合并本地改动，PR 基线也要重推",
+      "recommendation": "在 backport 决策（r-01）时一并确定同步策略：以 target 补丁器为权威 + 定期向上游 PR，还是等待上游合并后反向吸收；建议前者（target 已领先多版本线且 variants 机制更完整）",
+      "uncertainty": "线上 PR 状态未验证（禁止 fetch）；维护者是否/何时处理 action_required 门禁未知",
+      "verificationStatus": "not-verified（本地缓存视角）"
+    },
+    {
+      "id": "r-06",
+      "title": "C2 已知局限随 backport 一并带入：junction 不解析、30s 重映射窗口、precheck 非隔离证明",
+      "type": "semantic-compatibility",
+      "severity": "low",
+      "evidence": [
+        "upstream BUGS.md C2b（『C2 also does not resolve directory junctions or eliminate a drive-remapping race after the check』）",
+        "upstream BUGS.md C2『Limit: a remap inside that 30-second window is not observed, and the check is a precheck rather than protection against concurrent remapping or proof of NTFS confinement』"
+      ],
+      "impact": "backport 后 mapped/SUBST 防护仍非完整：目录 junction 指向远端不被识别；缓存窗口内重映射不被观察；不应把 v2 宣传为 NTFS 隔离保证",
+      "recommendation": "backport 时在 target 文档中如实记录局限；C2b（Linux CIFS）暂不适用（target 客户端为 Windows/macOS，网关侧 Linux 不走该沙箱路径）",
+      "uncertainty": "junction 重映射场景在 target 部署环境的可能性未评估",
+      "verificationStatus": "not-verified（引用上游文档结论）"
+    },
+    {
+      "id": "r-07",
+      "title": "C8 同源隐患：rg exit-2 空结果映射可能掩盖真实 IO/权限错误",
+      "type": "semantic-compatibility",
+      "severity": "low",
+      "evidence": [
+        "upstream BUGS.md C8（Claim these）：company-glob-missing-root-v1 把 rg exit 2 + 'IO error/os error 2' 映射为 noMatches:true，真实权限/解析错误可能同样被静默",
+        "target scripts/kernel/patches.mjs L441-466（同一 mark 同一 matcher，含中文『找不到指定的文件』分支——target 版比上游还多一条中文匹配）"
+      ],
+      "impact": "模型在真实 IO 错误下可能拿到空结果而继续，掩盖故障；target 的 matcher 更宽（多中文分支），暴露面略大于上游",
+      "recommendation": "列入低优先级观察项；若 C8 在收敛（stderr 矩阵收紧），同步到 target；不阻塞本次更新",
+      "uncertainty": "应收紧到何种 matcher 尚无结论（上游 C8 未完成）",
+      "verificationStatus": "not-verified（静态比对）"
+    },
+    {
+      "id": "r-08",
+      "title": "dev 工作区 node_modules 存在未受管的已打补丁内核副本，backport 时易漏处理",
+      "type": "data-integrity",
+      "severity": "low",
+      "evidence": [
+        "target node_modules/@deepseek-ai/dsh/package.json version=0.1.5-rc.1；dsh-sandbox-local/lib/index.js L543 含 v1 mark（补丁已注入）",
+        "package-lock.json 中 @deepseek-ai 条目数=0（非项目依赖图成员）；仓根无 bin/、无 dsh.cmd（非完整 npm 前缀布局）",
+        "patches.mjs 头部自述『只对你自己拥有的前缀运行…绝不指向正在运行的 node_modules』——该副本的存在与这条纪律存在张力"
+      ],
+      "impact": "若该副本是某条 dev/launch 路径的实际内核根，v2 backport 必须对它同样全新重装+重打补丁（v1 mark 在位，legacy 守卫会硬失败）；若只是残留，则应在清理时识别，避免误删运行中依赖",
+      "recommendation": "backport 工作清单中显式包含该副本（确认来源后重装或清理）；核实 launch.mjs 的 prefix 解析是否可能落到仓根",
+      "uncertainty": "该副本的准确来源与运行时角色未验证（und-3）",
+      "verificationStatus": "not-verified（静态观察）"
+    },
+    {
+      "id": "r-09",
+      "title": "快照时效性：本轮 HTTPS 已确认线上 main=d02046a，但实施吸收前仍可能再前进",
+      "type": "stale-snapshot",
+      "severity": "low-medium",
+      "evidence": [
+        "baseline.json upstream.onlineVerification（2026-09-10 17:05 +0800，commits/main sha=d02046a，与本地 HEAD 一致；PR 页 5 Open / 2 Closed merged）",
+        "本地 git 快照仍止于 2026-09-10 13:14 +0800 的 fetch（本轮未 git fetch）",
+        "上游 7 天内合并了 #3/#5 两次功能提交（C1/C2）——迭代速度快，核验之后再前进的风险仍在"
+      ],
+      "impact": "本报告的增量窗口、mark 分叉面、PR 状态以 d02046a + 2026-09-10 17:05 HTTPS 核验为准；若此后线上 main 含 C3 裁决、C5 prove-bump 或 #9–#13 合并，『可直接吸收/需适配/未定』三分类需要重跑",
+      "recommendation": "实施任何吸收动作前再核一次线上 HEAD（HTTPS 或受控 fetch）；在此之前所有结论标注 as-of d02046a@2026-09-10T17:05+08:00",
+      "uncertainty": "核验之后到实施之间的窗口仍可能前进；CI action_required 细节未逐条打开 Actions",
+      "verificationStatus": "partial（HEAD/PR 开闭已 HTTPS 核验；此后前进与 CI 细节未验证）"
+    },
+    {
+      "id": "r-10",
+      "title": "文本冲突面评估：同路径重叠仅 2 个文档文件，无文本冲突——但不得据此推断功能兼容",
+      "type": "textual-conflict",
+      "severity": "none",
+      "evidence": [
+        "两仓 HEAD 文件树交集 = { .gitignore, README.md }（33 个上游文件 vs 284 个 target 跟踪文件）；两文件均为同名不同文（见 overlaps.samePathFiles）",
+        "上游增量窗口无文件重命名/删除（upstreamChanges.renamesAndDeletions）"
+      ],
+      "impact": "不存在需要试合并的同路径文件；但功能层重叠（补丁器分叉）与文本冲突面完全正交——无文本冲突 ≠ 功能兼容，所有兼容性判断均以 mark/锚点/行为语义比对为依据",
+      "recommendation": "无（本项为排除性结论，防止误读）",
+      "uncertainty": "无",
+      "verificationStatus": "verified（只读文件树交集计算，属静态分析内的可靠结论）"
+    }
+  ],
+
+  "limitations": {
+    "executed": [
+      "只读 git：上游 log --stat（7 提交全量）、ls-tree -r、diff d8ffc77..d02046a（patches 文件级）；target status --porcelain、diff（19 文件工作树差异）、ls-files、ls-tree -r",
+      "只读文件读取：上游 patches/*、scripts/prove-*（头段）、setup.*、runtime/*、BUGS.md、docs/UPSTREAM.md、.gitattributes、.gitignore、kernel.yml、overlays/solo.yml、prove.yml；target scripts/kernel/*、scripts/lib/kernel-native.mjs、scripts/install-kernel.mjs（头 80 行）、package.json、package-lock.json（脚本读取）、installer/pins.json、desktop/build/installer.nsh、profile/cordis.patch.yml、node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js（mark 定位）",
+      "只读计算：两仓文件树交集、lockfile 条目检查、时间戳"
+    ],
+    "notExecuted": [
+      "git fetch / pull / checkout / reset / stash（本轮未执行；线上 HEAD 改用 HTTPS 只读核验）",
+      "任何试合并（git merge/diff --merge 类，任务禁止以无冲突推断兼容，亦未授权）",
+      "安装依赖（npm install，任务禁止）",
+      "构建（npm run build / dist:* / installer，任务禁止）",
+      "运行项目脚本（install-kernel.mjs / prove-* / node --test / playwright / 桌面端启动，任务禁止）",
+      "Windows PowerShell 驱动探测与 Add-Type 可用性验证（运行类，未执行）",
+      "真实 NTFS ACL / mapped 盘行为验证",
+      "git.ethan.team 远端当前状态实时核验（未 git fetch）；GitHub Actions 门禁页逐条核验",
+      "git add --renormalize / 任何行尾归一写操作"
+    ],
+    "boundary": "本报告的『可直接吸收 / 需人工适配 / 尚不能判断』三分类与全部风险判定均为静态分析 + 只读检查的结论；未执行任何合并、构建、运行验证。所有标注 not-verified 的项在实施前必须按其建议补验证；无文本冲突未被用作任何功能兼容的依据（见 r-10）。",
+    "unknowns": [
+      { "item": "git 共同祖先", "status": "无法确定", "reason": "两仓对象史不相通且禁止 fetch（沿用 t1 结论）；增量窗口以首次发布提交为基线并明确标注" },
+      { "item": "上游线上 main 当前 HEAD 与 PR #9–#13 开闭", "status": "已核验（本轮 HTTPS）", "reason": "commits/main=d02046a；#9–#13 open、#3/#5 merged（2026-09-10 17:05）；此后前进与 CI 细节仍属 r-09" },
+      { "item": "target origin（git.ethan.team）远端当前状态", "status": "未验证", "reason": "禁止 fetch；最后一次 fetch 的 origin/main=a6adcb9（2026-09-08）为 HEAD 祖先，本地领先 12 提交" },
+      { "item": "v2 helper 在 0.1.5-rc.1 内核上的行为", "status": "未验证", "reason": "需锚点重验+全新前缀+运行验证（backport 工作项）" },
+      { "item": "目标机 PowerShell Add-Type 可用性", "status": "未验证", "reason": "运行类探测被本任务只读约束排除（r-02）" },
+      { "item": "dev 工作区 node_modules 内核副本来源", "status": "未验证", "reason": "静态证据不足以定论（r-08/und-3）" }
+    ]
+  }
+}
