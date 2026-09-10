@@ -12,6 +12,7 @@ function el(tag, attrs = {}, children = []) {
     textContent: attrs.textContent ?? '',
     title: attrs.title ?? '',
     attrs: { ...attrs },
+    dataset: {},
     children: [],
     parentElement: null,
     ownerDocument: null,

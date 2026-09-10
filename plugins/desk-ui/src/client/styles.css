@@ -29,8 +29,7 @@ html.dk-desk-electron {
   --dk-win-controls-w: 138px;
   --dk-caption-right: calc(148px + var(--dk-win-inset));
   --dk-toggle-cluster-w: 60px;
-  --dk-session-actions-right: calc(var(--dk-caption-right) + var(--dk-toggle-cluster-w) + 8px);
-  --dk-caption-reserve: calc(var(--dk-session-actions-right) + 72px);
+  --dk-caption-reserve: calc(var(--dk-caption-right) + var(--dk-toggle-cluster-w) + 8px);
 }
 html.dk-desk-electron.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset); }
 /* Preserve the workbench's right-panel reservation when sizing the frame. */
@@ -60,41 +59,10 @@ html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.sessi
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > [role='tablist'] {
   margin-top: 8px;
 }
-/* Session folder + log sit in the caption row, left of the panel toggles. */
-.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] {
-  position: relative;
-  min-width: 28px;
-  width: 28px;
-  height: 28px;
-  padding: 6px;
-  gap: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dk-text-3);
-}
-.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton']:hover:not(:disabled) {
-  background: var(--dk-hover);
-  color: var(--dk-text);
-}
-.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton']:focus-visible {
-  outline: 2px solid var(--dk-accent);
-  outline-offset: 2px;
-}
-.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] > svg {
-  width: 16px;
-  height: 16px;
-}
-/* Preserve the original text for assistive technology. */
-.dk-frame [data-slot='conversation.session.header.utilities'] button[class*='_sessionLogButton'] > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+/* Folder / session-log used to sit in the caption row. Open-folder moved to
+   the workspace row menu; hide the official utilities slot entirely. */
+[data-slot='conversation.session.header.utilities'] {
+  display: none !important;
 }
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
   min-height: 32px;
@@ -115,22 +83,6 @@ html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversat
 }
 html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-title {
   display: none;
-}
-html.dk-desk-electron [data-slot='conversation.session.header.utilities'] {
-  position: fixed;
-  top: 4px;
-  right: var(--dk-session-actions-right);
-  z-index: 1200;
-  height: 28px;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-}
-html.dk-desk-electron body:not(:has([data-dsh-panel-host])) [data-slot='conversation.session.header.utilities'] {
-  right: var(--dk-caption-right);
 }
 html.dk-desk-electron button,
 html.dk-desk-electron input,
@@ -165,8 +117,7 @@ html.dk-desk-electron body[data-dsh-sidebar-collapsed] [data-dsh-toggle-cluster]
   top: var(--dk-caption-top);
   right: var(--dk-caption-right);
 }
-html.dk-desk-electron:has(.dk-overlay) [data-dsh-toggle-cluster],
-html.dk-desk-electron:has(.dk-overlay) [data-slot='conversation.session.header.utilities'] {
+html.dk-desk-electron:has(.dk-overlay) [data-dsh-toggle-cluster] {
   visibility: hidden;
   pointer-events: none;
 }
@@ -308,6 +259,22 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
   margin-right: 4px;
   vertical-align: middle;
 }
+.dk-ws-open-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dk-ws-open-folder:hover {
+  background: var(--dk-hover);
+}
 .dk-col-sidebar {
   flex: none;
   height: 100%;
@@ -337,6 +304,16 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
   border-left: 1px solid var(--dk-border-soft);
   background: var(--dk-bg);
   min-width: 0;
+  overflow: hidden;
+}
+.dk-col-right[data-collapsed] {
+  border-left: none;
+  overflow: visible;
+}
+#root .dk-frame [data-dsh-center-col] > [data-slot="main"] {
+  height: auto;
+  flex: 1 1 0;
+  min-height: 0;
 }
 .dk-resizer {
   flex: none;
@@ -896,13 +873,34 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
 .dk-mixed-banner.err { background: #fdecec; color: #a12622; }
 .dk-mixed-banner.ok { background: #e6f6ec; color: #1f7a45; }
 
-/* 运行面板（dock） */
-.dk-mixed-panel { max-width: 100%; font-size: 13px; }
-.dk-mixed-bar { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--dk-border); border-radius: 10px; background: var(--dk-bg-1); cursor: pointer; }
-.dk-mixed-panel.active .dk-mixed-bar { border-color: color-mix(in srgb, var(--dk-accent) 45%, var(--dk-border)); }
-.dk-mixed-panel.terminal.ok .dk-mixed-bar { border-color: color-mix(in srgb, var(--dk-success) 40%, var(--dk-border)); background: #f2faf5; }
-.dk-mixed-panel.terminal.err .dk-mixed-bar { border-color: color-mix(in srgb, var(--dk-danger) 40%, var(--dk-border)); background: #fdf4f4; }
-.dk-mixed-panel.terminal.muted .dk-mixed-bar { opacity: .85; }
+/* 运行面板（dock）：跟官方输入框同一套几何。
+   composerStack 是 stretch 列、无左右 padding；输入框在 InputBar 里
+   `padding: 0 var(--dsh-composer-side-clearance)` + card `max-width` 居中。
+   Mixed 是 stack 的直接子项，必须自己扣掉 clearance 并 margin:auto，
+   否则最大化时左对齐、缩小时比输入框宽一圈。 */
+.dk-mixed-panel {
+  box-sizing: border-box;
+  width: calc(100% - 2 * var(--dsh-composer-side-clearance, 16px));
+  max-width: var(--dsh-composer-card-max-width);
+  margin: 0 auto;
+  align-self: center;
+  font-size: 13px;
+  border: 1px solid var(--dk-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--dk-bg);
+  flex: none;
+  min-width: 0;
+}
+.dk-mixed-bar { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: none; background: var(--dk-bg-1); cursor: pointer; }
+.dk-mixed-panel.active { border-color: color-mix(in srgb, var(--dk-accent) 45%, var(--dk-border)); }
+.dk-mixed-panel.active:not(.collapsed) .dk-mixed-bar { border-bottom: 1px solid color-mix(in srgb, var(--dk-accent) 45%, var(--dk-border)); }
+.dk-mixed-panel.terminal.ok { border-color: color-mix(in srgb, var(--dk-success) 40%, var(--dk-border)); }
+.dk-mixed-panel.terminal.ok .dk-mixed-bar { background: #f2faf5; border-bottom: 1px solid color-mix(in srgb, var(--dk-success) 40%, var(--dk-border)); }
+.dk-mixed-panel.terminal.err { border-color: color-mix(in srgb, var(--dk-danger) 40%, var(--dk-border)); }
+.dk-mixed-panel.terminal.err .dk-mixed-bar { background: #fdf4f4; border-bottom: 1px solid color-mix(in srgb, var(--dk-danger) 40%, var(--dk-border)); }
+.dk-mixed-panel.terminal.muted { opacity: .85; }
+.dk-mixed-panel.terminal.muted .dk-mixed-bar { border-bottom: 1px solid var(--dk-border); }
 .dk-mixed-bar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .dk-mixed-status { flex: none; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--dk-bg-2); color: var(--dk-text-2); }
 .dk-mixed-status.s-planning, .dk-mixed-status.s-executing, .dk-mixed-status.s-reviewing, .dk-mixed-status.s-repairing, .dk-mixed-status.s-finalizing { background: var(--dk-accent-soft); color: var(--dk-accent); }
@@ -915,7 +913,7 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
 .dk-mixed-caret { display: inline-block; transition: transform .15s; color: var(--dk-text-3); }
 .dk-mixed-caret.open { transform: rotate(180deg); }
 
-.dk-mixed-body { border: 1px solid var(--dk-border); border-top: none; border-radius: 0 0 10px 10px; margin-top: -4px; padding: 10px 12px; background: var(--dk-bg); }
+.dk-mixed-body { border: none; padding: 10px 12px; background: var(--dk-bg); }
 .dk-mixed-panel.collapsed .dk-mixed-body { display: none; }
 .dk-mixed-section { margin-top: 10px; }
 .dk-mixed-section .k { font-weight: 600; font-size: 12.5px; color: var(--dk-text-2); }
@@ -987,4 +985,4 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
 .dk-mixed-qid { font-family: var(--dk-mono); font-size: 11px; color: var(--dk-text-2); }
 .dk-mixed-qtext { color: var(--dk-text); }
 .dk-mixed-q textarea { width: 100%; resize: vertical; min-height: 48px; padding: 6px 8px; border: 1px solid var(--dk-border); border-radius: 8px; background: var(--dk-bg); color: var(--dk-text); font: inherit; }
-.dk-mixed-detail { border: 1px solid var(--dk-border); border-top: none; border-radius: 0 0 10px 10px; margin-top: -4px; padding: 8px 10px; background: var(--dk-bg); }
+.dk-mixed-detail { border: none; padding: 8px 10px; background: var(--dk-bg); }

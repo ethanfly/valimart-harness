@@ -1,10 +1,11 @@
 /**
  * DeskFrame：THE DIVA 的三栏外壳（替代 ui-layout 的 AppFrame）。
- *  - 会话模式：侧栏 | 对话 | 详情
+ *  - 会话模式：侧栏 | main（对话或全局面板） | rightbar
  *  - 任务模式：侧栏 | 任务卡 | 任务进程（对话）
- * 同时承担 ui-layout 的两项职责：ctx.layout 服务（toggleSidebar/openDetails/closeDetails + 任务模式动作）与主题呈现器。
+ * 0.1.5 起官方根槽从 conversation/details 改成 keyed `main` + `rightbar`；
+ * ctx.layout 对齐 toggleSidebar / selectPanel / beginNavigation / openRightbar / closeRightbar。
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createStore, useStoreValue, deskStore } from './store.js'
 import { TaskPanel, TaskChatColumn } from './tasks.jsx'
@@ -13,6 +14,8 @@ import { DeskTitlebar, useDeskElectron } from './titlebar.jsx'
 
 const SIDEBAR_AUTO_COLLAPSE = 900
 const RAIL = 56
+const RIGHTBAR_DEFAULT_RATIO = 0.45
+const CONTENT_FONT_SIZE_VARIABLE = '--dsh-content-font-size'
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)))
 
 export const layoutStore = createStore({
@@ -23,6 +26,11 @@ export const layoutStore = createStore({
   mode: 'chat', // chat | task
   taskChat: 520, // 任务模式下右侧“任务进程”列宽
   taskChatOpen: true,
+  activePanelId: null,
+  rightbar: null,
+  rightbarShown: false,
+  rightbarTrack: false,
+  rightbarFullscreen: false,
 })
 
 export const layoutActions = {
@@ -32,23 +40,61 @@ export const layoutActions = {
   toggleSidebar: () =>
     layoutStore.set((s) => (s.narrow ? { ...s, narrowExpanded: !s.narrowExpanded } : { ...s, sidebar: s.sidebar === 0 ? 280 : 0 })),
   setNarrow: (narrow) => layoutStore.set((s) => (s.narrow === narrow ? s : { ...s, narrow, narrowExpanded: false })),
-  openDetails: () => layoutStore.set((s) => (s.details === 0 ? { ...s, details: 360 } : s)),
-  closeDetails: () => layoutStore.set({ details: 0 }),
+  selectPanel: (panelId) => layoutStore.set({ activePanelId: panelId }),
+  retainMainPanels: (ids) =>
+    layoutStore.set((s) => (s.activePanelId !== null && !ids.includes(s.activePanelId) ? { ...s, activePanelId: null } : s)),
+  setRightbar: (px, viewport = typeof window === 'undefined' ? 1280 : window.innerWidth) =>
+    layoutStore.set({ rightbar: clamp(px, 300, Math.max(300, Math.round(viewport * 0.55))) }),
+  openRightbar: (track, fullscreen) =>
+    layoutStore.set((s) => ({
+      ...s,
+      rightbar: s.rightbar ?? Math.max(300, Math.round((typeof window === 'undefined' ? 1280 : window.innerWidth) * RIGHTBAR_DEFAULT_RATIO)),
+      rightbarShown: true,
+      rightbarTrack: track,
+      rightbarFullscreen: fullscreen,
+      narrowExpanded: !s.rightbarShown && s.narrow ? false : s.narrowExpanded,
+    })),
+  closeRightbar: () => layoutStore.set({ rightbarShown: false, rightbarTrack: false, rightbarFullscreen: false }),
+  openDetails: () => layoutActions.openRightbar(true, false),
+  closeDetails: () => layoutActions.closeRightbar(),
   setMode: (mode) => layoutStore.set((s) => (s.mode === mode ? s : { ...s, mode })),
   toggleTaskChat: () => layoutStore.set((s) => ({ ...s, taskChatOpen: !s.taskChatOpen })),
   openTaskChat: () => layoutStore.set((s) => (s.taskChatOpen ? s : { ...s, taskChatOpen: true })),
 }
 
-/** ctx.layout 服务面（与 ui-layout 的 LayoutController 兼容，并扩展任务模式）。 */
+/** ctx.layout 服务面（对齐 0.1.5 ui-layout 的 LayoutController，并扩展任务模式）。 */
 export class DeskLayoutController {
+  navigation = new AbortController()
+  constructor({ hasMainPanel } = {}) {
+    this.hasMainPanel = hasMainPanel ?? (() => true)
+  }
+  selectPanel(panelId) {
+    if (panelId !== null && !this.hasMainPanel(panelId)) throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
+    this.navigation.abort()
+    layoutActions.selectPanel(panelId)
+  }
+  beginNavigation() {
+    this.navigation.abort()
+    this.navigation = new AbortController()
+    return this.navigation.signal
+  }
+  dispose() {
+    this.navigation.abort()
+  }
   toggleSidebar() {
     layoutActions.toggleSidebar()
   }
+  openRightbar(track, fullscreen) {
+    layoutActions.openRightbar(track, fullscreen)
+  }
+  closeRightbar() {
+    layoutActions.closeRightbar()
+  }
   openDetails() {
-    layoutActions.openDetails()
+    this.openRightbar(true, false)
   }
   closeDetails() {
-    layoutActions.closeDetails()
+    this.closeRightbar()
   }
   setMode(mode) {
     layoutActions.setMode(mode)
@@ -78,6 +124,7 @@ export class ThemePresenter {
     const body = document.body
     if (scheme === 'dark') body.setAttribute('data-ds-dark-theme', '')
     else body.removeAttribute('data-ds-dark-theme')
+    if (snapshot.fontSize != null) body.style.setProperty(CONTENT_FONT_SIZE_VARIABLE, `${snapshot.fontSize}px`)
     for (const name of this.appliedTokens) body.style.removeProperty(name)
     this.appliedTokens = []
     for (const [name, value] of Object.entries(snapshot.active.tokens)) {
@@ -91,6 +138,7 @@ export class ThemePresenter {
   dispose() {
     document.documentElement.style.removeProperty('color-scheme')
     document.body.removeAttribute('data-ds-dark-theme')
+    document.body.style.removeProperty(CONTENT_FONT_SIZE_VARIABLE)
     for (const name of this.appliedTokens) document.body.style.removeProperty(name)
     this.appliedTokens = []
     this.meta.remove()
@@ -133,19 +181,8 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
   const desk = useStoreValue(deskStore, (s) => s.desk)
   const phase = useStoreValue(deskStore, (s) => s.phase)
   const selectedTaskId = useStoreValue(deskStore, (s) => s.selectedTaskId)
-  const detailsSession = useSessions((s) => {
-    const current = s.current
-    return current !== undefined && s.byId[current]?.blank === false ? current : undefined
-  })
   const frameRef = useRef(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
-  const lastSession = useRef(detailsSession)
-
-  useLayoutEffect(() => {
-    if (detailsSession === undefined) return
-    if (lastSession.current !== undefined && lastSession.current !== detailsSession) layoutActions.closeDetails()
-    lastSession.current = detailsSession
-  }, [detailsSession])
 
   useEffect(() => {
     const el = frameRef.current
@@ -171,23 +208,33 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarWidth = narrow ? RAIL : sidebarCollapsed ? RAIL : panels.sidebar
   const taskMode = panels.mode === 'task'
-  const showDetails = !taskMode && detailsSession !== undefined && panels.details > 0
-  const detailsWidth = showDetails ? Math.min(panels.details, Math.max(300, viewport - sidebarWidth - 640)) : 0
+  const rightbarPref = panels.rightbar ?? Math.max(300, Math.round(viewport * RIGHTBAR_DEFAULT_RATIO))
+  const rightbarTrack = !taskMode && panels.rightbarShown && panels.rightbarTrack
+  const rightbarWidth = rightbarTrack ? Math.min(rightbarPref, Math.max(300, viewport - sidebarWidth - 480)) : 0
   const showTaskChat = taskMode && panels.taskChatOpen
   const taskChatWidth = showTaskChat ? Math.min(panels.taskChat, Math.max(360, viewport - sidebarWidth - 420)) : 0
 
   const sidebarBase = useRef(0)
-  const detailsBase = useRef(0)
+  const rightbarBase = useRef(0)
   const chatBase = useRef(0)
   const onSidebarDrag = useCallback((dx) => layoutActions.setSidebar(sidebarBase.current + dx), [])
-  const onDetailsDrag = useCallback((dx) => layoutActions.setDetails(detailsBase.current + dx), [])
+  const onRightbarDrag = useCallback((dx) => layoutActions.setRightbar(rightbarBase.current + dx, viewport), [viewport])
   const onChatDrag = useCallback((dx) => layoutActions.setTaskChat(chatBase.current + dx), [])
 
-  const conversation = renderSlot('conversation', {})
+  const mainPanel = renderSlot('main', {}, { entryKey: taskMode ? 'conversation' : panels.activePanelId ?? 'conversation' })
   const electron = useDeskElectron()
 
   return (
-    <div ref={frameRef} className="dk-frame" data-dsh-frame data-mode={panels.mode} data-sidebar-collapsed={sidebarCollapsed || undefined} data-electron={electron || undefined}>
+    <div
+      ref={frameRef}
+      className="dk-frame"
+      data-dsh-frame
+      data-mode={panels.mode}
+      data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-rightbar-collapsed={!rightbarTrack || undefined}
+      data-rightbar-fullscreen={panels.rightbarFullscreen || undefined}
+      data-electron={electron || undefined}
+    >
       {electron && createPortal(<DeskTitlebar sidebarWidth={sidebarWidth} />, document.body)}
       {narrow && panels.narrowExpanded && <div className="dk-mask" onClick={() => layoutActions.toggleSidebar()} />}
       <div className={`dk-col-sidebar${narrow && panels.narrowExpanded ? ' dk-drawer' : ''}`} style={{ width: narrow && panels.narrowExpanded ? 280 : sidebarWidth }}>
@@ -204,7 +251,7 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
           {showTaskChat && (
             <div className="dk-col-right" style={{ width: taskChatWidth }}>
               <TaskChatColumn ctx={ctx} taskId={selectedTaskId} useSessions={useSessions}>
-                {conversation}
+                {mainPanel}
               </TaskChatColumn>
             </div>
           )}
@@ -212,14 +259,12 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
       ) : (
         <>
           <div className="dk-col-main">
-            <div className="dk-slot-fill">{conversation}</div>
+            <div className="dk-slot-fill" data-dsh-center-col>{mainPanel}</div>
           </div>
-          {showDetails && <Resizer invert onStart={() => (detailsBase.current = panels.details)} onDrag={onDetailsDrag} />}
-          {detailsSession !== undefined && (
-            <div className="dk-col-right" style={{ width: detailsWidth, display: showDetails ? undefined : 'none' }}>
-              <div className="dk-slot-fill">{renderSlot('details', {})}</div>
-            </div>
-          )}
+          {rightbarTrack && !panels.rightbarFullscreen && <Resizer invert onStart={() => (rightbarBase.current = rightbarPref)} onDrag={onRightbarDrag} />}
+          <div className="dk-col-right" data-rightbar-col data-collapsed={rightbarWidth === 0 || undefined} style={{ width: rightbarWidth }}>
+            {renderSlot('rightbar', { width: rightbarPref, viewportWidth: viewport, canShow: rightbarPref > 0 && panels.rightbarShown })}
+          </div>
         </>
       )}
 

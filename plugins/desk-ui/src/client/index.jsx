@@ -3,7 +3,7 @@
  * 取代 ui-layout / ui-sidebar / ui-brand-official：THE DIVA 外壳、会话/任务侧栏、任务卡面板、公司设置页、登录遮罩。
  */
 import css from './styles.css'
-import { DeskFrame, DeskLayoutController, ThemePresenter } from './layout.jsx'
+import { DeskFrame, DeskLayoutController, ThemePresenter, layoutActions, layoutStore } from './layout.jsx'
 import { DeskSidebar, DeskUserSettingsTrigger } from './sidebar.jsx'
 import { AccountSection, ColleaguesSection, DesktopSection, KnowledgeSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
 import { MixedSection } from './mixed-settings.jsx'
@@ -41,27 +41,6 @@ export function apply(ctx) {
     document.head.append(el)
     return () => el.remove()
   }, 'desk-ui: styles')
-
-  // The export plugin owns its click handler, progress state and dialog.
-  // Add a tooltip to its icon-only presentation without replacing the button.
-  ctx.effect(() => {
-    const selector = '[data-slot="conversation.session.header.utilities"] button[class*="_sessionLogButton"]'
-    const label = '下载会话日志'
-    const sync = () => {
-      for (const button of document.querySelectorAll(selector)) {
-        if (!button.hasAttribute('title')) button.setAttribute('title', label)
-      }
-    }
-    sync()
-    const observer = new MutationObserver(sync)
-    observer.observe(document.body, { childList: true, subtree: true })
-    return () => {
-      observer.disconnect()
-      for (const button of document.querySelectorAll(selector)) {
-        if (button.getAttribute('title') === label) button.removeAttribute('title')
-      }
-    }
-  }, 'desk-ui: session log tooltip')
 
   // ---- 窗口标题：官方写死 "DeepSeek Harness"，改成 valimart harness ----
   ctx.effect(() => {
@@ -113,25 +92,45 @@ export function apply(ctx) {
     }
   }, 'desk-ui: document title')
 
-  // ---- ctx.layout 服务 + 根框架 ----
-  const layout = new DeskLayoutController()
+  // ---- ctx.layout 服务 + 根框架（0.1.5：main keyed + rightbar，不再声明 conversation/details）----
+  const layout = new DeskLayoutController({
+    hasMainPanel: (id) => ctx.slots.entries('main').some((entry) => entry.options.key === id),
+  })
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
+    // 0.1.5 的 WorkspaceBrowser / SessionTree 依赖根级 usePanelInfo；官方由 ui-layout provideRoot，
+    // 公司关掉了 ui-layout，这里按同一契约补上，否则 sidebar.workspaces 渲染即崩、会话列表空白。
+    const disposePanelInfo = ctx.slots.provideRoot({
+      hooks: {
+        panelInfo: {
+          getSnapshot: () => ({ activePanelId: layoutStore.get().activePanelId }),
+          subscribe: (listener) => layoutStore.subscribe(listener),
+        },
+      },
+    })
     const disposeRoot = ctx.slots.register(
       {
         name: 'root',
         children: {
           sidebar: { kind: 'single', scope: 'root' },
-          conversation: { kind: 'single', scope: 'session-maybe' },
-          details: { kind: 'single', scope: 'session' },
+          main: { kind: 'keyed', scope: 'root' },
+          rightbar: { kind: 'single', scope: 'root' },
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
         inject: () => ({ ctx }),
       },
       DeskFrame,
     )
+    const retainMain = () => {
+      layoutActions.retainMainPanels(ctx.slots.entries('main').flatMap((entry) => (entry.options.key === undefined ? [] : [entry.options.key])))
+    }
+    const disposePanels = ctx.slots.subscribe('main', retainMain)
+    retainMain()
     return () => {
+      layout.dispose()
+      disposePanels()
       disposeRoot()
+      disposePanelInfo()
       disposeService()
     }
   }, 'desk-ui: layout service + root frame')

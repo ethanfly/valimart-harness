@@ -14,6 +14,8 @@ export function applyGitBranchBadges(root, items) {
     const parent = titleEl.parentElement
     if (!parent) continue
     const item = wanted.find((i) => i.title === titleEl.textContent.trim())
+    if (item?.path) row.dataset.dkWorkspacePath = item.path
+    else if (row.dataset) delete row.dataset.dkWorkspacePath
     const branch = item?.branch || ''
     let badge = parent.querySelector(':scope > .dk-git-branch')
     if (!branch) {

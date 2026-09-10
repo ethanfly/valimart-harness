@@ -5,10 +5,11 @@
  * 底部：sidebar.footer.action 列表槽 + 当前登录人（点击打开设置）。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { deskStore, useStoreValue } from './store.js'
+import { deskStore, toast, useStoreValue } from './store.js'
 import { layoutActions, layoutStore } from './layout.jsx'
 import { api, fmtTime, loadTasks } from './api.js'
 import { applyGitBranchBadges } from './workspace-git.js'
+import { bindWorkspaceFolderMenu } from './workspace-folder-menu.js'
 import { BrandMark, Logotype, PRODUCT_NAME } from './brand.jsx'
 import { IconPanel, IconPlus, IconSearch, IconChat, IconTask, IconRefresh } from './icons.jsx'
 import { NewTaskDialog } from './tasks.jsx'
@@ -41,11 +42,17 @@ function WorkspaceGitSync({ rootRef }) {
       timer = setTimeout(paint, 40)
     })
     const el = root()
+    const stopMenu = el
+      ? bindWorkspaceFolderMenu(el, {
+          openPath: (folder) => api.openPath(folder).catch((err) => toast(err.message, 'error')),
+        })
+      : () => {}
     if (el) mo.observe(el, { childList: true, subtree: true })
     return () => {
       clearInterval(id)
       clearTimeout(timer)
       mo.disconnect()
+      stopMenu()
     }
   }, [rootRef, loggedIn])
   return null

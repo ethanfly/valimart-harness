@@ -51,9 +51,7 @@ function fixture() {
 <style>${DESK_CSS}</style>
 <style>${stripGlobal(fs.readFileSync(pluginCss, 'utf8'))}</style>
 <style>${fs.readFileSync(path.join(path.dirname(pluginCss), 'layout.css'), 'utf8')}</style>
-<style>html, body { margin: 0; background: #fff; }
-    [data-slot='conversation.session.header.utilities'] button { width: 28px; height: 28px; border: 0; padding: 0; }
-    </style>
+<style>html, body { margin: 0; background: #fff; }</style>
 </head>
 <body>
   <div id="root"><div data-slot="root" style="display:contents">
@@ -78,10 +76,6 @@ function fixture() {
       <button type="button" class="dk-winbtn close" aria-label="关闭"></button>
     </div>
   </header>
-  <div data-slot="conversation.session.header.utilities" class="headerUtilities">
-    <button type="button" class="openFolder" aria-label="打开文件夹"></button>
-    <button type="button" class="test_sessionLogButton" aria-label="下载会话日志"></button>
-  </div>
   <div data-dsh-panel-host>
     <div class="bottomPanel" data-dsh-panel data-dsh-bottom-panel style="height:220px;left:285px;right:442px">
       <div class="tabBar">Terminal</div><div class="panelBody"></div>
@@ -112,18 +106,14 @@ function probe(page) {
       return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height, center: r.top + r.height / 2 }
     }
     const toggle = box('[data-dsh-toggle-cluster] .toggleButton')
-    const actions = box('[data-slot="conversation.session.header.utilities"]')
     const hit = document.elementFromPoint(innerWidth - 23, 18)
     // 按钮簇自己身上命中的是不是它自己：落到标题栏条里就会被 .dk-titlebar-main
     // （-webkit-app-region: drag）吃掉点击，变成拖窗。
     const toggleHit = document.elementFromPoint(toggle.left + toggle.width / 2, toggle.center)
-    const actionHitEl = document.elementFromPoint(actions.left + 8, actions.center)
-    const actionHit = actionHitEl instanceof Element && actionHitEl.closest('[data-slot="conversation.session.header.utilities"]') !== null
     return {
       titlebar: box('.dk-titlebar'),
       cluster: box('[data-dsh-toggle-cluster]'),
       toggle,
-      actions,
       winbtn: box('.dk-winbtn'),
       panel: box('[data-dsh-panel]:not([data-dsh-bottom-panel])'),
       tabBar: box('[data-dsh-panel]:not([data-dsh-bottom-panel]) .tabBar'),
@@ -134,7 +124,6 @@ function probe(page) {
       })(),
       winButtonHit: hit instanceof Element && hit.closest('.dk-winbtn') !== null,
       toggleHit: toggleHit instanceof Element && toggleHit.closest('[data-dsh-toggle-cluster]') !== null,
-      actionHit,
     }
   })
 }
@@ -152,14 +141,11 @@ test('展开态：按钮簇骑在右侧面板的标签栏上（与 + 同一条�
   expect(open.toggle.top).toBeGreaterThanOrEqual(open.tabBar.top)
   expect(open.toggle.bottom).toBeLessThanOrEqual(open.tabBar.bottom)
   expect(Math.abs(open.toggle.center - open.tabPlus.center)).toBeLessThanOrEqual(1)
-  // 不压住自绘标题栏的窗控；文件夹 / 日志与面板开关并排居中
+  // 不压住自绘标题栏的窗控
   expect(open.toggle.center).toBeCloseTo(open.titlebar.center, 1)
-  expect(open.actions.center).toBeCloseTo(open.toggle.center, 1)
-  expect(open.actions.right).toBeLessThanOrEqual(open.cluster.left)
   expect(open.cluster.right).toBeLessThanOrEqual(1280 - 138)
   expect(open.winButtonHit).toBe(true)
   expect(open.toggleHit).toBe(true)
-  expect(open.actionHit).toBe(true)
   expect(open.plusHit).toBe(true)
   await page.locator('.tabBarPlus').click()
 })
@@ -198,10 +184,8 @@ test('收起态：按钮簇保持顶部原位，窗控与面板开关仍可点',
 
   expect(collapsed.cluster).toEqual(open.cluster)
   expect(collapsed.toggle.center).toBeCloseTo(collapsed.titlebar.center, 1)
-  expect(collapsed.actions.center).toBeCloseTo(collapsed.toggle.center, 1)
   expect(collapsed.winButtonHit).toBe(true)
   expect(collapsed.toggleHit).toBe(true)
-  expect(collapsed.actionHit).toBe(true)
   // 收起时面板滑出屏幕，按钮簇仍贴视口右上角
   expect(collapsed.cluster.right).toBeCloseTo(1280 - 148, 1)
   await page.locator('[data-dsh-toggle-cluster] button').last().click()
@@ -258,17 +242,14 @@ test('设置弹层打开时面板开关不挡模态框，窗控仍在', async ({
   })
   const covered = await page.evaluate(() => {
     const cluster = document.querySelector('[data-dsh-toggle-cluster]')
-    const actions = document.querySelector('[data-slot="conversation.session.header.utilities"]')
     const controls = document.querySelector('.dk-titlebar-controls')
     return {
       clusterHidden: getComputedStyle(cluster).visibility === 'hidden',
-      actionsHidden: getComputedStyle(actions).visibility === 'hidden',
       controlsHidden: getComputedStyle(controls).visibility === 'hidden',
       closeVisible: document.getElementById('dlg-close').getBoundingClientRect().width > 0,
     }
   })
   expect(covered.clusterHidden).toBe(true)
-  expect(covered.actionsHidden).toBe(true)
   expect(covered.controlsHidden).toBe(false)
   expect(covered.closeVisible).toBe(true)
 })

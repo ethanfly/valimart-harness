@@ -21,7 +21,7 @@ test('Electron：会话标题贴顶、操作可点击，标题可拖动，最大
     </style><body><div id="root"><div class="dk-frame" data-mode="chat" data-dsh-frame>
       <aside class="dk-col-sidebar" style="width:280px"><div class="dk-brand"><span>品牌</span><div class="dk-row"><button class="dk-iconbtn" type="button">新会话</button><button class="dk-iconbtn" type="button">收起侧边栏</button></div></div></aside>
       <main class="dk-col-main"><div data-slot="conversation.session.header" style="display:contents">
-        <header class="session-header"><div class="test_titleRow"><div class="test_titleCluster"><nav>会话标题</nav><div class="test_headerActions">标准模式</div></div><div class="test_headerUtilities"><div data-slot="conversation.session.header.utilities"><button id="utility" class="test_sessionLogButton"><span>Session 日志</span><svg width="12" height="12" aria-hidden="true"></svg></button></div></div></div>
+        <header class="session-header"><div class="test_titleRow"><div class="test_titleCluster"><nav>会话标题</nav><div class="test_headerActions">标准模式</div></div></div>
           <div role="tablist"><button role="tab">对话</button><button role="tab">轨迹</button></div>
         </header></div></main></div></div>
       <header class="dk-titlebar"><div class="dk-titlebar-side"></div><div class="dk-titlebar-main"></div>
@@ -50,11 +50,8 @@ test('Electron：会话标题贴顶、操作可点击，标题可拖动，最大
       expect(geometry.frame.right).toBe(geometry.w)
       expect(geometry.frame.bottom).toBe(geometry.h)
       const title = await page.locator('.test_titleCluster nav').boundingBox()
-      const download = await page.locator('#utility').boundingBox()
-      expect(download.y + download.height / 2).toBeCloseTo(18, 1)
-      expect(download.x).toBeGreaterThan(title.x + title.width)
+      expect(title.y + title.height / 2).toBeLessThan(40)
       await page.getByRole('tab', { name: '轨迹' }).click()
-      await page.getByRole('button', { name: 'Session 日志' }).click()
     }
     await verify()
     const sessionDrag = await page.evaluate(() => {
@@ -79,7 +76,6 @@ test('Electron：会话标题贴顶、操作可点击，标题可拖动，最大
     await expect.poll(() => app.evaluate(() => global.testWindow.isMaximized())).toBe(false)
     await verify()
     expect(await page.evaluate(() => window.clicks.filter(v => v === '轨迹'))).toHaveLength(3)
-    expect(await page.evaluate(() => window.clicks.filter(v => v === 'Session 日志'))).toHaveLength(3)
   } finally {
     await app?.close()
     await new Promise(resolve => server.close(resolve))
