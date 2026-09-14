@@ -132,7 +132,13 @@ npm run dev                           # 网关 :8790 + 客户端 :3470 + 桌面�
 
 ### 2. 员工电脑（安装包，不需要 Node）
 
-开发机打包：
+先装内核（Mac 包也从 `~/.company-desk/kernel` 取）：
+
+```powershell
+npm run setup
+```
+
+**Windows 客户端**
 
 ```powershell
 npm --prefix desktop install
@@ -144,9 +150,31 @@ npm run dist:client          # → dist/valimart-harness-Setup-<ver>.exe
 - 本机网关：`http://127.0.0.1:8790`
 - 树莓派网关：`http://10.56.41.60:8790`
 
-打包时预置网关：`$env:DESK_GATEWAY_URL = "http://gw.company.local:8790"` 再 `npm run dist:client`。
+打包时预置网关：`$env:DESK_GATEWAY_URL = "http://gw.company.local:8790"` 再跑对应的 `dist:client` / `dist:client:mac`。
 
 装到 `%LOCALAPPDATA%\Programs\valimart-harness`。首次启动解压内核到 `~/.company-desk/app`（约十几秒），之后秒开。包未签名，SmartScreen 选「更多信息 → 仍要运行」。
+
+**macOS Intel 客户端（可在 Windows 构建机直出）**
+
+不要用 electron-builder `--mac`（Windows 上会直接拒绝，而且 7z 会毁掉 `.app` 的符号链接和可执行位）。走公司脚本：
+
+```powershell
+npm run dist:client:mac
+# 或预置网关：
+npm run dist:client:mac -- --gateway http://10.56.41.60:8790
+```
+
+产物：`dist/valimart-harness-<installerVersion>-mac-x64.zip`，内含 `valimart harness.app`。
+
+默认：Electron 44.1.1、Node 22.23.2、darwin-x64，门槛 **macOS 13.0+**。脚本会从 Windows 内核注入 Darwin 原生包（含 node-pty prebuilds、`node-addon-system-darwin-x64`），并校验 zip / 权限 / Mach-O。
+
+员工在 **Mac 上解压**（不要在 Windows 上解再压），把 `.app` **拖进 `/Applications`** 再打开。未签名时右键 → 打开，或：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/valimart harness.app"
+```
+
+只验已有 zip：`node scripts/build-mac-client.mjs --verify-only dist/xxx-mac-x64.zip`。老系统（macOS 11/12）另打 `--electron 30.x --node 20.x`。Mac 版关闭自更新，升级用整包替换。工程细节见 [`docs/sessions/2026-09-09-mac客户端打包.md`](docs/sessions/2026-09-09-mac客户端打包.md)。
 
 ### 3. 公司网关
 
@@ -192,7 +220,8 @@ $env:ANYSEARCH_API_KEY = "as_sk-..."
 | 只改 UI | `npm run build` 后重启客户端 |
 | 检查内核补丁 | `npm run kernel:check` |
 | 换内核版本 | 改 `scripts/kernel/pin.json` → `npm run kernel:prepare -- --version <ver>` |
-| 打两个安装包 | `npm run dist` |
+| 打两个 Windows 安装包 | `npm run dist` |
+| 打 macOS Intel 客户端 | `npm run dist:client:mac` → `dist/valimart-harness-<ver>-mac-x64.zip` |
 | 发布客户端给员工 | `npm run client:publish -- --gateway <url> --user <管理员> --password <密码> --from dist/valimart-harness-Setup-0.1.0.exe` |
 | 备份网关数据 | `npm run backup -- --data-dir <数据目录> --out backup.zip` |
 
@@ -235,7 +264,7 @@ npm run probe:channels   # 有真实 key 才打公网
 
 ## 进阶（打包 / 内核 / HTTPS）
 
-构建机网络打不开 GitHub 时，脚本默认走 npmmirror。`dist:gateway` 需要先成功打过一次 `dist:client`（复用 electron-builder 的 `makensis`），或自装 NSIS 3 并设 `MAKENSIS`。
+构建机网络打不开 GitHub 时，脚本默认走 npmmirror。`dist:gateway` 需要先成功打过一次 `dist:client`（复用 electron-builder 的 `makensis`），或自装 NSIS 3 并设 `MAKENSIS`。`dist:client:mac` 不依赖 electron-builder，缓存落在 `build/mac-cache/`。
 
 对外 HTTPS：网关本身仍是 HTTP，前面加 Caddy / Nginx，把 `publicUrl` 和客户端网关地址改成 `https://…`，不要把 8790 暴露到公网。流式对话要求反代不缓冲（Nginx `proxy_buffering off`）。
 
