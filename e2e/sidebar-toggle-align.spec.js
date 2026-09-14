@@ -186,7 +186,6 @@ test('收起态：按钮簇保持顶部原位，窗控与面板开关仍可点',
   expect(collapsed.toggle.center).toBeCloseTo(collapsed.titlebar.center, 1)
   expect(collapsed.winButtonHit).toBe(true)
   expect(collapsed.toggleHit).toBe(true)
-  // 收起时面板滑出屏幕，按钮簇仍贴视口右上角
   expect(collapsed.cluster.right).toBeCloseTo(1280 - 148, 1)
   await page.locator('[data-dsh-toggle-cluster] button').last().click()
 })
@@ -230,6 +229,28 @@ for (const viewport of [{ width: 1920, height: 1152 }, { width: 1536, height: 86
     await page.locator('[data-dsh-toggle-cluster] button').last().click()
   })
 }
+
+test('官方打开右侧边栏隐藏，工作台开关仍在', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 819 })
+  await page.setContent(fixture(), { waitUntil: 'load' })
+  await page.evaluate(() => {
+    const corner = document.createElement('div')
+    corner.setAttribute('data-conversation-header-corner', '')
+    const button = document.createElement('button')
+    button.setAttribute('data-sidebar-right-expand', '')
+    button.setAttribute('aria-label', '打开右侧边栏')
+    corner.append(button)
+    document.body.append(corner)
+  })
+  const vis = await page.evaluate(() => ({
+    official: getComputedStyle(document.querySelector('[data-sidebar-right-expand]')).display,
+    corner: getComputedStyle(document.querySelector('[data-conversation-header-corner]')).display,
+    plugin: getComputedStyle(document.querySelector('[data-dsh-toggle-cluster]')).display,
+  }))
+  expect(vis.official).toBe('none')
+  expect(vis.corner).toBe('none')
+  expect(vis.plugin).not.toBe('none')
+})
 
 test('设置弹层打开时面板开关不挡模态框，窗控仍在', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 819 })

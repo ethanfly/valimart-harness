@@ -1,0 +1,14 @@
+# 树莓派 mihomo 订阅清单模板（复制为 subscriptions.yaml 再填真实链接；真实文件不入库）
+# 改完跑 apply-subscriptions.sh，或打开 http://<Pi>:9091/?key=<admin.key 里的口令> 点保存
+# 面板 http://<Pi>:9090/ui/ 的 Providers 页只能「更新」已有订阅，不能粘贴新链接。
+items:
+  - id: example-a
+    name: 示例机场 A
+    url: https://example-a.example.com/api/v1/client/subscribe?token=REPLACE_ME
+    interval: 86400
+    prefix: "示例A/"
+  - id: example-b
+    name: 示例机场 B
+    url: https://example-b.example.com/link/REPLACE_ME?clash=3
+    interval: 3600
+    prefix: "示例B/"

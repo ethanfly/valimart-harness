@@ -6,10 +6,11 @@
 进入这个目录、`npm install`、`npm run dev` 即可。
 
 > 接手先看 [`docs/HANDOFF.md`](docs/HANDOFF.md)（现在在哪、关键决定、下次该干嘛）；过程记录在 [`docs/sessions/`](docs/sessions/)。
+> **开发机先看下面「快速上手」**：怎么跑、怎么打包、logo 从哪来。细节（密钥、安装包排障、验收流）仍在后文各节。
 
 - **桌面客户端（valimart harness）**：左侧「会话 / 任务」双栏，个人与团队工作区，会话页可选模型、切换标准模式、
   `Full access` 权限，输入框「文件」芯片把本机文件放进工作目录并作为 `@` 引用；Agent 在本机执行，
-  流式输出。
+  流式输出。会话可开 **Mixed 混合模式**（规划 / 实施 / 审核三角色，宿主跑验收命令）。
 - **任务卡**：新建 / 列表 / 详情（概览、工作日志），提交信息、交付物（公司盘）、
   四格验收流 `待初审 → 待终审 → 通过 / 退回`，可指定审核人；只说做完了不算完成，必须有交付物。
 - **设置**：通用、账号、同事（每人每周模型额度、7 天账本、模型花费、通道接入）、Agent 预设、
@@ -38,7 +39,7 @@ company-desk/
 ├─ installer/              # 网关安装包（§2.5）：gateway.nsi、gateway/init.mjs + TheDivaGateway.xml.tpl（WinSW 服务定义）、pins.json
 └─ scripts/
    ├─ kernel/
-   │  ├─ pin.json          # 内核锁定版本（@deepseek-ai/dsh@0.1.2-rc.1）
+   │  ├─ pin.json          # 内核锁定版本（当前 @deepseek-ai/dsh@0.1.5-rc.1）
    │  ├─ patches.mjs       # 内置的公司内核补丁集（锚点式编辑，幂等；锚点对不上即失败）
    │  └─ locate.mjs        # 找内核前缀 / 兼容 Windows 与 POSIX 的 npm 目录布局
    ├─ lib/bootstrap.mjs    # 启动编排库：开发模式（launch / setup-profile）与安装版（Electron 主进程调用）共用
@@ -51,6 +52,96 @@ company-desk/
    └─ test/                # bootstrap / payload / gateway-init / backup 单元测试（node --test，随 npm test 跑）
 ```
 
+## 快速上手
+
+开发机三件事：**跑起来**、**打安装包**、**显示 / 更换 logo**。员工电脑不跑这些命令，装 `dist/valimart-harness-Setup-*.exe` 即可。本机 shell 是 Windows PowerShell 5.1 时，多条命令用 `;` 连接，不支持 `&&`。
+
+### 运行
+
+```powershell
+cd E:\orcaWorkspace\company-harness   # 仓库根（npm 包名仍是 company-desk）
+npm install                           # 开发依赖：esbuild / playwright / mdast
+npm run setup                         # 装锁定内核到 ~/.company-desk/kernel 并打补丁，写入 ~/.dsh/profiles/desk
+npm run dev                           # 网关 :8790 + 客户端 :3470 + 桌面窗口（缺内核 / profile / bundle 会自动补）
+```
+
+分开跑：
+
+| 命令 | 做什么 |
+| --- | --- |
+| `npm run server` | 只起公司网关 `http://127.0.0.1:8790`（管理页 `/admin`） |
+| `npm run client` | 只起内核 Web，浏览器打开 `http://127.0.0.1:3470` |
+| `npm run desktop` | 客户端 + Electron / Edge 应用窗口（不自动起网关） |
+| `npm run build` | 只打包 `desk-ui` 浏览器端（`launch.mjs` 发现源码更新也会自动重打） |
+| `npm test` | `node --test` 服务端 + 脚本 |
+| `npm run test:e2e` | Playwright |
+
+开发种子账号见 §3（`boss / boss123456`）。登录后模型请求走网关代理。`launch.mjs` 还可 `--port`、`--gateway`、`--no-open`、`--prefix`、`--dsh-home`。
+
+安装版与开发版并存：安装版用 profile `desk-app` + `~/.company-desk/app/kernel`；开发版用 `desk` + `~/.company-desk/kernel`。登录态 / 公司盘 / 会话共用 `~/.dsh/desk` 与 `~/.dsh/sessions`。
+
+### 打包
+
+目标机器不需要 Node。在开发机打：
+
+```powershell
+npm --prefix desktop install          # 首次：Electron 44 + electron-builder（只在 desktop/）
+npm run dist:client                   # Windows 员工客户端 → dist/valimart-harness-Setup-<ver>.exe
+npm run dist:gateway                  # Windows 网关服务 → dist/valimart-harness-Gateway-Setup-<ver>.exe
+npm run dist                          # 上面两个都出
+npm run dist:client:mac               # macOS Intel 客户端 zip（可在 Windows 构建机打）
+npm run dist:gateway:linux            # Linux 网关包
+```
+
+- **先改过 logo** 再打包：先 `npm run icon`（见下一节），再 `dist:*`。
+- **预置公司网关**：`$env:DESK_GATEWAY_URL = "http://gw.company.local:8790"` 再 `npm run dist:client`；不设则登录页默认 `http://127.0.0.1:8790`。
+- **网络**：Electron / NSIS 走 GitHub 经常失败。未设环境变量时构建脚本默认 npmmirror。开发跑 Electron 前也可 `$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"`。
+- **网关 NSIS**：`dist:gateway` 复用 electron-builder 缓存里的 `makensis`，所以**要先成功跑过一次** `dist:client`，或自装 NSIS 3 并设 `MAKENSIS`。
+- `npm run build` **不是**打安装包，只打 desk-ui bundle。改了 `plugins/**`、`scripts/kernel/*`、`profile/cordis.patch.yml` 必须重新 `dist:client`。
+- 发布到已装客户端：`npm run client:publish -- --gateway http://127.0.0.1:8790 --user <管理员> --password <密码> --from dist/valimart-harness-Setup-0.1.0.exe`（详见 §2.5）。
+
+排障、静默参数、升级 / 卸载见 §2.5。
+
+### 显示 Logo
+
+产品名 **valimart harness**。界面不重画形状，用公司原 PNG 做 `currentColor` 蒙版（深色 / 浅色主题都会跟字色走）。
+
+| 原图（唯一源头，要换 logo 改这两张） | 用途 |
+| --- | --- |
+| `plugins/desk-ui/src/client/assets/valimart-mark.png` | 花标：侧栏收起、Electron 标题栏、浏览器 favicon、管理页 favicon、关闭确认框 |
+| `plugins/desk-ui/src/client/assets/valimart-wordmark.png` | 字标 VALIMART：侧栏展开、登录遮罩、空会话中央、任务空态、启动页、管理页页头 |
+
+代码入口：`plugins/desk-ui/src/client/brand.jsx` 的 `BrandMark` / `Logotype`。无公司名时字标下面补一行 `harness`。
+
+**界面里要立刻看到新 logo：**
+
+```powershell
+# 1. 换成你的白底/白图抠透明 PNG（花标接近方形；字标横向 VALIMART）
+# 2. 重打浏览器端 bundle（esbuild 会把 PNG 打进 desk-ui）
+npm run build
+# 3. 已在跑的 dev 客户端要重启（bundle 在内存里，只 build 不刷新）
+npm run dev
+```
+
+**安装包 / 快捷方式 / 启动页上的应用图标**另有一套生成物，不会在你只改 assets 后自动变：
+
+```powershell
+npm run icon
+```
+
+`scripts/make-icon.mjs` 用本机 Edge/Chrome 无头渲圆角底，再叠花标，写出：
+
+| 产物 | 谁用 |
+| --- | --- |
+| `desktop/build/icon.png`（1024） | Electron 窗口图标 |
+| `desktop/build/icon-512.png` | 备用尺寸 |
+| `desktop/build/icon.ico`（16–256） | Windows 安装包、开始菜单、桌面快捷方式、网关 NSIS |
+| `desktop/build/valimart-mark.png` / `valimart-wordmark.png` | 启动页 `desktop/splash.html`、关闭提示 |
+
+改完 icon 再 `npm run dist:client`（以及需要的话 `dist:gateway`），员工装新包后快捷方式才会换标。管理页花标随网关包里的 `plugins/desk-ui/.../assets` 走，打 `dist:gateway` 即可。
+
+Electron 侧栏品牌行有上内边距，避免字标顶到窗口边缘；不要给整列侧栏加 `padding-top`，否则标题栏拖动热区会断。
+
 ## 1. 环境要求
 
 - Windows 10/11（macOS / Linux 也可，桌面窗口靠 Edge / Chrome 应用模式）
@@ -61,7 +152,7 @@ company-desk/
 
 ```powershell
 cd company-desk
-npm install                 # 只有 esbuild 一个开发依赖
+npm install                 # 开发依赖：esbuild / playwright / mdast
 npm run setup               # ① 装内核 ② 安装 desk profile 到 ~/.dsh/profiles/desk（launch.mjs 缺了也会自动补）
 npm run build               # 打包 desk-ui 浏览器端（launch.mjs 发现源码更新会自动重打）
 ```
@@ -318,13 +409,13 @@ schtasks /Create /TN "valimart harness Gateway Backup" /SC DAILY /ST 02:30 /RU S
 
 ```powershell
 npm run kernel:discover                                    # 列比当前 / pin 新的 GitHub Release（tag dsh-v*）
-npm run kernel:prepare -- --version 0.1.2-rc.1             # 装指定 npm 版 + 16 处补丁，通过才打 tar
+npm run kernel:prepare -- --version 0.1.5-rc.1             # 装指定 npm 版 + 公司补丁，通过才打 tar
 npm run kernel:publish -- --gateway http://127.0.0.1:8790 --user boss --password <管理员密码> --from build/kernel-update/<ver>
 ```
 
 管理页 `/admin` 的「内核」一节：当前版本（无发布则显示随包保底 pin）、已存列表、发现列表、`discoverError`；管理员可「试打补丁 / 发布 / 回滚」，总监只读。
 
-`scripts/kernel/pin.json` 当前锁定 `@deepseek-ai/dsh@0.1.2-rc.1`（2026-09-07 已对该版本跑过 `kernel:prepare`，公司补丁通过）。换更新版本前必须再跑一次 prepare。
+`scripts/kernel/pin.json` 当前锁定 `@deepseek-ai/dsh@0.1.5-rc.1`（2026-09-10 已对该版本跑过 `kernel:prepare`，16 处补丁干净命中）。换更新版本前必须再跑一次 prepare。
 
 ### 客户端更新（整包 Setup.exe）
 

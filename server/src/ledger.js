@@ -67,33 +67,31 @@ export class Ledger {
     return this.db.companySettings().quotaAnchor ?? this.cfg.quota?.anchor ?? '2026-01-05T00:00:00+08:00'
   }
 
-  /** 某用户当前周期内按上游分组的用量与额度视图。 */
-  quotaView(user, providers) {
+  /** 某用户当前周期内的用量与额度视图。跨上游合计，页面只展示一条「总额度」。 */
+  quotaView(user, _providers) {
     const win = weekWindow(this.quotaAnchor())
     const entries = this.entriesSince(win.start, (e) => e.userId === user.id)
     const q = this.resolveQuota(user)
     const tokenUsedAll = entries.reduce((s, e) => s + (e.promptTokens ?? 0) + (e.completionTokens ?? 0), 0)
-    const out = []
-    for (const p of providers) {
-      const usedCny = entries.filter((e) => e.provider === p.id).reduce((s, e) => s + (e.costCny ?? 0), 0)
-      const used = q.kind === 'tokens' ? tokenUsedAll : usedCny
-      const limit = q.limit
-      const usedPct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
-      out.push({
-        provider: p.id,
-        label: p.label ?? p.id,
+    const usedCnyAll = entries.reduce((s, e) => s + (e.costCny ?? 0), 0)
+    const used = q.kind === 'tokens' ? tokenUsedAll : usedCnyAll
+    const limit = q.limit
+    const usedPct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
+    return [
+      {
+        provider: 'total',
+        label: '总额度',
         kind: q.kind,
         source: q.source,
-        usedCny: round4(usedCny),
+        usedCny: round4(usedCnyAll),
         limitCny: q.kind === 'cny' ? limit : 0,
         usedTokens: tokenUsedAll,
         limitTokens: q.kind === 'tokens' ? limit : 0,
         usedPct: round1(usedPct),
         remainingPct: round1(Math.max(0, 100 - usedPct)),
         refreshAt: win.refreshAt,
-      })
-    }
-    return out
+      },
+    ]
   }
 
   /** 是否超过本周额度。金额按上游计；token 总量跨上游合计。 */

@@ -24,6 +24,7 @@ import {
   mixedPreferencesSchema,
   storeGlobalSchema,
   newRunRecord,
+  lastReviewSummaryOf,
 } from './contracts.js'
 
 export const mixedDomainSpec = defineDomain({
@@ -371,6 +372,13 @@ export class MixedStore {
       revision: record.revision,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+      // 列表摘要需要的展示字段（终态横幅/额度卡片）：行内直接带，避免每行 getRun 全量克隆
+      goal: record.goal,
+      error: record.error ? { code: record.error.code, detail: record.error.detail ?? null } : null,
+      pendingResume: record.pendingResume ?? null,
+      usage: record.usage ?? null,
+      tasks: (record.tasks ?? []).map((t) => ({ taskId: t.taskId, title: t.title, status: t.status })),
+      lastReview: lastReviewSummaryOf(record),
     }
   }
 

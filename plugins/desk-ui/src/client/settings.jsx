@@ -59,13 +59,30 @@ function quotaPctProps(quota) {
   return { used: quota?.usedCny ?? 0, limit: quota?.limitCny ?? 0 }
 }
 
+/** 页面一律只展示一条「总额度」：网关已跨上游合计，直接取第一条聚合行。 */
+function quotaTotal(quotas) {
+  const list = Array.isArray(quotas) ? quotas.filter(Boolean) : quotas ? [quotas] : []
+  const first = list[0]
+  if (!first) return null
+  return first.provider === 'total' ? first : { ...first, provider: 'total', label: '总额度' }
+}
+
+function QuotaLine({ quota }) {
+  if (!quota) return null
+  return (
+    <div>
+      <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{quotaUseText(quota)}），{fmtDateTime(quota.refreshAt)} 刷新。
+    </div>
+  )
+}
+
 /* ---------------- 账号 ---------------- */
 export function AccountSection({ close }) {
   const desk = useStoreValue(deskStore, (s) => s.desk)
   const [pw, setPw] = useState({ current: '', next: '', again: '' })
   const [busy, setBusy] = useState(false)
   const [q] = useFetch(() => api.gw.get('/colleagues'), [desk?.user?.id])
-  const quotas = q.data?.quota ?? []
+  const quota = quotaTotal(q.data?.quota ?? desk?.quota)
   if (!desk?.loggedIn) return <div className="dk-settings"><Head title="账号" desc="尚未登录公司网关。" /></div>
   const u = desk.user
   const changePw = async () => {
@@ -126,17 +143,13 @@ export function AccountSection({ close }) {
           </div>
         </div>
       </div>
-      {quotas.length > 0 && (
+      {quota && (
         <div className="dk-card">
           <div className="dk-card-title">本周额度</div>
-          {quotas.map((quota) => (
-            <div key={quota.provider} style={{ marginBottom: 8 }}>
-              <div className="dk-small">
-                <b>{quota.label}</b> 本周已用 {quotaUseText(quota)}（{quota.usedPct}%），还剩 {quota.remainingPct}%；{fmtDateTime(quota.refreshAt)} 刷新
-              </div>
-              <Pct {...quotaPctProps(quota)} />
-            </div>
-          ))}
+          <div className="dk-small">
+            <QuotaLine quota={quota} />
+          </div>
+          <Pct {...quotaPctProps(quota)} />
         </div>
       )}
       <div className="dk-card">
@@ -178,27 +191,23 @@ export function ColleaguesSection() {
   }, [])
   if (q.error) return <div className="dk-settings"><Head title="同事" /><div className="dk-alert error">{q.error}</div></div>
   if (!q.data) return <div className="dk-settings"><Head title="同事" /><div className="dk-empty">加载中…</div></div>
-  const { quota: quotas, ledger7d, users, me, channels = [], canEditChannels, quickInferenceModel } = q.data
+  const { quota: rawQuotas, ledger7d, users, me, channels = [], canEditChannels, quickInferenceModel } = q.data
+  const quota = quotaTotal(rawQuotas)
   // 服务端返回数组 [{ model, provider, requests, promptTokens, completionTokens, cachedTokens, costCny }]
   const byModel = (Array.isArray(ledger7d.byModel) ? ledger7d.byModel : Object.values(ledger7d.byModel ?? {})).slice().sort((a, b) => b.costCny - a.costCny)
-  const primary = quotas[0]
   return (
     <div className="dk-settings">
       <Head title="同事" right={<button className="dk-btn sm" onClick={reload}>刷新</button>} />
       <div className="lead">
-        {quotas.map((quota) => (
-          <div key={quota.provider}>
-            <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{quotaUseText(quota)}），{fmtDateTime(quota.refreshAt)} 刷新。
-          </div>
-        ))}
+        <QuotaLine quota={quota} />
         <div>
           办公机 <b>{desk?.device ?? '本机'}</b> {desk?.online ? '在线' : '离线'}。快速推理用 <b>{quickInferenceModel ?? '—'}</b>，开关在「快速推理」。
         </div>
         <div>
-          近 7 天公司成本 <b>{fmtCny(ledger7d.totalCny)}</b>（{ledger7d.requests} 次请求，本地价目表估值，不是 {primary?.label ?? '供应商'} 账单）。
+          近 7 天公司成本 <b>{fmtCny(ledger7d.totalCny)}</b>（{ledger7d.requests} 次请求，本地价目表估值，不是上游账单）。
         </div>
       </div>
-      {primary && <Pct {...quotaPctProps(primary)} />}
+      {quota && <Pct {...quotaPctProps(quota)} />}
       <ChannelTable channels={channels} canEdit={!!canEditChannels} onChanged={reload} />
       <div className="dk-card dk-table-wrap">
         <table className="dk-table">
@@ -1295,7 +1304,8 @@ export function SubscriptionSection() {
   }, [models])
   if (q.error) return <div className="dk-settings"><Head title="订阅" /><div className="dk-alert error">{q.error}</div></div>
   if (!q.data) return <div className="dk-settings"><Head title="订阅" /><div className="dk-empty">加载中…</div></div>
-  const { company, canEdit, seatsUsed, quotas, channels, canEditChannels, quickInferenceModel } = q.data
+  const { company, canEdit, seatsUsed, quotas: rawQuotas, channels, canEditChannels, quickInferenceModel } = q.data
+  const quota = quotaTotal(rawQuotas)
   const subscribed = channels.filter((c) => c.kind === 'subscription' && c.connected)
   const save = async () => {
     setBusy(true)
@@ -1321,11 +1331,7 @@ export function SubscriptionSection() {
             ? <><b>{subscribed.map((c) => c.label).join(' / ')}</b> 订阅正在共享给公司（{[...new Set(subscribed.map((c) => c.connectedBy ?? '配置文件'))].join(' / ')} 接入），员工不接触凭据，不需要各自订阅。</>
             : <>还没有接入订阅通道：管理员可用下方「加入订阅」接入 Grok / ChatGPT / Claude / Google One（Gemini）。</>}
         </div>
-        {quotas.map((quota) => (
-          <div key={quota.provider}>
-            <b>{quota.label}</b> 本周已用 <b>{quota.usedPct}%</b>，还剩 <b>{quota.remainingPct}%</b>（{quotaUseText(quota)}），{fmtDateTime(quota.refreshAt)} 刷新。
-          </div>
-        ))}
+        <QuotaLine quota={quota} />
         <div>
           办公机 <b>{desk?.device ?? '本机'}</b> {desk?.online ? '在线' : '离线'}。快速推理用 <b>{quickInferenceModel ?? '—'}</b>，开关在「快速推理」。
         </div>

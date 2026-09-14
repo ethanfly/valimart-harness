@@ -40,7 +40,7 @@ import { MixedRunController } from './service.js'
 import { createMixedBridge } from './session-bridge.js'
 import { planPrompt, taskPrompt, reviewPrompt } from './prompts.js'
 import { PLAN_OUTPUT_SCHEMA, REVIEW_OUTPUT_SCHEMA } from './schemas.js'
-import { RUN_CANCELLABLE, RUN_TERMINAL, RUN_RESUMABLE, advanceRun, resumeMarkerText } from './contracts.js'
+import { RUN_CANCELLABLE, RUN_TERMINAL, RUN_STARTABLE, advanceRun, resumeMarkerText } from './contracts.js'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 const INTERRUPTABLE = new Set(['planning', 'executing', 'reviewing', 'repairing', 'finalizing'])
@@ -376,7 +376,7 @@ export function createMixedHost({
     }
     const run = store.getRun(runId, { ownerKey })
     if (!run) return { started: false, reason: 'run_not_found' }
-    if (!RUN_RESUMABLE.has(run.status)) return { started: false, reason: `run 状态 ${run.status} 不可恢复` }
+    if (!RUN_STARTABLE.has(run.status)) return { started: false, reason: `run 状态 ${run.status} 不可恢复` }
     const agent = agents?.get?.(run.sessionId)
     if (!agent || typeof agent.followup !== 'function') {
       return { started: false, reason: 'agent_not_live（会话打开后自动继续）' }
@@ -394,9 +394,9 @@ export function createMixedHost({
   /** 会话 agent 上线/桥接就位后，补发 pending 恢复（resume_requested 已落盘但当时 agent 离线）。 */
   async function dispatchPendingResumes(sessionId) {
     if (!store || !agents || !lastIdentity?.ownerKey) return
-    // listRuns 行是摘要（无 pendingResume/events）→ 候选按状态筛，全量字段以 getRun 为准
+    // 索引行已带 pendingResume 摘要 → 先按行筛掉无需恢复的，再用全量记录核对事件序列
     const page = store.listRuns({ ownerKey: lastIdentity.ownerKey, sessionId, limit: 10 })
-    const candidate = page.items.find((r) => RUN_RESUMABLE.has(r.status))
+    const candidate = page.items.find((r) => RUN_STARTABLE.has(r.status) && r.pendingResume)
     if (!candidate) return
     const run = store.getRun(candidate.runId)
     if (!run?.pendingResume) return

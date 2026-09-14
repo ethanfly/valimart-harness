@@ -20,18 +20,52 @@ import { MixedError, newId, advanceRun } from './contracts.js'
  * 格式纠正（计划 A30 / §4）：第二次同模型重写 JSON 时禁用写入与执行工具，
  * 只许读宿主已给的输出与证据，不能再改工作区。structured_output 是作用域工具，
  * 不在全局 allow/deny 里，内核仍会注入。
+ *
+ * 这是候选名，不是最终 deny 表。内核 `tools.restrict()` 只接受当前作用域已注册的
+ * 全局工具：Windows 标准预设关掉 `tool-bash`，POSIX 关掉 `tool-pwsh`，把缺席的
+ * 名字传进去会让 review/planning 纠正派发直接失败。
  */
 export const FORMAT_CORRECTION_TOOL_FILTER = {
   deny: ['write', 'edit', 'bash', 'pwsh'],
 }
 
-/** 内核 toolFilter 是 {allow?, deny?}，不是字符串数组。 */
-export function spawnToolFilterOption(toolFilter) {
+/** 无 live catalog 时：仍去掉本平台标准预设不会挂载的 shell。 */
+export function platformRestrictableNames() {
+  const names = new Set(['write', 'edit', 'read', 'glob', 'grep', 'bash', 'pwsh'])
+  if (process.platform === 'win32') names.delete('bash')
+  else names.delete('pwsh')
+  return names
+}
+
+/** 父会话已注册、可被 restrict 的全局工具名；假 ctx / 未装配时返回 null。 */
+export function restrictableNamesOf(parentAgent, ctx) {
+  const tools = parentAgent?.ctx?.tools ?? ctx?.tools
+  if (typeof tools?.view !== 'function') return null
+  try {
+    const names = tools.view(parentAgent)?.restrictableNames
+    return names instanceof Set && names.size ? names : null
+  } catch {
+    return null
+  }
+}
+
+function knownToolNames(knownNames) {
+  if (knownNames instanceof Set) return knownNames
+  if (Array.isArray(knownNames)) return new Set(knownNames)
+  return platformRestrictableNames()
+}
+
+/** 内核 toolFilter 是 {allow?, deny?}，不是字符串数组；未知名必须丢掉。 */
+export function spawnToolFilterOption(toolFilter, knownNames) {
   if (!toolFilter || typeof toolFilter !== 'object' || Array.isArray(toolFilter)) return {}
-  const allow = Array.isArray(toolFilter.allow) ? toolFilter.allow : undefined
-  const deny = Array.isArray(toolFilter.deny) ? toolFilter.deny : undefined
+  const allowIn = Array.isArray(toolFilter.allow) ? toolFilter.allow : undefined
+  const denyIn = Array.isArray(toolFilter.deny) ? toolFilter.deny : undefined
+  if (!(allowIn?.length || denyIn?.length)) return {}
+  const known = knownToolNames(knownNames)
+  const allow = allowIn ? allowIn.filter((name) => known.has(name)) : undefined
+  const deny = denyIn ? denyIn.filter((name) => known.has(name)) : undefined
   if (!(allow?.length || deny?.length)) return {}
-  return { toolFilter: { ...(allow ? { allow } : {}), ...(deny ? { deny } : {}) } }
+  return { toolFilter: { ...(allow?.length ? { allow } : {}), ...(deny?.length ? { deny } : {}) } }
 }
 
 /** stage → 角色路由（模型由 run 快照决定，driver 绝不重新解析）。 */
@@ -148,7 +182,7 @@ export class MixedDriver {
           ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
         },
         ...(outputSchema ? { outputSchema } : {}),
-        ...spawnToolFilterOption(disableTools ? FORMAT_CORRECTION_TOOL_FILTER : toolFilter),
+        ...spawnToolFilterOption(disableTools ? FORMAT_CORRECTION_TOOL_FILTER : toolFilter, restrictableNamesOf(this.parentAgent, this.ctx)),
         maxDepth: 1,
       })
     } catch (error) {

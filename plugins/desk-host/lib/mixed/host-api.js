@@ -22,9 +22,11 @@ import {
   MixedError,
   RUN_TERMINAL,
   RUN_RESUMABLE,
+  RUN_STARTABLE,
   RUN_CANCELLABLE,
   advanceRun,
   rerunRunIdOf,
+  lastReviewSummaryOf,
 } from './contracts.js'
 
 const ROLES = ['planner', 'executor', 'reviewer']
@@ -294,7 +296,13 @@ export function createMixedApi({
   // ---------- 会话模式 ----------
 
   function activeRunOf(ownerKey, sessionId) {
-    return store.listRuns({ ownerKey, sessionId, limit: 20 }).items.find((r) => !RUN_TERMINAL.has(r.status)) ?? null
+    const items = store.listRuns({ ownerKey, sessionId, limit: 20 }).items
+    const live = items.find((r) => RUN_CANCELLABLE.has(r.status))
+    if (live) return live
+    // 刻意只看最新一条：最新 run 已交付后，更早的 blocked 不再当作「活动 run」复活（恢复走显式入口）
+    const newest = items[0]
+    if (newest && RUN_STARTABLE.has(newest.status)) return newest
+    return null
   }
 
   function handleSessionModeGet(sessionId, ownerKey) {
@@ -371,7 +379,11 @@ export function createMixedApi({
       updatedAt: r.updatedAt,
       planVersions: (r.planVersions ?? []).map((p) => ({ version: p.version, tasks: p.tasks })),
       tasks: (r.tasks ?? []).map((t) => ({ taskId: t.taskId, title: t.title, status: t.status })),
-      error: r.error ? { code: r.error.code } : null,
+      error: r.error ? { code: r.error.code, detail: r.error.detail ?? null } : null,
+      pendingResume: r.pendingResume ?? null,
+      usage: r.usage ?? null,
+      // 列表行走索引行自带的摘要；详情传全量记录时从 reviewRounds 现算
+      lastReview: r.lastReview ?? lastReviewSummaryOf(r),
       ...(r.retryOfRunId ? { rerun: { parentRunId: r.retryOfRunId, rerunRequestId: r.rerunRequestId ?? null } } : {}),
     }
   }
@@ -380,6 +392,7 @@ export function createMixedApi({
     const limit = Math.min(Math.max(Number(q.get('limit') ?? 50) || 50, 1), 100)
     const cursor = Number(q.get('cursor') ?? 0) || 0
     const { items, nextCursor } = store.listRuns({ ownerKey, sessionId: q.get('sessionId') ?? undefined, cursor, limit })
+    // 索引行已带列表摘要字段（goal/error/pendingResume/usage/tasks/lastReview），不逐行 getRun
     return { status: 200, body: { items: items.map(runSummary), nextCursor } }
   }
 
@@ -458,6 +471,7 @@ export function createMixedApi({
         events: (run.events ?? []).filter((e) => e.eventSeq > after),
         queuedInputs: run.queuedInputs ?? [],
         pendingQuestions: run.pendingQuestions ?? [],
+        pendingResume: run.pendingResume ?? null,
         error: run.error ?? null,
         ...(run.retryOfRunId ? { rerun: { parentRunId: run.retryOfRunId, rerunRequestId: run.rerunRequestId ?? null } } : {}),
       },
@@ -628,7 +642,28 @@ export function createMixedApi({
       retryOfRunId: parentRunId,
     })
     logger.warn?.(`mixed rerun: ${parentRunId} → ${run.runId}（${rerunRequestId}）`)
-    return { status: 202, body: { runId: run.runId, parentRunId, status: run.status, created: true } }
+    const now = new Date().toISOString()
+    await store.updateRun(run.runId, (c) =>
+      advanceRun(c, {
+        ownerKey: c.ownerKey,
+        ownerEpoch: c.ownerEpoch,
+        event: { type: 'resume_requested', summary: '恢复: retry' },
+        patch: { pendingResume: { kind: 'retry', at: now } },
+      }),
+    )
+    let resumeInfo = null
+    if (typeof onResume === 'function') {
+      try {
+        resumeInfo = await onResume(run.runId, { kind: 'retry' }, ownerKey)
+      } catch (e) {
+        resumeInfo = { started: false, reason: `onResume 触发失败: ${e.message}` }
+        logger.warn?.(`rerun onResume 失败（${run.runId}）: ${e.message}`)
+      }
+    }
+    return {
+      status: 202,
+      body: { runId: run.runId, parentRunId, status: run.status, created: true, ...(resumeInfo ? { resume: resumeInfo } : {}) },
+    }
   }
 
   // ---------- 证据（受控读取：只认 evidenceId，边界由 collector 再校验）----------

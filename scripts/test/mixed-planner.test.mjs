@@ -16,7 +16,7 @@ import path from 'node:path'
 import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MixedStore } from '../../plugins/desk-host/lib/mixed/store.js'
-import { MixedDriver } from '../../plugins/desk-host/lib/mixed/dsh-driver.js'
+import { MixedDriver, FORMAT_CORRECTION_TOOL_FILTER, spawnToolFilterOption } from '../../plugins/desk-host/lib/mixed/dsh-driver.js'
 import { MixedRunController } from '../../plugins/desk-host/lib/mixed/service.js'
 import { planPrompt, taskPrompt, PLAN_LIMITS } from '../../plugins/desk-host/lib/mixed/prompts.js'
 import { submissionKeyOf, runIdOf } from '../../plugins/desk-host/lib/mixed/contracts.js'
@@ -379,7 +379,7 @@ test('A30：规划第一次已写文件但 JSON 非法 → 纠正禁用 write/ex
   const planSpawns = fakeSub.spawns.filter((s) => s.label === 'mixed:planning')
   assert.equal(planSpawns.length, 2)
   assert.equal(planSpawns[0].opts.toolFilter, undefined, '第一次规划保留工具（模型可能已写文件）')
-  assert.deepEqual(planSpawns[1].opts.toolFilter?.deny, ['write', 'edit', 'bash', 'pwsh'], '纠正必须 deny 写入/执行工具')
+  assert.deepEqual(planSpawns[1].opts.toolFilter?.deny, spawnToolFilterOption(FORMAT_CORRECTION_TOOL_FILTER).toolFilter.deny, '纠正必须 deny 当前平台已注册的写入/执行工具')
   assert.equal(fs.readFileSync(touched, 'utf8'), 'first-attempt-write\n', '纠正因 deny write 不得再改文件')
   const execSpawns = fakeSub.spawns.filter((s) => s.label.startsWith('mixed:execution'))
   assert.ok(fakeSub.spawns.findIndex((s) => s.label.startsWith('mixed:execution')) > fakeSub.spawns.findIndex((s) => s.label === 'mixed:planning' && s.opts.toolFilter), '纠正前不实施')

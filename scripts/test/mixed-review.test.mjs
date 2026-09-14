@@ -21,7 +21,7 @@ import { MixedStore } from '../../plugins/desk-host/lib/mixed/store.js'
 import { MixedDriver } from '../../plugins/desk-host/lib/mixed/dsh-driver.js'
 import { MixedRunController } from '../../plugins/desk-host/lib/mixed/service.js'
 import { EvidenceCollector } from '../../plugins/desk-host/lib/mixed/evidence.js'
-import { validateReviewOutput, createEvidenceTools } from '../../plugins/desk-host/lib/mixed/review.js'
+import { validateReviewOutput, createEvidenceTools, formatReviewRejectionDetail } from '../../plugins/desk-host/lib/mixed/review.js'
 import { planPrompt, taskPrompt, reviewPrompt } from '../../plugins/desk-host/lib/mixed/prompts.js'
 import { createWorkspaceLocks } from '../../plugins/desk-host/lib/mixed/scheduler.js'
 import { MixedError, advanceRun, submissionKeyOf, runIdOf } from '../../plugins/desk-host/lib/mixed/contracts.js'
@@ -410,6 +410,35 @@ test('审核：返修闭环（findings 分派 taskId → 小模型返修 → 重
   assert.equal(verifications[1].invalidated, false)
 })
 
+test('formatReviewRejectionDetail：必须写出摘要、未过验收、期望/实际/返修指令', () => {
+  const text = formatReviewRejectionDetail({
+    verdict: 'changes_requested',
+    result: {
+      summary: 'HMAC webhook 仍未通过',
+      criteria: [
+        { acceptanceId: 'a1', status: 'fail', explanation: '签名校验失败' },
+        { acceptanceId: 'a2', status: 'pass', explanation: '健康检查通过' },
+      ],
+      findings: [{
+        findingId: 'f1',
+        taskIds: ['t3'],
+        severity: 'blocking',
+        expected: 'HMAC 校验绿',
+        actual: 'docker-compose 未起 webhook',
+        repairInstruction: '补 docker-compose 并跑签名用例',
+      }],
+    },
+  })
+  assert.match(text, /changes_requested/)
+  assert.match(text, /HMAC webhook 仍未通过/)
+  assert.match(text, /a1/)
+  assert.match(text, /签名校验失败/)
+  assert.doesNotMatch(text, /健康检查通过/)
+  assert.match(text, /期望：HMAC 校验绿/)
+  assert.match(text, /实际：docker-compose 未起 webhook/)
+  assert.match(text, /返修：补 docker-compose 并跑签名用例/)
+})
+
 // ---------- 验收 F：两轮返修耗尽 → 明确 blocked ----------
 
 test('审核：changes_requested 两轮返修耗尽 → blocked(review_rejected)，不无限循环', async (t) => {
@@ -455,6 +484,10 @@ test('审核：changes_requested 两轮返修耗尽 → blocked(review_rejected)
   assert.equal(res.outcome, 'blocked')
   assert.equal(rec.status, 'blocked')
   assert.equal(rec.error.code, 'review_rejected')
+  assert.match(rec.error.detail, /审核摘要|仍失败/)
+  assert.match(rec.error.detail, /期望：check\.mjs 通过/)
+  assert.match(rec.error.detail, /实际：仍失败/)
+  assert.match(rec.error.detail, /返修：再试一次/)
   assert.equal(rec.reviewRounds.length, 3, '审核 3 轮 = 初始 + 2 次返修后重审')
   assert.equal(executionAttempts(env.store, run.runId), 3, '初始 + 2 次返修')
   assert.ok(rec.events.filter((e) => e.type === 'repair_assigned').length >= 2)

@@ -263,7 +263,14 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
           </div>
           {rightbarTrack && !panels.rightbarFullscreen && <Resizer invert onStart={() => (rightbarBase.current = rightbarPref)} onDrag={onRightbarDrag} />}
           <div className="dk-col-right" data-rightbar-col data-collapsed={rightbarWidth === 0 || undefined} style={{ width: rightbarWidth }}>
-            {renderSlot('rightbar', { width: rightbarPref, viewportWidth: viewport, canShow: rightbarPref > 0 && panels.rightbarShown })}
+            {renderSlot('rightbar', {
+              width: rightbarPref,
+              viewportWidth: viewport,
+              // Official ui-layout: canShow = "would a right column fit", not "is it open".
+              // ui-sidebar-right does `if (shown && !canShow) setExpanded(false)` in layout
+              // effect; gating on rightbarShown makes 打开右侧边栏 snap shut immediately.
+              canShow: !taskMode && rightbarPref > 0 && viewport - sidebarWidth >= 300,
+            })}
           </div>
         </>
       )}

@@ -33,7 +33,7 @@ import {
   defaultWorkspaceLocks,
 } from './scheduler.js'
 import { hashTree } from './evidence.js'
-import { validateReviewOutput } from './review.js'
+import { validateReviewOutput, formatReviewRejectionDetail } from './review.js'
 
 export class MixedRunController {
   #lastPlanError = null
@@ -70,6 +70,7 @@ export class MixedRunController {
     this.baseline = null // 运行前工作区基线（collector.collectBaseline 产物）
     this.signal = null // run 级取消信号（Stop 级联进 driver）
     this.aborted = false
+    this.running = false
   }
 
   #fresh() {
@@ -84,6 +85,7 @@ export class MixedRunController {
    * @returns {Promise<{outcome: 'succeeded'|'blocked'|'cancelled', delivery?: object, error?: MixedError}>}
    */
   async execute(signal, { resume = null } = {}) {
+    this.running = true
     // 合成 run 级信号：外部 turn 信号（原生 Stop）+ 内部停止（API Stop / requestStop）
     this.#self = new AbortController()
     if (signal) {
@@ -102,7 +104,7 @@ export class MixedRunController {
         await this.#transition(entry.phase, {
           type: 'resume_started',
           summary: `恢复执行「${resume.kind}」：进入 ${entry.phase} 阶段${entry.startRound ? `（审核自第 ${entry.startRound + 1} 轮起）` : ''}`,
-        }, { pendingResume: undefined }) // 恢复已启动：清掉待派发标记（防宿主重复补发）
+        }, { pendingResume: undefined, error: undefined }) // 恢复已启动：清掉待派发标记与上一轮错误
         // 恢复自 planning：新计划需要落盘（savePlan=true）；其余阶段复用既有 planVersion
         return await this.#runPipeline({
           startPhase: entry.phase,
@@ -134,6 +136,8 @@ export class MixedRunController {
         )
         .catch((e) => this.logger.error?.(`失败状态落盘失败: ${String(e)}`))
       return { outcome: 'blocked', error: error instanceof MixedError ? error : new MixedError('storage_unhealthy', detail, { cause: error }) }
+    } finally {
+      this.running = false
     }
   }
 
@@ -172,7 +176,8 @@ export class MixedRunController {
       })
       const verdict = await this.#reviewLoop(currentPlan, { startRound })
       if (verdict !== 'pass') {
-        const detail = `审核结论 ${verdict}：两轮返修未通过或证据不足`
+        const lastResult = [...(this.#fresh().reviewRounds ?? [])].reverse().find((r) => r?.result)?.result ?? null
+        const detail = formatReviewRejectionDetail({ verdict, result: lastResult })
         await this.store.updateRun(this.run.runId, (cur) =>
           advanceRun(cur, {
             ownerKey: cur.ownerKey,

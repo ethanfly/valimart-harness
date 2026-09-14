@@ -694,6 +694,145 @@ function pinPresetFetch(kernelRoot, name, log, counters) {
  * 会话侧 agent-instructions 的项目根标记默认只有 [.git]，会从工作区一路向上找到 $HOME/AGENTS.md。
  * 钉成 `.company-root`，指令文件只在公司盘/任务目录范围内生效。
  */
+const ANYSEARCH_CLIENT = path.join('..', '..', '@anysearch', 'anysearch-dsh', 'lib', 'client.js')
+const ANYSEARCH_FETCH_RETRY_MARK = 'company-anysearch-fetch-retry-v1'
+
+const ANYSEARCH_FETCH_FROM =
+  '        const timeoutController = new AbortController();\n' +
+  '        const timeout = setTimeout(() => {\n' +
+  "            timeoutController.abort(new DOMException('AnySearch HTTP request timed out', 'TimeoutError'));\n" +
+  '        }, ANYSEARCH_HTTP_TIMEOUT_MS);\n' +
+  '        const requestSignal = signal === undefined\n' +
+  '            ? timeoutController.signal\n' +
+  '            : AbortSignal.any([signal, timeoutController.signal]);\n' +
+  '        let response;\n' +
+  '        try {\n' +
+  '            response = await fetch(url, {\n' +
+  '                method: init.method,\n' +
+  "                redirect: 'error',\n" +
+  '                headers,\n' +
+  '                ...init.body === undefined ? {} : { body: init.body },\n' +
+  '                signal: requestSignal,\n' +
+  '            });\n' +
+  '        }\n' +
+  '        catch (error) {\n' +
+  '            clearTimeout(timeout);\n' +
+  '            if (signal?.aborted === true)\n' +
+  '                throw aborted(operation, signal, error);\n' +
+  '            if (timeoutController.signal.aborted)\n' +
+  '                throw timedOut(operation, error);\n' +
+  '            if (isAbortError(error))\n' +
+  '                throw aborted(operation, signal, error);\n' +
+  '            throw new AnySearchClientError(`AnySearch ${operation} request failed: ${String(error)}`, { operation, cause: error });\n' +
+  '        }\n'
+
+const ANYSEARCH_FETCH_TO =
+  '        let response;\n' +
+  '        let timeoutController;\n' +
+  '        let timeout;\n' +
+  '        const maxAttempts = 3;\n' +
+  '        for (let attempt = 1; ; attempt++) {\n' +
+  '            timeoutController = new AbortController();\n' +
+  '            timeout = setTimeout(() => {\n' +
+  "                timeoutController.abort(new DOMException('AnySearch HTTP request timed out', 'TimeoutError'));\n" +
+  '            }, ANYSEARCH_HTTP_TIMEOUT_MS);\n' +
+  '            const requestSignal = signal === undefined\n' +
+  '                ? timeoutController.signal\n' +
+  '                : AbortSignal.any([signal, timeoutController.signal]);\n' +
+  '            try {\n' +
+  '                response = await fetch(url, {\n' +
+  '                    method: init.method,\n' +
+  "                    redirect: 'error',\n" +
+  '                    headers,\n' +
+  '                    ...init.body === undefined ? {} : { body: init.body },\n' +
+  '                    signal: requestSignal,\n' +
+  '                });\n' +
+  '            }\n' +
+  '            catch (error) {\n' +
+  '                clearTimeout(timeout);\n' +
+  '                if (signal?.aborted === true)\n' +
+  '                    throw aborted(operation, signal, error);\n' +
+  '                if (timeoutController.signal.aborted)\n' +
+  '                    throw timedOut(operation, error);\n' +
+  '                if (isAbortError(error))\n' +
+  '                    throw aborted(operation, signal, error);\n' +
+  '                if (attempt < maxAttempts && isTransientNetworkError(error)) {\n' +
+  '                    await new Promise((resolve) => setTimeout(resolve, 250 * attempt));\n' +
+  '                    continue;\n' +
+  '                }\n' +
+  '                throw new AnySearchClientError(`AnySearch ${operation} request failed: ${formatFetchFailure(error)}`, { operation, cause: error });\n' +
+  '            }\n' +
+  '            if (response.status >= 500 && attempt < maxAttempts) {\n' +
+  '                clearTimeout(timeout);\n' +
+  '                await new Promise((resolve) => setTimeout(resolve, 250 * attempt));\n' +
+  '                continue;\n' +
+  '            }\n' +
+  '            break;\n' +
+  '        }\n'
+
+const ANYSEARCH_HELPER_FROM =
+  'function isAbortError(error) {\n' +
+  "    return error instanceof DOMException && error.name === 'AbortError';\n" +
+  '}\n'
+
+const ANYSEARCH_HELPER_TO =
+  'function isAbortError(error) {\n' +
+  "    return error instanceof DOMException && error.name === 'AbortError';\n" +
+  '}\n' +
+  'function isTransientNetworkError(error) {\n' +
+  "    const codes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_CLOSED', 'UND_ERR_DESTROYED']);\n" +
+  '    for (let current = error, depth = 0; current && depth < 6; current = current.cause, depth++) {\n' +
+  '        if (typeof current.code === "string" && codes.has(current.code))\n' +
+  '            return true;\n' +
+  '        const message = current instanceof Error ? current.message : String(current);\n' +
+  '        if (/fetch failed|socket hang up|other side closed|ECONNRESET|ETIMEDOUT/i.test(message))\n' +
+  '            return true;\n' +
+  '    }\n' +
+  '    return false;\n' +
+  '}\n' +
+  'function formatFetchFailure(error) {\n' +
+  '    const parts = [];\n' +
+  '    for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++) {\n' +
+  '        const message = current instanceof Error ? current.message : String(current);\n' +
+  '        parts.push(typeof current.code === "string" ? `${message} (code ${current.code})` : message);\n' +
+  '    }\n' +
+  '    return parts.join(" ← ");\n' +
+  '}\n'
+
+/**
+ * @anysearch/anysearch-dsh@0.1.4：search 的 TypeError: fetch failed 是 undici 传输层瞬时失败
+ *（ECONNRESET / socket hang up / TUN 抖动），插件既不重试也不把 cause 写进 UI。
+ * 文件在内核前缀 node_modules/@anysearch，相对 kernelRoot（…/@deepseek-ai/dsh）上两级。
+ * 没装插件的假内核跳过（optional）。
+ */
+function pinAnySearchFetchRetry(kernelRoot, log, counters) {
+  const file = path.join(kernelRoot, ANYSEARCH_CLIENT)
+  if (!fs.existsSync(file)) {
+    log(`ANYSEARCH_FETCH_SKIP=${ANYSEARCH_CLIENT}|missing`)
+    return
+  }
+  let text = fs.readFileSync(file, 'utf8')
+  if (text.includes(ANYSEARCH_FETCH_RETRY_MARK)) {
+    log(`PATCH_ALREADY=${ANYSEARCH_CLIENT}|${ANYSEARCH_FETCH_RETRY_MARK}`)
+    counters.skipped++
+    return
+  }
+  const fetchHits = text.split(ANYSEARCH_FETCH_FROM).length - 1
+  if (fetchHits !== 1) throw new KernelPatchError('anysearch-fetch-anchor', `${ANYSEARCH_CLIENT}|expected=1|got=${fetchHits}`)
+  const helperHits = text.split(ANYSEARCH_HELPER_FROM).length - 1
+  if (helperHits !== 1) throw new KernelPatchError('anysearch-helper-anchor', `${ANYSEARCH_CLIENT}|expected=1|got=${helperHits}`)
+  text = text.replace(ANYSEARCH_FETCH_FROM, ANYSEARCH_FETCH_TO).replace(ANYSEARCH_HELPER_FROM, ANYSEARCH_HELPER_TO)
+  text = text.trimEnd() + `\n// --- ${ANYSEARCH_FETCH_RETRY_MARK} (${SEE}) ---\n`
+  fs.writeFileSync(file, text, 'utf8')
+  try {
+    execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' })
+  } catch (err) {
+    throw new KernelPatchError('syntax', `${ANYSEARCH_CLIENT}|${String(err.stderr || err)}`)
+  }
+  log(`PATCHED=${ANYSEARCH_CLIENT}|retry-transient-fetch,fetch-failure-helpers`)
+  counters.applied++
+}
+
 function pinPresetInstrRoot(kernelRoot, rel, log, counters) {
   const file = path.join(kernelRoot, rel)
   const mark = 'company-preset-instr-root-v1'
@@ -732,6 +871,7 @@ export const ALL_MARKS = [
   { file: PRESET_CODE, files: presetCandidates('code'), marks: ['company-preset-web-fetch-v2'], optional: true },
   { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: ['company-preset-instr-root-v1'] },
   { file: PRESET_CODE, files: presetCandidates('code'), marks: ['company-preset-instr-root-v1'], optional: true },
+  { file: ANYSEARCH_CLIENT, marks: [ANYSEARCH_FETCH_RETRY_MARK], optional: true },
 ]
 
 /** 只读检查：返回还缺哪些 mark（空数组 = 补丁齐全）。 */
@@ -788,6 +928,7 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log })
   pinPresetSkills(kernelRoot, skillsDir, log, counters)
   pinPresetFetch(kernelRoot, 'standard', log, counters)
   pinPresetFetch(kernelRoot, 'code', log, counters)
+  pinAnySearchFetchRetry(kernelRoot, log, counters)
   for (const rel of [
     resolvePresetRel(kernelRoot, 'standard'),
     resolvePresetRel(kernelRoot, 'code'),

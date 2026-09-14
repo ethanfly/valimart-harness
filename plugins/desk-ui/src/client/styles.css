@@ -64,6 +64,11 @@ html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.sessi
 [data-slot='conversation.session.header.utilities'] {
   display: none !important;
 }
+/* Official「打开右侧边栏」和 better-sidebar 工作台开关重复；只留插件那颗。 */
+[data-conversation-header-corner],
+[data-sidebar-right-expand] {
+  display: none !important;
+}
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
   min-height: 32px;
   height: 32px;
@@ -105,8 +110,7 @@ html.dk-desk-electron .dk-rail .dk-iconbtn {
   z-index: 1;
 }
 html.dk-desk-electron .dk-rail { padding-top: 16px; }
-/* Workbench tabs and toggles share the caption row. Keep the toggle cluster
-   fixed in both states, left of the three 46px window controls. */
+/* better-sidebar 工作台开关：展开时骑在面板标签栏，收起后留在窗控左侧。 */
 html.dk-desk-electron [data-dsh-toggle-cluster] {
   top: var(--dk-caption-top);
   right: var(--dk-caption-right);
@@ -979,7 +983,8 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
 .dk-mixed-evtext { margin: 6px 0 0; padding: 8px 10px; background: var(--dk-bg); border-radius: 6px; font-family: var(--dk-mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
 
 /* 其他 */
-.dk-mixed-err { margin-top: 8px; font-size: 12.5px; color: var(--dk-danger); }
+.dk-mixed-err { margin-top: 8px; font-size: 12.5px; color: var(--dk-danger); white-space: pre-wrap; word-break: break-word; }
+.dk-mixed-review-summary { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.45; }
 .dk-mixed-queued { margin-top: 8px; font-size: 12px; color: var(--dk-warn); background: #fff4e5; border-radius: 8px; padding: 7px 10px; }
 .dk-mixed-q { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 12.5px; }
 .dk-mixed-qid { font-family: var(--dk-mono); font-size: 11px; color: var(--dk-text-2); }

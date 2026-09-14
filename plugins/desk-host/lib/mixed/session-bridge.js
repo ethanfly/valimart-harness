@@ -21,9 +21,28 @@ import {
   advanceRun,
   submissionKeyOf,
   runIdOf,
-  RUN_RESUMABLE,
+  RUN_STARTABLE,
   parseResumeMarker,
 } from './contracts.js'
+
+/** 只有正在 execute 的控制器才算活的；失败/交付后残留的必须清掉，否则恢复 marker 会被静默吞掉。 */
+function liveController(controllers, runId) {
+  const c = controllers?.get?.(runId)
+  if (!c) return null
+  if (c.running === true) return c
+  controllers.delete(runId)
+  return null
+}
+
+function bindController(controllers, runId, controller) {
+  controllers?.set?.(runId, controller)
+  controller.running = true
+}
+
+function releaseController(controllers, runId, controller) {
+  if (controller) controller.running = false
+  controllers?.delete?.(runId)
+}
 
 const TERMINAL = new Set(['succeeded', 'cancelled'])
 const NEEDS_RECOVERY = new Set(['blocked', 'interrupted', 'waiting_input'])
@@ -179,7 +198,7 @@ export function createMixedBridge({
     }
 
     const controller = deps.runControllerFactory({ agent, sessionId, run: claimedRun, store })
-    deps.controllers?.set?.(claimedRun.runId, controller)
+    bindController(deps.controllers, claimedRun.runId, controller)
     // Stop 级联：turn 信号 abort（原生 Stop）→ 控制器收敛
     const onSignalAbort = () => controller.requestStop('user-stop')
     payload.signal?.addEventListener('abort', onSignalAbort, { once: true })
@@ -189,6 +208,7 @@ export function createMixedBridge({
       outcome = await controller.execute(payload.signal)
     } finally {
       payload.signal?.removeEventListener?.('abort', onSignalAbort)
+      releaseController(deps.controllers, claimedRun.runId, controller)
     }
 
     if (outcome.outcome === 'succeeded') {
@@ -235,20 +255,22 @@ export function createMixedBridge({
     const run = store.getRun(marker.runId)
     if (!run) return { kind: 'reject', reason: `恢复请求指向不存在的 run（${marker.runId}）` }
     if (TERMINAL.has(run.status)) return { kind: 'enter', messages: [] } // 已交付/已停止：消费
-    if (deps.controllers?.has?.(marker.runId)) return { kind: 'enter', messages: [] } // 恢复已在执行：消费
-    if (!RUN_RESUMABLE.has(run.status)) {
+    if (liveController(deps.controllers, marker.runId)) return { kind: 'enter', messages: [] } // 恢复已在执行：消费
+    if (!RUN_STARTABLE.has(run.status)) {
       return { kind: 'reject', reason: `run ${run.runId} 当前状态 ${run.status} 不可恢复` }
     }
     const controller = deps.runControllerFactory({ agent, sessionId, run, store })
-    deps.controllers?.set?.(marker.runId, controller)
+    bindController(deps.controllers, marker.runId, controller)
     // Stop 级联：恢复 turn 的 Stop 同样收敛 run
     const onSignalAbort = () => controller.requestStop('user-stop')
     payload.signal?.addEventListener('abort', onSignalAbort, { once: true })
     let outcome
     try {
-      outcome = await controller.execute(payload.signal, { resume: { kind: marker.choice } })
+      const resume = run.status === 'queued' ? null : { kind: marker.choice }
+      outcome = await controller.execute(payload.signal, resume ? { resume } : {})
     } finally {
       payload.signal?.removeEventListener?.('abort', onSignalAbort)
+      releaseController(deps.controllers, marker.runId, controller)
     }
     if (outcome.outcome === 'succeeded') {
       deliveryStepPending = true

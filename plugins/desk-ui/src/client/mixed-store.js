@@ -7,9 +7,10 @@
  */
 import { createStore, useStoreValue } from './store.js'
 import { api } from './api.js'
+import { dismissRunId, loadDismissedRuns, writeDismissedRuns } from './mixed-dismiss.js'
+import { MIXED_ACTIVE, MIXED_TERMINAL, shouldPollFast, shouldRefreshLastRun } from './mixed-panel-state.js'
 
-export const MIXED_ACTIVE = new Set(['queued', 'planning', 'executing', 'waiting_input', 'reviewing', 'repairing', 'finalizing', 'cancelling'])
-export const MIXED_TERMINAL = new Set(['succeeded', 'cancelled'])
+export { MIXED_ACTIVE, MIXED_TERMINAL }
 
 export const mixedStore = createStore({
   /** sessionId → {mode, activeRun, canToggle, configured, loadedAt, error} */
@@ -18,6 +19,8 @@ export const mixedStore = createStore({
   runs: {},
   /** sessionId → 最近一条 run 摘要（无活动 run 时面板展示最新结果/重跑入口） */
   lastRuns: {},
+  /** sessionId → 已关闭的终态 runId（换会话再进来不再弹出同一条） */
+  dismissedRuns: loadDismissedRuns(),
   watching: [],
   polling: 'stopped', // stopped | idle | active
   backoffMs: 0,
@@ -44,7 +47,8 @@ function schedule() {
   const s = mixedStore.get()
   const anyActive = [...watchSet].some((sid) => {
     const info = s.sessions[sid]
-    return info?.activeRun && MIXED_ACTIVE.has(info.activeRun.status)
+    const detail = info?.activeRun ? s.runs[info.activeRun.runId] : null
+    return shouldPollFast(info?.activeRun, detail)
   })
   const interval = anyActive ? 1000 : 5000
   mixedStore.set({ polling: anyActive ? 'active' : 'idle' })
@@ -78,13 +82,10 @@ async function fetchSession(sid) {
       return { ...st, runs: { ...st.runs, [info.activeRun.runId]: detail } }
     })
   }
-  // 无活动 run → 补齐最近一条（供结果横幅/重跑）
-  if (!info.activeRun) {
-    const s2 = mixedStore.get()
-    if (!s2.lastRuns[sid]) {
-      const r = await api.mixed.runs(sid)
-      mixedStore.set((st) => ({ ...st, lastRuns: { ...st.lastRuns, [sid]: r.items?.[0] ?? null } }))
-    }
+  // 无活动阶段 → 刷新最近一条（失败/成功横幅；不得永远停在上一次成功）
+  if (shouldRefreshLastRun(info.activeRun)) {
+    const r = await api.mixed.runs(sid)
+    mixedStore.set((st) => ({ ...st, lastRuns: { ...st.lastRuns, [sid]: r.items?.[0] ?? null } }))
   }
 }
 
@@ -132,6 +133,16 @@ export function unwatchMixedSession(sessionId) {
   if (!watchSet.delete(sessionId)) return
   mixedStore.set({ watching: [...watchSet] })
   schedule()
+}
+
+/** 关掉某条终态横幅：写入 store + localStorage，组件卸载后仍有效。 */
+export function dismissMixedRun(sessionId, runId) {
+  mixedStore.set((st) => {
+    const dismissedRuns = dismissRunId(st.dismissedRuns, sessionId, runId)
+    if (dismissedRuns === st.dismissedRuns) return st
+    writeDismissedRuns(dismissedRuns)
+    return { ...st, dismissedRuns }
+  })
 }
 
 /** 把会话 Mixed 快照立刻写入 store（POST 成功后用，避免等 5s 空闲轮询才亮芯片）。 */

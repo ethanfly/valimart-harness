@@ -5,6 +5,9 @@ node_modules/
 server/data/
 server/config.local.json
 
+# 树莓派代理订阅清单——含真实订阅 token，绝不入库（模板见 subscriptions.example.yaml）
+deploy/raspberry-pi/subscriptions.yaml
+
 # 客户端浏览器端 bundle（launch.mjs / npm run build 自动生成）
 plugins/desk-ui/lib/client.js
 
@@ -17,6 +20,9 @@ plugins/desk-ui/lib/client.js
 *.log
 .DS_Store
 Thumbs.db
+__pycache__/
+*.pyc
+jar.txt
 
 # 本地探针 / 验收落盘（不入库）
 /tmp-*.mjs

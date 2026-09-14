@@ -34,7 +34,7 @@ const spec = `${PIN.package}@${PIN.version}`
 const verbose = has('--verbose')
 // 已打过的补丁逐条列出只在 --verbose 时输出；默认只报新打的和汇总，免得每次启动刷 20 行
 const log = (msg) => {
-  if (!verbose && /^(PATCH_ALREADY|PATCH_KERNEL_ROOT|PRESET_\w+_SKIP)=/.test(msg)) return
+  if (!verbose && /^(PATCH_ALREADY|PATCH_KERNEL_ROOT|PRESET_\w+_SKIP|ANYSEARCH_FETCH_SKIP)=/.test(msg)) return
   console.log(`[kernel] ${msg}`)
 }
 const die = (msg, code = 1) => {

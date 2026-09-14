@@ -10,7 +10,9 @@
 import { useEffect, useState } from 'react'
 import { api, fmtTime } from './api.js'
 import { toast } from './store.js'
-import { MIXED_ACTIVE, useMixedState, watchMixedSession } from './mixed-store.js'
+import { isRunDismissed } from './mixed-dismiss.js'
+import { pickActionRun, resumeBusyKey, newRerunRequestId, buildResumeRequest, lastReviewOf } from './mixed-panel-state.js'
+import { MIXED_ACTIVE, dismissMixedRun, refreshMixedSessions, useMixedState, watchMixedSession } from './mixed-store.js'
 
 export const STATUS_LABEL = {
   queued: '排队中', planning: '规划中', executing: '实施中', waiting_input: '等待补充',
@@ -165,6 +167,50 @@ function ModelTag({ m }) {
   return <span className="dk-mixed-model" title={`${m.catalogProvider}/${m.modelId}`}>{m.catalogProvider}:{m.modelId}</span>
 }
 
+function ReviewReasons({ run }) {
+  const review = lastReviewOf(run)
+  if (!review) return null
+  const failed = (review.criteria ?? []).filter((c) => c.status && c.status !== 'pass')
+  const findings = review.findings ?? []
+  if (!review.summary && !failed.length && !findings.length) return null
+  return (
+    <div className="dk-mixed-section">
+      <div className="k">
+        审核未通过
+        {review.round ? ` · 第 ${review.round} 轮` : ''}
+        {review.verdict && (
+          <>
+            {' · '}
+            <span className={`dk-mixed-verdict v-${review.verdict}`}>{review.verdict}</span>
+          </>
+        )}
+      </div>
+      {review.summary && <div className="dk-mixed-review-summary">{review.summary}</div>}
+      {failed.map((c) => (
+        <div key={c.acceptanceId} className="dk-mixed-criterion">
+          <span className={`dk-mixed-tstate ${c.status === 'fail' ? 't-failed' : 't-pending'}`}>
+            {c.status === 'fail' ? '不通过' : '未验证'}
+          </span>
+          <span className="dk-muted dk-xs">{c.acceptanceId}</span>
+          <span className="dk-xs">{c.explanation}</span>
+        </div>
+      ))}
+      {findings.map((f, i) => (
+        <div key={f.findingId || i} className={`dk-mixed-finding${f.severity === 'blocking' ? ' blocking' : ''}`}>
+          <span className="k">{f.severity === 'blocking' ? '阻塞' : '提示'}</span>
+          <div>
+            {f.description && <div>{f.description}</div>}
+            {(f.taskIds ?? []).length > 0 && <div className="dk-muted dk-xs">任务 {(f.taskIds ?? []).join('、')}</div>}
+            {f.expected && <div className="dk-muted dk-xs">期望：{f.expected}</div>}
+            {f.actual && <div className="dk-muted dk-xs">实际：{f.actual}</div>}
+            {f.repairInstruction && <div className="dk-mixed-repair">返修指令：{f.repairInstruction}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function EvidenceList({ run, onShow }) {
   const items = run?.evidence ?? []
   if (!items.length) return <div className="dk-muted dk-xs">暂无证据（实施阶段会落盘产物/验证记录）</div>
@@ -187,10 +233,10 @@ export function makeMixedRunPanel() {
     const activeRunId = info?.activeRun?.runId ?? null
     const runDetail = useMixedState((s) => (activeRunId ? s.runs[activeRunId] : undefined))
     const last = useMixedState((s) => (sessionId ? s.lastRuns[sessionId] : undefined))
+    const dismissedRuns = useMixedState((s) => s.dismissedRuns)
     const [collapsed, setCollapsed] = useState(false)
     const [busy, setBusy] = useState(null)
     const [evView, setEvView] = useState(null)
-    const [dismissed, setDismissed] = useState(null)
 
     // 有活动 run → 轮询（chip 也在 watch，Set 幂等）
     useEffect(() => {
@@ -205,22 +251,18 @@ export function makeMixedRunPanel() {
       else setCollapsed(true)
     }, [runDetail?.status])
 
-    // 新 run 开始 → 重置横幅收起状态
-    useEffect(() => {
-      if (activeRunId) setDismissed(null)
-    }, [activeRunId])
-
     if (!sessionId || !info) return null
     const liveRun = runDetail && MIXED_ACTIVE.has(runDetail.status) ? runDetail : null
-    // 终态横幅数据：优先最近一条列表摘要（有重跑入口），回退到已缓存的终态详情
     const terminalRun = runDetail && !MIXED_ACTIVE.has(runDetail.status) ? runDetail : null
-    const bannerRun = last ?? terminalRun
+    const action = pickActionRun({ last, terminalRun, liveRun })
+    const bannerRun = action.kind === 'live' ? null : action.run
     if (!liveRun && !bannerRun) return null
 
     const act = async (kind, fn) => {
       setBusy(kind)
       try {
         await fn()
+        await refreshMixedSessions()
       } catch (err) {
         toast(err.message, 'error')
       } finally {
@@ -231,10 +273,9 @@ export function makeMixedRunPanel() {
       await api.mixed.cancel(liveRun.runId)
       toast('已受理停止：意图已落盘，正在收敛（受理≠停止）', 'info')
     })
-    const resume = (choice) => act('resume', async () => {
-      const body = { choice }
-      if (terminalRun?.revision != null) body.expectedRevision = terminalRun.revision
-      const r = await api.mixed.resume(terminalRun.runId, body)
+    const resume = (choice, target) => act(resumeBusyKey(choice), async () => {
+      const { runId, body } = buildResumeRequest(choice, target)
+      const r = await api.mixed.resume(runId, body)
       toast(
         r?.resume?.started
           ? `恢复已开始（${choice === 'retry' ? '重试该阶段' : '继续运行'}）：在会话内执行`
@@ -243,7 +284,8 @@ export function makeMixedRunPanel() {
       )
     })
     const rerun = (runId) => act('rerun', async () => {
-      await api.mixed.rerun(runId)
+      // 幂等键在调用点生成（api.rerun 不兜底：服务端缺 rerunRequestId 会 400）
+      await api.mixed.rerun(runId, { rerunRequestId: newRerunRequestId() })
       toast('重跑已排队：沿用原目标与验收快照（工作区已有产物视为输入）', 'info')
     })
     const showEvidence = async (e) => {
@@ -258,33 +300,35 @@ export function makeMixedRunPanel() {
     // ---------- 终态横幅（无活动 run：最近一条或刚结束的详情） ----------
     if (!liveRun) {
       const b = bannerRun
-      if (dismissed === b.runId) return null
+      if (isRunDismissed(dismissedRuns, sessionId, b.runId)) return null
       const ok = b.status === 'succeeded'
       const stopped = b.status === 'cancelled'
       const failed = b.status === 'blocked' || b.status === 'interrupted'
       const errorText = b.error?.detail || (b.error?.code ? b.error.code : null)
+      const resuming = !!b.pendingResume
       return (
         <div className={`dk-mixed-panel terminal ${ok ? 'ok' : stopped ? 'muted' : 'err'}`}>
           <div className="dk-mixed-bar">
             <span className={`dk-mixed-status s-${b.status}`}>{STATUS_LABEL[b.status] ?? b.status}</span>
             <span className="dk-mixed-goal" title={b.goal}>{b.goal}</span>
-            <span className="dk-muted dk-xs">{fmtTime(b.updatedAt)}</span>
+            <span className="dk-muted dk-xs">{resuming ? '恢复中…' : fmtTime(b.updatedAt)}</span>
             <span className="dk-mixed-bar-actions">
-              {failed && <button type="button" className="dk-btn sm" disabled={busy == 'rerun'} onClick={() => rerun(b.runId)}>重跑</button>}
+              {failed && <button type="button" className="dk-btn sm" disabled={busy === 'rerun' || resuming} onClick={() => rerun(b.runId)}>重跑</button>}
               {/* T09「核查后继续」：blocked/interrupted 一律给恢复入口（有错误说明也照给——
                   错误只是原因；不可自动恢复时服务端回明确原因，改走重跑） */}
               {(b.status === 'blocked' || b.status === 'interrupted') && (
                 <>
-                  <button type="button" className="dk-btn sm" disabled={busy == 'resume-continue'} onClick={() => resume('continue')}>继续</button>
-                  <button type="button" className="dk-btn sm" disabled={busy == 'resume-retry'} onClick={() => resume('retry')}>重试</button>
+                  <button type="button" className="dk-btn sm" disabled={busy === resumeBusyKey('continue') || resuming} onClick={() => resume('continue', b)}>继续</button>
+                  <button type="button" className="dk-btn sm" disabled={busy === resumeBusyKey('retry') || resuming} onClick={() => resume('retry', b)}>重试</button>
                 </>
               )}
-              <button type="button" className="dk-btn ghost sm" onClick={() => setDismissed(b.runId)}>关闭</button>
+              <button type="button" className="dk-btn ghost sm" onClick={() => dismissMixedRun(sessionId, b.runId)}>关闭</button>
             </span>
           </div>
           <div className="dk-mixed-detail">
             <StorageBanner storage={b.storage ?? info.storage} />
             {errorText && <div className="dk-mixed-err">错误：{errorText}</div>}
+            <ReviewReasons run={b} />
             <UsageBlock usage={b.usage} />
             {(b.tasks ?? []).map((t) => (
               <div key={t.taskId} className="dk-mixed-task">
@@ -364,7 +408,7 @@ export function makeMixedRunPanel() {
               </div>
             )}
 
-            {lastRound && lastRound.result && (
+            {lastRound && lastRound.result && lastRound.result.verdict === 'pass' && (
               <div className="dk-mixed-section">
                 <div className="k">
                   审核第 {run.reviewRounds.length} 轮 · <span className={`dk-mixed-verdict v-${lastRound.result.verdict}`}>{lastRound.result.verdict}</span>
@@ -377,21 +421,12 @@ export function makeMixedRunPanel() {
                       {c.status === 'pass' ? '通过' : c.status === 'fail' ? '不通过' : '未验证'}
                     </span>
                     <span className="dk-muted dk-xs">{c.acceptanceId}</span>
-                    <span className="dk-xs" title={c.explanation}>{(c.explanation ?? '').slice(0, 80)}</span>
-                  </div>
-                ))}
-                {(lastRound.result.findings ?? []).map((f) => (
-                  <div key={f.findingId} className={`dk-mixed-finding${f.severity === 'blocking' ? ' blocking' : ''}`}>
-                    <span className="k">{f.severity === 'blocking' ? '阻塞' : '提示'}</span>
-                    <div>
-                      <div>{f.description}</div>
-                      <div className="dk-muted dk-xs">期望：{f.expected}　实际：{f.actual}</div>
-                      {f.repairInstruction && <div className="dk-mixed-repair">返修指令：{f.repairInstruction}</div>}
-                    </div>
+                    <span className="dk-xs" title={c.explanation}>{c.explanation ?? ''}</span>
                   </div>
                 ))}
               </div>
             )}
+            {lastRound && lastRound.result && lastRound.result.verdict !== 'pass' && <ReviewReasons run={run} />}
 
             <div className="dk-mixed-section">
               <div className="k">证据（{run.evidence?.length ?? 0}）</div>

@@ -15,7 +15,7 @@ const MIXED_HOST = [
   'dsh-driver.js', 'session-bridge.js', 'evidence.js', 'prompts.js', 'review.js',
   'host-api.js', 'host.js', 'owner.js', 'schemas.js', 'attribution-reporter.js',
 ]
-const MIXED_UI = ['mixed-settings.jsx', 'mixed-mode.jsx', 'mixed-run-panel.jsx', 'mixed-store.js']
+const MIXED_UI = ['mixed-settings.jsx', 'mixed-mode.jsx', 'mixed-run-panel.jsx', 'mixed-store.js', 'mixed-dismiss.js', 'mixed-panel-state.js']
 
 test('T11：宿主 mixed 模块齐全（计划 §9，recovery/api 已并入 host/service/host-api）', () => {
   const dir = path.join(root, 'plugins/desk-host/lib/mixed')

@@ -274,7 +274,7 @@ test('API：会话模式（未设置/切换/活动运行互斥/未知会话 404�
   const env = makeStore(t)
   await env.store.open(env.facility)
   const modelRoutes = await makeModelRoutes()
-  const api = makeApi({ store: env.store, modelRoutes, identity: A })
+  const api = makeApi({ store: env.store, modelRoutes, identity: A, sessions: new Set(['sess-1', 'sess-2', 'sess-3']) })
 
   const g0 = await api.handle({ method: 'GET', path: '/sessions/sess-1/mixed', headers: {} })
   assert.equal(g0.status, 200)
@@ -294,6 +294,25 @@ test('API：会话模式（未设置/切换/活动运行互斥/未知会话 404�
   const gBusy = await api.handle({ method: 'GET', path: '/sessions/sess-2/mixed', headers: {} })
   assert.equal(gBusy.body.activeRun.runId, runBusy.runId)
   assert.equal(gBusy.body.canToggle, false)
+
+  // 旧 blocked 父 run + 更新的 succeeded 重跑：activeRun 不得把旧失败再当成当前活动
+  const parentBlocked = await claimRun(env.store, { ownerKey: A.ownerKey, messageId: 'mOldFail', sessionId: 'sess-3' })
+  await setRunStatus(env.store, parentBlocked.runId, 'blocked')
+  const childOk = await claimRun(env.store, { ownerKey: A.ownerKey, messageId: 'mRerunOk', sessionId: 'sess-3' })
+  await setRunStatus(env.store, childOk.runId, 'executing')
+  await env.store.updateRun(childOk.runId, (c) => advanceRun(c, { ownerKey: c.ownerKey, ownerEpoch: c.ownerEpoch, to: 'reviewing', event: { type: 'status_changed', summary: '→reviewing' } }))
+  await env.store.updateRun(childOk.runId, (c) => advanceRun(c, { ownerKey: c.ownerKey, ownerEpoch: c.ownerEpoch, to: 'finalizing', event: { type: 'status_changed', summary: '→finalizing' } }))
+  await env.store.updateRun(childOk.runId, (c) => advanceRun(c, { ownerKey: c.ownerKey, ownerEpoch: c.ownerEpoch, to: 'succeeded', event: { type: 'status_changed', summary: '→succeeded' } }))
+  const gAfter = await api.handle({ method: 'GET', path: '/sessions/sess-3/mixed', headers: {} })
+  assert.equal(gAfter.body.activeRun, null, '更新的重跑已成功时，旧 blocked 不再占 activeRun')
+  assert.equal(gAfter.body.canToggle, true)
+
+  // 最新一条仍是 blocked（规划失败）→ 仍作为可恢复活动 run
+  const onlyFail = await claimRun(env.store, { ownerKey: A.ownerKey, messageId: 'mOnlyFail', sessionId: 'sess-1' })
+  await setRunStatus(env.store, onlyFail.runId, 'blocked')
+  const gFail = await api.handle({ method: 'GET', path: '/sessions/sess-1/mixed', headers: {} })
+  assert.equal(gFail.body.activeRun.runId, onlyFail.runId)
+  assert.equal(gFail.body.canToggle, false)
 
   // enabled 非布尔 → 400
   const bad = await api.handle({ method: 'POST', path: '/sessions/sess-1/mixed', headers: {}, req: toReq({ enabled: 'yes' }) })
@@ -336,6 +355,10 @@ test('API：runs 列表分页 + sessionId 过滤 + 限定字段（无 events/evi
     assert.equal(item.evidence, undefined)
     assert.equal(item.attempts, undefined)
     assert.ok('runId' in item && 'status' in item && 'revision' in item)
+    assert.ok('goal' in item, '列表必须带 goal（横幅不能只靠详情）')
+    assert.ok('error' in item)
+    assert.ok('pendingResume' in item)
+    assert.ok('lastReview' in item, '列表必须带 lastReview，终态横幅才能显示审核原因')
   }
 })
 
@@ -455,6 +478,11 @@ test('API：resume 仅 blocked/interrupted/waiting_input；对账落 resume_requ
   assert.equal(r1.body.resumeRequest.kind, 'continue')
   const rec = env.store.getRun(runB.runId)
   assert.ok(rec.events.some((e) => e.type === 'resume_requested'), 'resume_requested 事件已落盘')
+  const detail = await api.handle({ method: 'GET', path: `/mixed/runs/${runB.runId}`, headers: {} })
+  assert.equal(detail.body.pendingResume?.kind, 'continue', '面板要能看见 pendingResume，否则点恢复后仍像没响应')
+  const listed = await api.handle({ method: 'GET', path: `/mixed/runs?sessionId=${runB.sessionId}`, headers: {} })
+  const row = listed.body.items.find((it) => it.runId === runB.runId)
+  assert.equal(row?.pendingResume?.kind, 'continue', '列表摘要也要带 pendingResume，横幅不能只靠详情')
 
   // executing（非可恢复态）→ 409
   const runE = await claimRun(env.store, { ownerKey: A.ownerKey, messageId: 'mR2' })

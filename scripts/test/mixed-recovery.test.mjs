@@ -868,6 +868,59 @@ test('marker：run 不存在 → reject（明确原因）', async (t) => {
   assert.match(r.reason, /不存在/)
 })
 
+test('marker：规划失败后残留死控制器 → 重试/继续必须重入，不得静默吞掉', async (t) => {
+  const root = makeRoot(t)
+  const { store, facility } = openStore(t, root)
+  await store.open(facility)
+  const run = await claimRun(store, { sessionId: 's1', statusPath: ['planning'] })
+  await store.updateRun(run.runId, (c) =>
+    advanceRun(c, {
+      ownerKey: c.ownerKey,
+      ownerEpoch: c.ownerEpoch,
+      to: 'blocked',
+      event: { type: 'run_failed', summary: 'planning 阶段未正常完成（stopReason=max_tokens）' },
+      patch: { error: { code: 'stage_failed', retryable: false, detail: 'planning 阶段未正常完成（stopReason=max_tokens）' } },
+    }),
+  )
+  const { agent, controllers, sub } = await makeBridge(t, { store })
+  controllers.set(run.runId, { requestStop() {}, running: false })
+  const decision = {
+    kind: 'enter',
+    messages: [createUserMessage({ content: [{ type: 'text', text: resumeMarkerText(run.runId, 'retry') }], source: { kind: 'plugin', plugin: 'mixed' } })],
+  }
+  const result = await drivePreStep(agent, decision)
+  assert.equal(result.kind, 'enter', '恢复应真正重入，不能因为旧控制器还在册就吞掉 marker')
+  assert.match(String(result.messages?.[0]?.content?.[0]?.text ?? ''), /Mixed 交付/)
+  assert.equal(store.getRun(run.runId).status, 'succeeded')
+  assert.ok(sub.spawns.some((s) => s.label === 'mixed:planning'), '无计划的规划失败必须重新规划')
+  assert.equal(controllers.has(run.runId), false, '执行结束后必须释放控制器，否则下次恢复还会被吞')
+})
+
+test('marker：进行中的活控制器才幂等消费，不得挡住下一次恢复', async (t) => {
+  const root = makeRoot(t)
+  const { store, facility } = openStore(t, root)
+  await store.open(facility)
+  const run = await claimRun(store, { sessionId: 's1', statusPath: ['planning'] })
+  await store.updateRun(run.runId, (c) =>
+    advanceRun(c, {
+      ownerKey: c.ownerKey,
+      ownerEpoch: c.ownerEpoch,
+      to: 'blocked',
+      event: { type: 'run_failed', summary: 'seed' },
+      patch: { error: { code: 'stage_failed', retryable: false, detail: 'seed' } },
+    }),
+  )
+  const { agent, controllers } = await makeBridge(t, { store })
+  controllers.set(run.runId, { requestStop() {}, running: true })
+  const decision = {
+    kind: 'enter',
+    messages: [createUserMessage({ content: [{ type: 'text', text: resumeMarkerText(run.runId, 'continue') }], source: { kind: 'plugin', plugin: 'mixed' } })],
+  }
+  const r = await drivePreStep(agent, decision)
+  assert.deepEqual(r, { kind: 'enter', messages: [] }, '真正在跑的恢复才消费不重放')
+  assert.equal(store.getRun(run.runId).status, 'blocked', '活控制器在册时不得另起流水线')
+})
+
 test('marker：恢复失败 → reject + 落 resume_failed（防自动重发死循环）', async (t) => {
   const root = makeRoot(t)
   const { store, facility } = openStore(t, root)
@@ -1016,6 +1069,9 @@ test('重跑：新 runId，旧 run 状态/revision/记录原样保留（不是�
   assert.equal(r2.status, 200)
   assert.equal(r2.body.runId, r.body.runId)
   assert.equal(r2.body.created, false)
+  assert.equal(agent.inbox.length, 1, '首次重跑要把新 queued run 派进会话，不能只落盘')
+  assert.equal(parseResumeMarker(agent.inbox[0].content[0].text)?.runId, r.body.runId)
+  assert.equal(r.body.resume?.started, true)
 })
 
 test('恢复 vs 重跑：恢复是同一 run 续跑（revision 连续，无新 run）', async (t) => {
@@ -1133,7 +1189,7 @@ test('waiting_input 桥接：enter + 等待通知，不 reject（父模型不实
   await store.open(facility)
   await store.savePreferences(OWNER_U1, { planner: MODELS.planner, executor: MODELS.executor, reviewer: MODELS.reviewer, ownerEpoch: 0 })
   const sub = makeScriptedSubagents({ planOutput: ASKING_PLAN })
-  const { agent } = await makeBridge(t, { store, sub })
+  const { agent, controllers } = await makeBridge(t, { store, sub })
   const decision = {
     kind: 'enter',
     messages: [{
@@ -1150,6 +1206,86 @@ test('waiting_input 桥接：enter + 等待通知，不 reject（父模型不实
   assert.equal(runs.length, 1)
   assert.equal(store.getRun(runs[0].runId).status, 'waiting_input')
   assert.equal(sub.spawns.filter((s) => s.stage === 'execution').length, 0)
+  assert.equal(controllers.has(runs[0].runId), false, 'waiting_input 返回后必须释放控制器，否则「提交并继续」会被吞')
+})
+
+test('waiting_input：残留死控制器 + 回答 marker 必须重规划，不得静默吞掉', async (t) => {
+  const root = makeRoot(t)
+  const { store, facility } = openStore(t, root)
+  await store.open(facility)
+  await store.savePreferences(OWNER_U1, { planner: MODELS.planner, executor: MODELS.executor, reviewer: MODELS.reviewer, ownerEpoch: 0 })
+  const sub = makeScriptedSubagents({ planOutputs: [ASKING_PLAN, validPlan] })
+  const { agent, controllers } = await makeBridge(t, { store, sub })
+  const ask = {
+    kind: 'enter',
+    messages: [{
+      id: 'msg-ask2',
+      role: 'user',
+      content: [{ type: 'text', text: '帮我做一个跨平台安装包' }],
+      source: { kind: 'user' },
+    }],
+  }
+  const first = await drivePreStep(agent, ask)
+  assert.equal(first.kind, 'enter')
+  const run = store.listRuns({ ownerKey: OWNER_U1 }).items[0]
+  await store.updateRun(run.runId, (c) =>
+    advanceRun(c, {
+      ownerKey: c.ownerKey,
+      ownerEpoch: c.ownerEpoch,
+      event: { type: 'input_answered', summary: 'panel answer' },
+      patch: {
+        pendingQuestions: (c.pendingQuestions ?? []).map((q) => ({ ...q, answer: 'Windows', answeredAt: new Date().toISOString() })),
+      },
+    }),
+  )
+  controllers.set(run.runId, { requestStop() {}, running: false })
+  const result = await drivePreStep(agent, {
+    kind: 'enter',
+    messages: [createUserMessage({ content: [{ type: 'text', text: resumeMarkerText(run.runId, 'answer') }], source: { kind: 'plugin', plugin: 'mixed' } })],
+  })
+  assert.equal(result.kind, 'enter')
+  assert.match(String(result.messages?.[0]?.content?.[0]?.text ?? ''), /Mixed 交付/)
+  assert.equal(store.getRun(run.runId).status, 'succeeded')
+})
+
+test('规划再次 max_tokens 失败后，第二次重试仍能恢复', async (t) => {
+  const root = makeRoot(t)
+  const { store, facility } = openStore(t, root)
+  await store.open(facility)
+  const run = await claimRun(store, { sessionId: 's1', statusPath: ['planning'] })
+  await store.updateRun(run.runId, (c) =>
+    advanceRun(c, {
+      ownerKey: c.ownerKey,
+      ownerEpoch: c.ownerEpoch,
+      to: 'blocked',
+      event: { type: 'run_failed', summary: 'planning 阶段未正常完成（stopReason=max_tokens）' },
+      patch: { error: { code: 'stage_failed', retryable: false, detail: 'planning 阶段未正常完成（stopReason=max_tokens）' } },
+    }),
+  )
+  let plans = 0
+  const sub = makeScriptedSubagents()
+  const orig = sub.start
+  sub.start = async (kind, opts) => {
+    if (opts.label === 'mixed:planning') {
+      plans += 1
+      if (plans === 1) return { id: 'child-fail', result: Promise.resolve({ output: 'truncated', stopReason: 'max_tokens' }), dispose: async () => {} }
+    }
+    return orig(kind, opts)
+  }
+  const { agent, controllers } = await makeBridge(t, { store, sub })
+  controllers.set(run.runId, { requestStop() {}, running: false })
+  const marker = (choice) => ({
+    kind: 'enter',
+    messages: [createUserMessage({ content: [{ type: 'text', text: resumeMarkerText(run.runId, choice) }], source: { kind: 'plugin', plugin: 'mixed' } })],
+  })
+  const first = await drivePreStep(agent, marker('retry'))
+  assert.equal(first.kind, 'reject')
+  assert.equal(store.getRun(run.runId).status, 'blocked')
+  assert.equal(controllers.has(run.runId), false)
+  const second = await drivePreStep(agent, marker('retry'))
+  assert.equal(second.kind, 'enter')
+  assert.match(String(second.messages?.[0]?.content?.[0]?.text ?? ''), /Mixed 交付/)
+  assert.equal(store.getRun(run.runId).status, 'succeeded')
 })
 
 // ---------- 工具 ----------

@@ -79,10 +79,35 @@ test('Ledger：岗位 token 额度按总量卡，金额额度仍按上游', (t) 
   assert.equal(ledger.exceeded(u, 'deepseek'), false)
   ledger.record({ userId: u.id, provider: 'deepseek', promptTokens: 60, completionTokens: 50, costCny: 0.01 })
   assert.equal(ledger.exceeded(u, 'deepseek'), true)
-  const view = ledger.quotaView(u, [{ id: 'deepseek', label: 'DeepSeek' }])
+  const view = ledger.quotaView(u, [
+    { id: 'deepseek', label: 'DeepSeek' },
+    { id: 'grok', label: 'Grok' },
+    { id: 'chatgpt', label: 'ChatGPT' },
+  ])
+  assert.equal(view.length, 1)
+  assert.equal(view[0].provider, 'total')
+  assert.equal(view[0].label, '总额度')
   assert.equal(view[0].kind, 'tokens')
   assert.equal(view[0].usedTokens, 110)
   assert.equal(view[0].limitTokens, 100)
+})
+
+test('Ledger：金额额度也合成一条总额度', (t) => {
+  const { db } = tmp(t)
+  const u = db.createUser({ username: 'cny', password: 'cny123456', role: 'employee' })
+  const ledger = new Ledger(db, { quota: { weeklyCny: 100, anchor: '2026-01-05T00:00:00+08:00' } })
+  ledger.record({ userId: u.id, provider: 'deepseek', promptTokens: 10, completionTokens: 10, costCny: 12 })
+  ledger.record({ userId: u.id, provider: 'grok', promptTokens: 10, completionTokens: 10, costCny: 3 })
+  const view = ledger.quotaView(u, [
+    { id: 'deepseek', label: 'DeepSeek' },
+    { id: 'grok', label: 'Grok' },
+  ])
+  assert.equal(view.length, 1)
+  assert.equal(view[0].provider, 'total')
+  assert.equal(view[0].label, '总额度')
+  assert.equal(view[0].usedCny, 15)
+  assert.equal(view[0].limitCny, 100)
+  assert.equal(view[0].usedPct, 15)
 })
 
 test('groupSkillFiles：按技能目录收拢', () => {

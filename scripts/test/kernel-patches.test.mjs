@@ -220,3 +220,122 @@ test('applyKernelPatches：0.1.2 风格 goal + junction + 新预设路径一次�
   assert.match(yml, /\.company-root/)
   assert.deepEqual(missingPatches(kernelRoot), [])
 })
+
+function writeMarkedKernelExceptLive(kernelRoot) {
+  const live = new Set(['company-goal-resume-armed-v1', 'company-win-junction-mklink-v3', 'company-win-junction-mklink-v4'])
+  const marksByFile = new Map()
+  for (const patch of CODE_PATCHES) {
+    const f = path.join(kernelRoot, patch.file)
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    if (patch.mark === 'company-goal-resume-armed-v1') fs.writeFileSync(f, GOAL_RC12)
+    else if (patch.mark === 'company-win-junction-mklink-v3') fs.writeFileSync(f, JUNCTION_RC12)
+    if (live.has(patch.mark)) continue
+    const marks = marksByFile.get(patch.file) ?? []
+    marks.push(patch.mark, ...(patch.already ?? []))
+    marksByFile.set(patch.file, marks)
+  }
+  for (const [file, marks] of marksByFile) {
+    fs.writeFileSync(path.join(kernelRoot, file), marks.map((m) => `// ${m}`).join('\n') + '\n')
+  }
+  const presetRel = path.join('node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets', 'standard', 'agent.cordis.yml')
+  const preset = path.join(kernelRoot, presetRel)
+  fs.mkdirSync(path.dirname(preset), { recursive: true })
+  fs.writeFileSync(
+    preset,
+    [
+      "- id: skill-filesystem",
+      "  name: '@deepseek-ai/dsh-skill-filesystem'",
+      '  config:',
+      '    includeDefaultRoots: false',
+      '    watch: false',
+      "    bundledSkillDir: '/tmp/skills'   # company-desk skills root",
+      '    customSkillDirs:',
+      "      - '/tmp/skills'   # company-desk skills root",
+      '# --- company-preset-skills-v1 ---',
+      '# --- company-preset-skills-v2 ---',
+      '- id: tool-web',
+      "  name: '@deepseek-ai/dsh-tool-web'",
+      '  config:',
+      '    fetch: true',
+      '    searchTimeoutMs: 60000',
+      '    fetchTimeoutMs: 90000',
+      '# --- company-preset-web-fetch-v2 ---',
+      '- id: agent-instructions',
+      "  name: '@deepseek-ai/dsh-agent-instructions'",
+      '  config:',
+      '    maxBytes: 65536',
+      '    projectRootMarkers:',
+      '      - .company-root',
+      '# --- company-preset-instr-root-v1 ---',
+      '',
+    ].join('\n'),
+  )
+}
+
+const ANYSEARCH_CLIENT_SNIPPET =
+  "        const timeoutController = new AbortController();\n" +
+  "        const timeout = setTimeout(() => {\n" +
+  "            timeoutController.abort(new DOMException('AnySearch HTTP request timed out', 'TimeoutError'));\n" +
+  "        }, ANYSEARCH_HTTP_TIMEOUT_MS);\n" +
+  "        const requestSignal = signal === undefined\n" +
+  "            ? timeoutController.signal\n" +
+  "            : AbortSignal.any([signal, timeoutController.signal]);\n" +
+  "        let response;\n" +
+  "        try {\n" +
+  "            response = await fetch(url, {\n" +
+  "                method: init.method,\n" +
+  "                redirect: 'error',\n" +
+  "                headers,\n" +
+  "                ...init.body === undefined ? {} : { body: init.body },\n" +
+  "                signal: requestSignal,\n" +
+  "            });\n" +
+  "        }\n" +
+  "        catch (error) {\n" +
+  "            clearTimeout(timeout);\n" +
+  "            if (signal?.aborted === true)\n" +
+  "                throw aborted(operation, signal, error);\n" +
+  "            if (timeoutController.signal.aborted)\n" +
+  "                throw timedOut(operation, error);\n" +
+  "            if (isAbortError(error))\n" +
+  "                throw aborted(operation, signal, error);\n" +
+  "            throw new AnySearchClientError(`AnySearch ${operation} request failed: ${String(error)}`, { operation, cause: error });\n" +
+  "        }\n" +
+  "        const retryAfter = response.headers.get('retry-after') ?? undefined;\n" +
+  "function isAbortError(error) {\n" +
+  "    return error instanceof DOMException && error.name === 'AbortError';\n" +
+  "}\n" +
+  "function isSignalAborted(signal) {\n" +
+  "    return signal?.aborted === true;\n" +
+  "}\n"
+
+test('AnySearch client：瞬时 fetch failed / 5xx 重试，并把 cause 写进错误', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-anysearch-retry-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  writeMarkedKernelExceptLive(kernelRoot)
+  const client = path.join(kernelRoot, '..', '..', '@anysearch', 'anysearch-dsh', 'lib', 'client.js')
+  fs.mkdirSync(path.dirname(client), { recursive: true })
+  fs.writeFileSync(client, ANYSEARCH_CLIENT_SNIPPET)
+  applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} })
+  const patched = fs.readFileSync(client, 'utf8')
+  assert.match(patched, /const maxAttempts = 3/)
+  assert.match(patched, /isTransientNetworkError/)
+  assert.match(patched, /formatFetchFailure/)
+  assert.match(patched, /company-anysearch-fetch-retry-v1/)
+  assert.match(patched, /fetch failed\|socket hang up/)
+  assert.equal(patched.includes('request failed: ${String(error)}'), false)
+  applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} })
+  assert.equal(fs.readFileSync(client, 'utf8'), patched)
+  assert.deepEqual(missingPatches(kernelRoot), [])
+})
+
+test('AnySearch client：没装插件时跳过，不挡内核补丁', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-anysearch-skip-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  writeMarkedKernelExceptLive(kernelRoot)
+  assert.doesNotThrow(() => applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} }))
+  assert.deepEqual(missingPatches(kernelRoot), [])
+})

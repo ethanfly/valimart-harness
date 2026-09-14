@@ -73,7 +73,8 @@ export const api = {
     run: (runId) => call('GET', `/mixed/runs/${encodeURIComponent(runId)}`),
     cancel: (runId) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/cancel`, {}),
     resume: (runId, body) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/resume`, body),
-    rerun: (runId) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/rerun`, {}),
+    // rerunRequestId 由调用点生成（服务端缺它会 400；面板用 mixed-panel-state.newRerunRequestId）
+    rerun: (runId, body) => call('POST', `/mixed/runs/${encodeURIComponent(runId)}/rerun`, body),
     evidence: (runId, evidenceId) => call('GET', `/mixed/runs/${encodeURIComponent(runId)}/evidence/${encodeURIComponent(evidenceId)}`),
   },
   // 网关业务接口透传：/desk/api/gw/<path> → 网关 /api/<path>

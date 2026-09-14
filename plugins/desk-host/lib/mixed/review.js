@@ -95,6 +95,35 @@ export function validateReviewOutput({ run, review, manifestHash, planVersion, v
 }
 
 /**
+ * 审核未通过时的可读原因：摘要 + 未过验收 + findings（期望/实际/返修）。
+ * 给 error.detail 和终态横幅用，避免只剩「changes_requested 两轮返修未通过」。
+ */
+export function formatReviewRejectionDetail({ verdict, result } = {}) {
+  const lines = [`审核结论 ${verdict ?? 'unknown'}：两轮返修未通过或证据不足`]
+  if (result?.summary) lines.push(`审核摘要：${result.summary}`)
+  const failed = (result?.criteria ?? []).filter((c) => c.status && c.status !== 'pass')
+  if (failed.length) {
+    lines.push(`未通过验收（${failed.length}）：`)
+    for (const c of failed) {
+      lines.push(`- [${c.status}] ${c.acceptanceId}${c.explanation ? `：${c.explanation}` : ''}`)
+    }
+  }
+  const findings = result?.findings ?? []
+  if (findings.length) {
+    lines.push(`发现（${findings.length}）：`)
+    for (const f of findings) {
+      const sev = f.severity === 'blocking' ? '阻塞' : '提示'
+      const tasks = (f.taskIds ?? []).join('、') || '—'
+      lines.push(`- [${sev}] ${f.findingId ?? ''} 任务 ${tasks}`.trim())
+      if (f.expected) lines.push(`  期望：${f.expected}`)
+      if (f.actual) lines.push(`  实际：${f.actual}`)
+      if (f.repairInstruction) lines.push(`  返修：${f.repairInstruction}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
  * 审核专用证据接口（受控：只接受 evidenceId/计划内命令；路径经 realpath 边界复查）。
  * 宿主把它挂到审核子会话（T07 装配时经 scoped pre-step/toolFilter 注册）。
  */

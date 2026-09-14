@@ -69,6 +69,8 @@ export const RUN_STATUSES = [
 ]
 export const RUN_TERMINAL = new Set(['succeeded', 'cancelled'])
 export const RUN_RESUMABLE = new Set(['blocked', 'interrupted', 'waiting_input'])
+/** 可派发恢复/启动 marker：可恢复态 + 重跑落下的 queued。 */
+export const RUN_STARTABLE = new Set(['queued', ...RUN_RESUMABLE])
 // 可进入 cancelling 的非终态
 export const RUN_CANCELLABLE = new Set(['queued', 'planning', 'executing', 'waiting_input', 'reviewing', 'repairing', 'finalizing'])
 const CANCELLABLE = RUN_CANCELLABLE
@@ -87,6 +89,20 @@ const BASE_TRANSITIONS = {
   cancelling: ['cancelled'],
   succeeded: [],
   cancelled: [],
+}
+
+/** 最近一轮有结论的审核摘要（列表索引行与终态横幅共用；无 reviewRounds/未出结论 → null）。 */
+export function lastReviewSummaryOf(record) {
+  const rounds = record?.reviewRounds ?? []
+  const last = [...rounds].reverse().find((x) => x?.result)
+  if (!last?.result) return null
+  return {
+    verdict: last.result.verdict,
+    summary: last.result.summary ?? '',
+    round: rounds.length,
+    criteria: last.result.criteria ?? [],
+    findings: last.result.findings ?? [],
+  }
 }
 
 /** 状态迁移合法性（§5.1）。from=当前、to=目标；cancelling/interrupted 由调用方按规则注入。 */

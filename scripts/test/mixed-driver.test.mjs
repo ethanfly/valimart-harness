@@ -23,6 +23,7 @@ import {
   submissionKeyOf,
   runIdOf,
   advanceRun,
+  resumeMarkerText,
 } from '../../plugins/desk-host/lib/mixed/contracts.js'
 
 // ---------- 环境 ----------
@@ -244,9 +245,25 @@ test('driver：startStage 派发前落盘 attempt（崩溃窗口）+ 显式角�
   await env.store.close()
 })
 
-test('driver：disableTools 把格式纠正 deny 列表传给 spawn（A30）', async (t) => {
+test('spawnToolFilterOption：只 deny 当前作用域已注册的工具（Windows 无 bash 不得传 bash）', () => {
   assert.deepEqual(spawnToolFilterOption({ deny: ['write'] }).toolFilter.deny, ['write'])
   assert.equal(Object.keys(spawnToolFilterOption(['write'])).length, 0)
+  const win = spawnToolFilterOption(FORMAT_CORRECTION_TOOL_FILTER, new Set(['write', 'edit', 'pwsh', 'read']))
+  assert.ok(!win.toolFilter.deny.includes('bash'), '未注册的 bash 不得进入 restrict，否则内核 tools.restrict() 直接炸')
+  assert.deepEqual(win.toolFilter.deny, ['write', 'edit', 'pwsh'])
+  const posix = spawnToolFilterOption(FORMAT_CORRECTION_TOOL_FILTER, new Set(['write', 'edit', 'bash', 'read']))
+  assert.ok(!posix.toolFilter.deny.includes('pwsh'))
+  assert.deepEqual(posix.toolFilter.deny, ['write', 'edit', 'bash'])
+})
+
+test('spawnToolFilterOption：无目录时至少去掉本平台未挂载的 shell', () => {
+  const deny = spawnToolFilterOption(FORMAT_CORRECTION_TOOL_FILTER).toolFilter.deny
+  if (process.platform === 'win32') assert.ok(!deny.includes('bash'), 'win32 标准预设不挂 tool-bash')
+  else assert.ok(!deny.includes('pwsh'), 'POSIX 标准预设不挂 tool-pwsh')
+  assert.ok(deny.includes('write') && deny.includes('edit'))
+})
+
+test('driver：disableTools 把格式纠正 deny 列表传给 spawn（A30）', async (t) => {
   const env = makeStore(t)
   await env.store.open(env.facility)
   const run = await claimForBridge(t, env.store)
@@ -255,10 +272,15 @@ test('driver：disableTools 把格式纠正 deny 列表传给 spawn（A30）', a
     fakeSub.spawns.push({ kind, opts })
     return { id: 'child-corr', result: Promise.resolve({ output: '{}', stopReason: 'completed', structured: {} }), dispose: async () => {} }
   }
-  const driver = new MixedDriver({ ctx: { subagents: fakeSub }, store: env.store, parentAgent: makeFakeAgent(), run, logger: { warn: () => {}, error: () => {} } })
-  await driver.startStage({ stage: 'planning', prompt: 'retry', signal: new AbortController().signal, disableTools: true })
+  const parentAgent = makeFakeAgent()
+  parentAgent.ctx.tools = {
+    view: () => ({ restrictableNames: new Set(['write', 'edit', 'pwsh', 'read', 'grep']) }),
+  }
+  const driver = new MixedDriver({ ctx: { subagents: fakeSub }, store: env.store, parentAgent, run, logger: { warn: () => {}, error: () => {} } })
+  await driver.startStage({ stage: 'review', prompt: 'retry', signal: new AbortController().signal, disableTools: true })
   const spawn = fakeSub.spawns[0]
-  assert.deepEqual(spawn.opts.toolFilter, FORMAT_CORRECTION_TOOL_FILTER)
+  assert.deepEqual(spawn.opts.toolFilter.deny, ['write', 'edit', 'pwsh'])
+  assert.ok(!spawn.opts.toolFilter.deny.includes('bash'))
   await env.store.close()
 })
 
@@ -525,6 +547,30 @@ test('桥接：规划两次非法 → reject（失败即停，父模型不实施
   const record = env.store.getRun(run.runId)
   assert.equal(record.attempts.filter((a) => a.stage === 'planning').length, 2)
   assert.equal(record.tasks.length, 0) // 没有实施
+  assert.equal(deps.controllers.has(run.runId), false, '失败后必须释放控制器')
+
+  // 用户点「重试」：同一 run 的恢复 marker 必须重入，不能因为上一轮控制器残留而无响应
+  let planAgain = 0
+  t._spawnBehavior = (opts) => {
+    if (opts.label === 'mixed:planning') {
+      planAgain += 1
+      return { output: 'plan', stopReason: 'completed', structured: structuredClone(PLAN_OUTPUT) }
+    }
+    if (opts.label.startsWith('mixed:execution')) return { output: 'executed', stopReason: 'completed' }
+    if (opts.label === 'mixed:review') return { output: 'review', stopReason: 'completed', structured: structuredClone(REVIEW_PASS) }
+    return { output: 'ok', stopReason: 'completed' }
+  }
+  const marker = {
+    id: 'resume-1',
+    role: 'user',
+    content: [{ type: 'text', text: resumeMarkerText(run.runId, 'retry') }],
+    source: { kind: 'plugin', plugin: 'mixed' },
+  }
+  const resumed = await agent.listeners.preStep({ agent, messages: [marker], turn: 2, step: 0, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [marker] }))
+  assert.equal(resumed.kind, 'enter')
+  assert.match(String(resumed.messages?.[0]?.content?.[0]?.text ?? ''), /Mixed 交付/)
+  assert.equal(env.store.getRun(run.runId).status, 'succeeded')
+  assert.ok(planAgain >= 1, '规划失败后的重试必须重新规划')
   await env.store.close()
 })
 

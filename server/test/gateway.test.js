@@ -101,6 +101,8 @@ test('模型代理：/v1/models 与 /v1/chat/completions（流式）并按人记
   const me = colleagues.json.users.find((u) => u.username === 'emp-a')
   assert.ok(me.spend7dCny > 0)
   assert.equal(me.online, true)
+  assert.equal(colleagues.json.quota.length, 1)
+  assert.equal(colleagues.json.quota[0].label, '总额度')
   assert.ok(colleagues.json.quota[0].usedPct >= 0)
   assert.ok(colleagues.json.quota[0].refreshAt)
 
