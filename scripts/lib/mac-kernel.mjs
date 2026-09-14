@@ -4,8 +4,8 @@
  * 内核的 JS 部分与平台无关，但 npm 在 Windows 上只会装 win32-x64 那批 optional 平台包：
  *   @img/sharp-win32-x64、@koromix/koffi-win32-x64、@vscode/ripgrep-win32-x64、
  *   node-addon-require-builtin-win32-x64-msvc（外加 node-pty 自带的 prebuilds）。
- * 所以打 mac 包时要把对应的 darwin-x64 包补进去、把 win32 的删掉；node-pty 的 prebuilds 各平台都在
- * tarball 里，交给 shouldPrune 保留 darwin-x64 即可。
+ * 所以打 mac 包时要把对应的 darwin-x64 包补进去、把 win32 的删掉；已裁剪源内核的 node-pty
+ * 从同版本 npm tarball 恢复缺失的 darwin-x64 prebuilds，只修改 stage，不修改源内核。
  *
  * 这些 darwin 包由 build-mac-client.mjs 用 npm pack 预取到 build/mac-cache/npm/。
  */
@@ -63,6 +63,70 @@ export function findPackageDirs(root, relPath) {
   return hits
 }
 
+/** 0.1.5 的 POSIX 锁平台包，以入口包定位（不存在 win32 对应包）。 */
+export function darwinSystemRequirements(prefix) {
+  return findPackageDirs(prefix, '@deepseek-ai/node-addon-system').map((dir) => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    const name = '@deepseek-ai/node-addon-system-darwin-x64'
+    const version = pkg.optionalDependencies?.[name]
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`缺精确 ${name} 版本：${dir}`)
+    return { dir, version, name, spec: `${name}@${version}`, tgz: `deepseek-ai-node-addon-system-darwin-x64-${version}.tgz` }
+  })
+}
+
+export function injectDarwinSystem({ stage, cacheDir, log = noop }) {
+  const requirements = darwinSystemRequirements(stage)
+  for (const spec of requirements) {
+    const archive = path.join(cacheDir, spec.tgz)
+    if (!fs.existsSync(archive)) throw new Error(`缺 darwin 会话锁缓存：${spec.tgz}`)
+    const dest = path.join(path.dirname(spec.dir), path.basename(spec.name))
+    const pkg = extractTgz(archive, dest, log)
+    if (pkg.name !== spec.name || pkg.version !== spec.version) throw new Error(`${spec.tgz} 包名或版本不匹配`)
+    if (!fs.existsSync(path.join(dest, 'bin', 'system.node'))) throw new Error(`${spec.tgz} 缺 bin/system.node`)
+  }
+  return requirements.length
+}
+
+const PTY_FILES = ['pty.node', 'spawn-helper']
+const hasDarwinPty = (dir) => PTY_FILES.every((file) => {
+  try { const stat = fs.statSync(path.join(dir, 'prebuilds', 'darwin-x64', file)); return stat.isFile() && stat.size > 0 } catch { return false }
+})
+
+/** 从实际安装版本推导缓存名；不把预发布版本升级到 latest，也支持多份不同版本。 */
+export function nodePtyDarwinRequirements(prefix) {
+  return findPackageDirs(prefix, 'node-pty').filter((dir) => !hasDarwinPty(dir)).map((dir) => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    if (pkg.name !== 'node-pty' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(pkg.version)) {
+      throw new Error(`node-pty package.json 版本无效：${dir}`)
+    }
+    return { dir, version: pkg.version, spec: `node-pty@${pkg.version}`, tgz: `node-pty-${pkg.version}.tgz` }
+  })
+}
+
+/** 仅恢复 stage 缺失的平台目录；保留其 JS、package.json 和本地补丁。 */
+export function restoreDarwinNodePty({ stage, cacheDir, log = noop }) {
+  const requirements = nodePtyDarwinRequirements(stage)
+  for (const { dir, version, tgz } of requirements) {
+    const archive = path.join(cacheDir, tgz)
+    if (!fs.existsSync(archive)) throw new Error(`缺 node-pty 缓存 ${tgz}（先 npm pack node-pty@${version} 到 ${cacheDir}）`)
+    const tmp = fs.mkdtempSync(path.join(path.dirname(stage), '.node-pty-darwin-'))
+    try {
+      const unpacked = path.join(tmp, 'package')
+      const pkg = extractTgz(archive, unpacked, noop)
+      if (pkg.name !== 'node-pty' || pkg.version !== version) throw new Error(`${tgz} 版本不匹配：期望 node-pty@${version}，实际 ${pkg.name}@${pkg.version}`)
+      if (!hasDarwinPty(unpacked)) throw new Error(`${tgz} 缺完整 darwin-x64 prebuilds（pty.node / spawn-helper）`)
+      const dest = path.join(dir, 'prebuilds', 'darwin-x64')
+      fs.mkdirSync(dest, { recursive: true })
+      for (const file of PTY_FILES) fs.copyFileSync(path.join(unpacked, 'prebuilds', 'darwin-x64', file), path.join(dest, file))
+      fs.chmodSync(path.join(dest, 'spawn-helper'), 0o755)
+      log(`  恢复 node-pty@${version} darwin-x64 prebuilds → ${dir}`)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  }
+  return requirements.length
+}
+
 function extractTgz(tgz, dest, log) {
   fs.rmSync(dest, { recursive: true, force: true })
   fs.mkdirSync(dest, { recursive: true })
@@ -97,6 +161,8 @@ export function prepareDarwinKernelStage({ sourcePrefix, stage, cacheDir, log = 
     }
   }
 
+  const systemInjected = injectDarwinSystem({ stage, cacheDir, log })
+
   // 2) 删 win32-only 平台包
   let removed = 0
   for (const rel of WIN32_ONLY_PACKAGES) {
@@ -107,7 +173,8 @@ export function prepareDarwinKernelStage({ sourcePrefix, stage, cacheDir, log = 
   }
   log(`移除 win32-only 平台包 ${removed} 个`)
 
-  // 3) node-pty 的 win32 编译产物（prebuilds 由 shouldPrune 处理）
+  // 3) 裁剪过的 Windows 内核需从同版本缓存补回 darwin prebuilds，然后清理 win32 产物。
+  const ptyRestored = restoreDarwinNodePty({ stage, cacheDir, log })
   const ptyDirs = findPackageDirs(stage, 'node-pty')
   let ptyCleaned = 0
   for (const pty of ptyDirs) {
@@ -125,5 +192,5 @@ export function prepareDarwinKernelStage({ sourcePrefix, stage, cacheDir, log = 
   if (fs.existsSync(kernelRoot)) prepareSessionLockDependency({ kernelRoot, log })
   else throw new Error(`stage 里没有内核：${kernelRoot}`)
 
-  return { stage, injected: DARWIN_X64_PACKAGES.length, removedWin32: removed, ptyCleaned }
+  return { stage, injected: DARWIN_X64_PACKAGES.length + systemInjected, removedWin32: removed, ptyCleaned, ptyRestored }
 }

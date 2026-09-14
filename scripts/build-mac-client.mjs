@@ -16,7 +16,8 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { prepareDarwinKernelStage } from './lib/mac-kernel.mjs'
+import { prepareDarwinKernelStage, nodePtyDarwinRequirements, darwinSystemRequirements } from './lib/mac-kernel.mjs'
+import { verifyMacSessionLock } from './lib/mac-session-lock.mjs'
 import { buildMacAppZip } from './lib/mac-app.mjs'
 import { openZip, isSymlinkMode } from './lib/zip.mjs'
 import { findTar } from './lib/find-tar.mjs'
@@ -122,14 +123,21 @@ function ensureNpmPackages() {
     'node-addon-require-builtin-darwin-x64@0.1.5',
   ]
   const expected = ['img-sharp-darwin-x64-0.35.4.tgz', 'img-sharp-libvips-darwin-x64-1.3.3.tgz', 'koromix-koffi-darwin-x64-3.2.1.tgz', 'vscode-ripgrep-darwin-x64-1.18.0.tgz', 'node-addon-require-builtin-darwin-x64-0.1.5.tgz']
-  if (expected.every((f) => fs.existsSync(path.join(npmCache, f)))) {
+  for (const pty of [...nodePtyDarwinRequirements(kernelPrefix), ...darwinSystemRequirements(kernelPrefix)]) {
+    if (!expected.includes(pty.tgz)) {
+      specs.push(pty.spec)
+      expected.push(pty.tgz)
+    }
+  }
+  const missingSpecs = specs.filter((_, i) => !fs.existsSync(path.join(npmCache, expected[i])))
+  if (!missingSpecs.length) {
     log('darwin 原生依赖包已缓存')
     return
   }
   fs.mkdirSync(npmCache, { recursive: true })
   log('npm pack darwin 原生依赖包 …')
   const npm = npmInvocation()
-  const r = spawnSync(npm.cmd, [...npm.pre, 'pack', '--registry=https://registry.npmmirror.com', ...specs], { cwd: npmCache, stdio: 'inherit', shell: npm.shell, windowsHide: true })
+  const r = spawnSync(npm.cmd, [...npm.pre, 'pack', '--ignore-scripts', '--registry=https://registry.npmmirror.com', ...missingSpecs], { cwd: npmCache, stdio: 'inherit', shell: npm.shell, windowsHide: true })
   if (r.status !== 0) die('npm pack 失败（需要网络 / npm）')
   const missing = expected.filter((f) => !fs.existsSync(path.join(npmCache, f)))
   if (missing.length) die(`npm pack 后仍缺：${missing.join(', ')}`)
@@ -286,10 +294,16 @@ function verifyArtifact(zipFile) {
   const lr = spawnSync(findTar(), ['-xf', tarPath, '-C', lockDir, lockEntry], { encoding: 'utf8', windowsHide: true })
   if (lr.status !== 0) die(`解不出会话锁文件：${(lr.stderr || lr.error?.message || '').trim()}`)
   const lockSource = fs.readFileSync(path.join(lockDir, lockEntry.replace(/^\.\//, '')), 'utf8')
-  for (const needle of ['company-session-lock-v2', 'companyPosixFlock', 'koffi.load']) {
-    if (!lockSource.includes(needle)) die(`会话锁补丁没生效（缺 ${needle}）`)
-  }
-  if (lockSource.includes('import { flock } from "fs-ext";')) die('会话锁还在直接 import fs-ext')
+  const lockKind = verifyMacSessionLock({ lockSource, readEntry: (suffix) => {
+    // 使用与 session persistence 相同的 node_modules，避免误认另一份嵌套依赖。
+    const modulePrefix = lockEntry.slice(0, lockEntry.indexOf('@deepseek-ai/dsh-session-persistence-jsonl/'))
+    const entry = `${modulePrefix}${suffix}`
+    if (!names.includes(entry)) die(`kernel.tar 缺会话锁依赖：${entry}`)
+    const r = spawnSync(findTar(), ['-xf', tarPath, '-C', lockDir, entry], { encoding: 'utf8', windowsHide: true })
+    if (r.status !== 0) die(`解不出会话锁依赖：${entry} ${r.stderr || r.error?.message || ''}`)
+    return fs.readFileSync(path.join(lockDir, entry.replace(/^\.\//, '')))
+  } })
+  log(`会话锁验证通过：${lockKind}`)
 
   // 运行时二进制是 x86_64 Mach-O
   const nodePath = path.join(tmpDir, 'node')
