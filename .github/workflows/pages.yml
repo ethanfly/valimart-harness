@@ -32,6 +32,8 @@ jobs:
           mkdir -p _site
           cp docs/intro/index.html docs/intro/mark.png docs/intro/logo-points.js _site/
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
