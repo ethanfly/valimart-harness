@@ -1,0 +1,125 @@
+# main 推送后：
+#   Windows 打客户端 + 网关 exe
+#   Ubuntu 打 VS Code vsix
+#   一并挂到 GitHub Release 标签 `latest`
+# packages/pi-valimart-desk 版本号比 npm 新时自动 publish（Secrets.NPM_TOKEN）
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  installers:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            desktop/node_modules
+            ~/.company-desk/kernel
+          key: win-dist-${{ hashFiles('package.json', 'desktop/package.json', 'scripts/kernel/pin.json') }}
+      - name: Install JS deps
+        run: |
+          npm install
+          npm --prefix desktop install
+      - name: Install pinned kernel
+        run: npm run setup
+      - name: Build Windows client
+        run: npm run dist:client
+      - name: Build Windows gateway
+        run: npm run dist:gateway
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: dist/*.exe
+          if-no-files-found: error
+
+  vscode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test and package VSIX
+        run: |
+          npm --prefix packages/vscode ci
+          npm --prefix packages/vscode test
+          npm --prefix packages/vscode run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-vsix
+          path: packages/vscode/*.vsix
+          if-no-files-found: error
+
+  release:
+    needs: [installers, vscode]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Publish GitHub Release (latest)
+        uses: ncipollo/release-action@v1
+        with:
+          tag: latest
+          name: Latest builds
+          body: |
+            由 GitHub Actions 在 `${{ github.sha }}` 自动打包。
+            - 客户端：`valimart-harness-Setup-*.exe`
+            - 网关：`valimart-harness-Gateway-Setup-*.exe`
+            - VS Code：`valimart-harness-*.vsix`
+          artifacts: dist/*
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+          prerelease: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  npm-pi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/pi-valimart-desk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Publish pi-valimart-desk if version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          LOCAL=$(node -p "require('./package.json').version")
+          REMOTE=$(npm view pi-valimart-desk version --registry https://registry.npmjs.org 2>/dev/null || echo "")
+          echo "local=$LOCAL remote=${REMOTE:-none}"
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "skip publish: 未配置 Secrets.NPM_TOKEN"
+            exit 0
+          fi
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "skip publish: npm 已是 $LOCAL"
+            exit 0
+          fi
+          npm publish --access public
+          echo "published pi-valimart-desk@$LOCAL"

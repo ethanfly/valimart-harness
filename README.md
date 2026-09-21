@@ -6,12 +6,16 @@
 <p align="center"><strong>企业交付工作台</strong> · 公司账号登录 · 模型密钥只在服务端 · 任务必须有交付物</p>
 
 <p align="center">
+  <a href="https://ethanfly.github.io/valimart-harness/"><img alt="介绍页" src="https://img.shields.io/badge/intro-github.io-ffffff?labelColor=111111"></a>
+  <a href="https://github.com/ethanfly/valimart-harness/releases/latest"><img alt="下载" src="https://img.shields.io/github/v/release/ethanfly/valimart-harness?include_prereleases&label=download"></a>
   <a href="https://github.com/ethanfly/valimart-harness"><img alt="GitHub" src="https://img.shields.io/badge/github-ethanfly%2Fvalimart-harness-181717?logo=github"></a>
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white">
   <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.1.5--rc.2-1484fc">
 </p>
 
-本仓库是公司自己的桌面客户端 + 公司网关。内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.1.5-rc.2`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
+本仓库是公司自己的桌面客户端 + 公司网关 + pi 包 + VS Code 插件。**介绍页**：[ethanfly.github.io/valimart-harness](https://ethanfly.github.io/valimart-harness/)（源码 [`docs/intro/`](docs/intro/)）。**安装包**：[Releases](https://github.com/ethanfly/valimart-harness/releases/latest)。
+
+内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.1.5-rc.2`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
 
 > 接手看 [`docs/HANDOFF.md`](docs/HANDOFF.md)。过程记录在 [`docs/sessions/`](docs/sessions/)。
 
@@ -74,8 +78,9 @@ company-harness/                 # npm 包名仍是 company-desk
 │  ├─ launch.mjs                 # npm run dev / client / desktop
 │  └─ build-*.mjs                # 安装包流水线
 ├─ e2e/                          # Playwright
-├─ packages/pi-valimart-desk/    # pi-valimart-desk：公司网关登录 / 模型 / 知识 / 任务卡
-└─ docs/                         # 交接、会话记录、设计与计划
+├─ packages/pi-valimart-desk/    # pi CLI 包：公司网关登录 / 模型 / 知识 / 任务卡
+├─ packages/vscode/              # VS Code 插件（侧边栏工作台，打 vsix）
+└─ docs/                         # 交接、会话记录、介绍页、设计与计划
 ```
 
 品牌图（界面用，不要改路径）：
@@ -92,7 +97,7 @@ company-harness/                 # npm 包名仍是 company-desk
 
 ## 使用方法
 
-分四条路：**开发机跑源码**、**员工装客户端**、**公司装网关**、**pi CLI 装公司包**。
+分五条路：**开发机跑源码**、**员工装客户端**、**公司装网关**、**pi CLI**、**VS Code 插件**。
 
 ### 1. 开发机（源码）
 
@@ -272,6 +277,22 @@ TUI 标题为 **valimart pi desk**（惠利玛花标）。在 pi 里：
 
 登录态在 `~/.pi/agent/valimart-desk.json`（只有会话令牌和网关令牌，没有上游密钥）。完整说明：[`packages/pi-valimart-desk/README.md`](packages/pi-valimart-desk/README.md)。
 
+### 5. VS Code 插件
+
+源码在 [`packages/vscode`](packages/vscode)。侧边栏登录公司网关、对话、改当前工作区；任务卡四格验收。不内嵌 DSH，密钥仍只在网关。
+
+安装：从 [GitHub Releases](https://github.com/ethanfly/valimart-harness/releases/latest) 下载 `valimart-harness-*.vsix` → 扩展 → … → 从 VSIX 安装。
+
+开发：
+
+```powershell
+npm --prefix packages/vscode install
+npm --prefix packages/vscode test
+npm run dist:vscode          # 打 vsix
+```
+
+F5（`packages/vscode` 为工作区）打开扩展开发宿主。说明见 [`packages/vscode/README.md`](packages/vscode/README.md)。
+
 ---
 
 ## 日常命令
@@ -283,6 +304,7 @@ TUI 标题为 **valimart pi desk**（惠利玛花标）。在 pi 里：
 | 检查内核补丁 | `npm run kernel:check` |
 | 换内核版本 | 改 `scripts/kernel/pin.json` → `npm run kernel:prepare -- --version <ver>` |
 | 打两个 Windows 安装包 | `npm run dist` |
+| 打 VS Code 插件 | `npm run dist:vscode` → `packages/vscode/*.vsix` |
 | 打 macOS Intel 客户端 | `npm run dist:client:mac` → `dist/valimart-harness-<ver>-mac-x64.zip` |
 | 发布客户端给员工 | `npm run client:publish -- --gateway <url> --user <管理员> --password <密码> --from dist/valimart-harness-Setup-0.1.0.exe` |
 | 备份网关数据 | `npm run backup -- --data-dir <数据目录> --out backup.zip` |

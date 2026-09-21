@@ -1,0 +1,123 @@
+{
+  "name": "valimart-harness",
+  "displayName": "valimart harness",
+  "description": "VS Code client for the company-desk gateway: login, chat, and an agent that edits the workspace.",
+  "version": "0.3.0",
+  "publisher": "valimart",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onView:valimartHarness.chat",
+    "onCommand:valimartHarness.openChat",
+    "onCommand:valimartHarness.openChatWindow"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "valimartHarness",
+          "title": "valimart harness",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "valimartHarness": [
+        {
+          "type": "webview",
+          "id": "valimartHarness.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "valimartHarness.openChat",
+        "title": "打开工作台",
+        "category": "valimart harness",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "valimartHarness.openChatWindow",
+        "title": "在编辑器区打开工作台",
+        "category": "valimart harness",
+        "icon": "$(new-window)"
+      },
+      {
+        "command": "valimartHarness.showLogs",
+        "title": "显示日志",
+        "category": "valimart harness",
+        "icon": "$(output)"
+      },
+      {
+        "command": "valimartHarness.cancel",
+        "title": "停止生成",
+        "category": "valimart harness",
+        "icon": "$(debug-stop)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "valimartHarness.openChatWindow",
+          "when": "view == valimartHarness.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "valimartHarness.showLogs",
+          "when": "view == valimartHarness.chat",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "valimartHarness.openChat",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h"
+      }
+    ],
+    "configuration": {
+      "title": "valimart harness",
+      "properties": {
+        "valimartHarness.maxTurns": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 500,
+          "markdownDescription": "单轮任务最多几次模型往返（一次往返里可能包含多个工具调用）。**0 = 不限制**（默认）。设了正数后，到达上限会先发一次不带工具的收尾请求汇报进度，而不是静默停止。"
+        },
+        "valimartHarness.maxMinutes": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 120,
+          "markdownDescription": "单轮任务最长墙钟时间（分钟）。超时同样先收尾汇报，不会卡住侧边栏。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node scripts/compile.mjs",
+    "test": "node --test test/gateway-client.test.js test/agent-loop.test.js test/editor-context.test.js test/manifest.test.js test/session.test.js test/mentions.test.js test/lan-discover.test.js test/text-diff.test.js test/markdown.test.js test/slash.test.js test/goal.test.js test/tasks.test.js test/session-store.test.js test/sse.test.js",
+    "test:vscode": "node scripts/try-vscode-host.mjs",
+    "test:company": "node --test test/company-context.test.js",
+    "test:ui": "node --test test/webview.test.js",
+    "package": "vsce package --allow-missing-repository",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "playwright": "^1.55.1"
+  }
+}

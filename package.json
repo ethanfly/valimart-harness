@@ -23,6 +23,7 @@
     "dist:client:mac": "node scripts/build-mac-client.mjs",
     "dist:gateway": "node scripts/build-gateway-installer.mjs",
     "dist:gateway:linux": "node scripts/build-gateway-linux.mjs",
+    "dist:vscode": "npm --prefix packages/vscode install && npm --prefix packages/vscode run package",
     "dist": "npm run dist:client && npm run dist:gateway",
     "backup": "node scripts/backup-gateway.mjs",
     "probe:channels": "node scripts/probe-channels.mjs",

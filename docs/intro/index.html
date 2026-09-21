@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-Hans">
+<html lang="zh-Hans" class="booting">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -13,11 +13,22 @@
       --glow: rgba(255,255,255,.18);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.28) transparent; }
     html, body { background: var(--bg); color: var(--fg); }
+    html.booting, html.booting body { overflow: hidden; }
     body {
       font-family: "Segoe UI", "Bahnschrift", "PingFang SC", "Microsoft YaHei", sans-serif;
       overflow-x: hidden;
     }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,.18);
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.42); background-clip: padding-box; }
+    ::-webkit-scrollbar-corner { background: transparent; }
     #boot {
       position: fixed; inset: 0; z-index: 40;
       background: #000;
@@ -50,6 +61,7 @@
     }
     .mark {
       width: 92px; height: 92px; margin-bottom: 28px;
+      object-fit: contain;
       filter: drop-shadow(0 0 22px var(--glow));
     }
     .kicker {
@@ -69,7 +81,10 @@
       border: 1px solid rgba(255,255,255,.22); padding: 10px 16px;
       transition: background .2s, border-color .2s;
     }
-    .pills a:hover { background: #fff; color: #000; border-color: #fff; }
+    .pills a:hover, .pills a.solid { background: #fff; color: #000; border-color: #fff; }
+    .steps { margin-top: 22px; color: #c8c8c8; line-height: 1.9; font-size: 14px; }
+    .steps ol { padding-left: 1.2em; }
+    .steps a { color: #fff; }
 
     section {
       max-width: 1080px; margin: 0 auto; padding: 72px 28px;
@@ -118,6 +133,27 @@
       text-align: center; padding: 48px 20px 64px; color: var(--muted);
       font-size: 12px; letter-spacing: .2em;
     }
+    .logo-orbit {
+      position: fixed;
+      right: 8px;
+      bottom: 8px;
+      width: min(42vw, 420px);
+      height: min(42vw, 420px);
+      overflow: visible;
+      pointer-events: none;
+      z-index: 0;
+      opacity: .55;
+    }
+    .logo-orbit canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      animation: spinLogo 72s linear infinite;
+      transform-origin: center center;
+    }
+    @keyframes spinLogo {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -126,21 +162,62 @@
     <button class="skip" type="button" id="skip">跳过 SKIP</button>
   </div>
   <div class="grid-bg"></div>
+  <div class="logo-orbit" aria-hidden="true"><canvas id="orbit"></canvas></div>
   <main>
     <header class="hero">
-      <svg class="mark" viewBox="-1.1 -1.1 2.2 2.2" aria-hidden="true">
-        <g id="flower" fill="#fff"></g>
-      </svg>
+      <img class="mark" src="mark.png" width="92" height="92" alt="惠利玛" />
       <div class="kicker">enterprise delivery</div>
       <h1>VALIMART</h1>
       <p class="sub">企业交付工作台 · 密钥不出网关 · 口头完成不算完成</p>
       <nav class="pills">
+        <a class="solid" href="#install">安装 / 下载</a>
         <a href="#platform">交付平台</a>
         <a href="#client">Harness 客户端</a>
         <a href="#pi">pi 包</a>
         <a href="#vscode">VS Code 插件</a>
       </nav>
     </header>
+
+    <section id="install">
+      <div class="sec-label">00 / install</div>
+      <h2>安装与下载</h2>
+      <p class="lead">安装包由 GitHub Actions 在 main 推送后自动构建，发布到 Releases。密钥仍只在你自己的网关上。</p>
+      <div class="cards">
+        <article>
+          <h3>Windows 客户端</h3>
+          <p>员工机安装包（NSIS，按用户安装）。装好后登录公司网关即可。</p>
+          <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest">GitHub Releases · latest</a></p>
+          <p class="code">产物名 valimart-harness-Setup-*.exe</p>
+        </article>
+        <article>
+          <h3>Windows 网关</h3>
+          <p>公司服务器安装包，注册 Windows 服务 TheDivaGateway，管理页 http://主机:8790/admin。</p>
+          <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest">GitHub Releases · latest</a></p>
+          <p class="code">产物名 valimart-harness-Gateway-Setup-*.exe</p>
+        </article>
+        <article>
+          <h3>pi CLI 包</h3>
+          <p>不装桌面时用。先装 pi，再装公司包。包更新会随 packages/pi-valimart-desk 自动 npm publish。</p>
+          <p class="code">npm i -g @earendil-works/pi-coding-agent</p>
+          <p class="code">pi install npm:pi-valimart-desk</p>
+        </article>
+        <article>
+          <h3>VS Code 插件</h3>
+          <p>本仓库 packages/vscode，随 Releases 出 vsix。VS Code：扩展 → … → 从 VSIX 安装。</p>
+          <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest">Releases · valimart-harness-*.vsix</a></p>
+        </article>
+      </div>
+      <div class="steps">
+        <ol>
+          <li>打开 <a href="https://github.com/ethanfly/valimart-harness/releases/latest">github.com/ethanfly/valimart-harness/releases/latest</a> 下载安装包。</li>
+          <li>先在公司服务器安装网关 exe，完成管理页首次引导（公司名 + 管理员）。</li>
+          <li>员工安装客户端 exe；启动后填网关地址（或等局域网自动发现）并用公司账号登录。</li>
+          <li>只要 CLI：<code>pi install npm:pi-valimart-desk</code>，然后 <code>/desk-login</code>。</li>
+          <li>VS Code：同一 Releases 页下载 <code>valimart-harness-*.vsix</code>，扩展 → … → 从 VSIX 安装。</li>
+          <li>源码开发：克隆仓库后 <code>npm install</code> → <code>npm run setup</code> → <code>npm run dev</code>。</li>
+        </ol>
+      </div>
+    </section>
 
     <section id="platform">
       <div class="sec-label">01 / platform</div>
@@ -186,7 +263,7 @@
         <article>
           <h3>安装</h3>
           <p>Windows NSIS 安装包；macOS 解压 .app。局域网 UDP 发现网关，与插件、pi 包同一协议。</p>
-          <p class="code">npm run dist:client</p>
+          <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest">下载 Setup.exe</a> · 源码 npm run dist:client</p>
         </article>
       </div>
     </section>
@@ -200,6 +277,7 @@
           <h3>安装</h3>
           <p>扩展以完整系统权限运行。本机一条命令即可。</p>
           <p class="code">pi install npm:pi-valimart-desk</p>
+          <p class="code"><a href="https://www.npmjs.com/package/pi-valimart-desk">npmjs.com/package/pi-valimart-desk</a></p>
         </article>
         <article>
           <h3>登录与模型</h3>
@@ -231,8 +309,8 @@
         </article>
         <article>
           <h3>工程</h3>
-          <p>仓库 E:\orcaWorkspace\valimart-harness-vscode · npm test / compile / package → vsix。</p>
-          <p class="code">F5 运行扩展开发宿主</p>
+          <p>源码在本仓库 <code>packages/vscode</code>。main 推送后 GitHub Actions 自动打 vsix 挂到 Releases。</p>
+          <p class="code">npm run dist:vscode</p>
         </article>
       </div>
     </section>
@@ -240,22 +318,8 @@
     <footer>VALIMART HARNESS · 密钥只在网关 · 交付必须是文件</footer>
   </main>
 
+  <script src="logo-points.js"></script>
   <script>
-    (function () {
-      const svg = document.querySelector('#flower')
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3 - Math.PI / 2
-        const c = Math.cos(a), s = Math.sin(a)
-        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-        p.setAttribute('d', 'M 0 0 C .18 -.08 .32 -.42 0 -.78 C -.32 -.42 -.18 -.08 0 0')
-        p.setAttribute('transform', `rotate(${(a * 180) / Math.PI})`)
-        svg.appendChild(p)
-      }
-      const core = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-      core.setAttribute('r', '0.14')
-      svg.appendChild(core)
-    })()
-
     const canvas = document.getElementById('c')
     const ctx = canvas.getContext('2d')
     const boot = document.getElementById('boot')
@@ -264,29 +328,10 @@
     const particles = []
     const targets = []
 
-    function inFlower(x, y) {
-      const d = Math.hypot(x, y)
-      if (d < 0.12) return true
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3 - Math.PI / 2
-        const c = Math.cos(a), s = Math.sin(a)
-        const lr = x * c + y * s
-        const lt = -x * s + y * c
-        if (lr < 0 || lr > 0.82) continue
-        const w = 0.22 * Math.sin((Math.PI * lr) / 0.82)
-        if (Math.abs(lt) < w) return true
-      }
-      return false
-    }
-
     function sampleTargets() {
       targets.length = 0
-      const step = 0.028
-      for (let y = -1; y <= 1; y += step) {
-        for (let x = -1; x <= 1; x += step) {
-          if (inFlower(x, y)) targets.push({ x: cx + x * scale, y: cy + y * scale })
-        }
-      }
+      const pts = window.LOGO_PTS || []
+      for (const [x, y] of pts) targets.push({ x: cx + x * scale, y: cy + y * scale })
       for (let i = targets.length - 1; i > 0; i--) {
         const j = (Math.random() * (i + 1)) | 0
         const t = targets[i]; targets[i] = targets[j]; targets[j] = t
@@ -372,6 +417,7 @@
     function finish() {
       if (done) return
       done = true
+      document.documentElement.classList.remove('booting')
       boot.classList.add('out')
       setTimeout(() => boot.remove(), 800)
     }
@@ -385,6 +431,25 @@
     resize(); spawn()
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, innerWidth, innerHeight)
     requestAnimationFrame(frame)
+
+    ;(function paintOrbit() {
+      const el = document.getElementById('orbit')
+      const pts = window.LOGO_PTS
+      if (!el || !pts || !pts.length) return
+      const size = 420
+      const dpr = Math.min(2, devicePixelRatio || 1)
+      el.width = size * dpr
+      el.height = size * dpr
+      const g = el.getContext('2d')
+      g.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const c = size / 2
+      const sc = size * 0.38
+      g.fillStyle = '#fff'
+      for (const [x, y] of pts) {
+        g.globalAlpha = 0.9
+        g.fillRect(c + x * sc, c + y * sc, 2.1, 2.1)
+      }
+    })()
   </script>
 </body>
 </html>

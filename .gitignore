@@ -32,9 +32,12 @@ jar.txt
 /scripts/tmp-*.mjs
 /scripts/evidence-*.mjs
 
-# 安装包构建产物
+# 安装包 / 扩展构建产物
 /build/
 dist/
+*.vsix
+packages/vscode/out/
+
 desktop/dist/
 desktop/build/verify-app/
 desktop/build/titlebar-verify.*

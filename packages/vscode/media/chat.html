@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}}; script-src 'nonce-{{nonce}}';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="{{css}}" />
+    <title>valimart harness</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="masthead">
+        <div class="brand">
+          <img class="mark" src="{{mark}}" alt="" width="22" height="22" />
+          <div>
+            <div class="word">harness</div>
+            <div class="tag" id="statusLine">未连接公司网关</div>
+          </div>
+        </div>
+        <button type="button" id="logoutBtn" class="ghost" hidden>登出</button>
+      </header>
+
+      <section id="loginPane" class="login" aria-label="登录公司网关">
+        <p class="lede">用公司账号登录网关。模型密钥留在服务端，本机只保存会话令牌。</p>
+        <form id="loginForm">
+          <label>
+            网关地址
+            <input
+              id="gatewayUrl"
+              name="gatewayUrl"
+              type="url"
+              required
+              placeholder="http://127.0.0.1:8790"
+              autocomplete="url"
+              value="http://127.0.0.1:8790"
+            />
+          </label>
+          <div class="finder">
+            <div class="finder-head">
+              <button type="button" id="gatewayFindBtn" class="ghost">自动搜索</button>
+              <span id="gatewayNote" class="finder-note" aria-live="polite">正在寻找本机网关，没有再找局域网…</span>
+            </div>
+            <div id="gatewayList" class="finder-list" role="list"></div>
+          </div>
+          <label>
+            账号
+            <input id="username" name="username" required autocomplete="username" />
+          </label>
+          <label>
+            密码
+            <input id="password" name="password" type="password" required autocomplete="current-password" />
+          </label>
+          <p id="loginError" class="error" role="alert"></p>
+          <button type="submit" id="loginBtn">登录公司网关</button>
+        </form>
+      </section>
+
+      <section id="chatPane" class="workspace" hidden>
+        <div class="identity" id="identity">
+          <div id="userCard" class="user-card"></div>
+          <details class="quota-details"><summary>模型额度</summary><div id="quotaCard" class="quota-card"></div></details>
+          <details class="company-details"><summary id="companySummary">公司知识 · 待加载</summary>
+            <p id="companyStatus" class="hint"></p>
+            <label class="check-label"><input id="autoMemory" type="checkbox" checked />自动整理个人记忆（使用当前模型额度）</label>
+            <p id="memoryStatus" class="hint"></p>
+            <button type="button" id="companyRefresh" class="ghost">刷新公司资料</button>
+          </details>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button type="button" id="tabChat" class="tab on" role="tab">会话</button>
+          <button type="button" id="tabTasks" class="tab" role="tab">任务卡</button>
+          <div class="session-tools">
+            <label class="sr-only" for="sessionSelect">会话</label>
+            <select id="sessionSelect" aria-label="会话"></select>
+            <button type="button" id="newSessionBtn" class="ghost">新会话</button>
+            <button type="button" id="renameSessionBtn" class="ghost" title="重命名当前会话">重命名</button>
+            <button type="button" id="deleteSessionBtn" class="ghost" title="删除当前会话">删除</button>
+            <button type="button" id="detachBtn" class="ghost" title="在编辑器区打开更大的工作台">弹出</button>
+          </div>
+        </div>
+
+        <div id="chatWorkspace" class="chat">
+          <div id="transcript" class="transcript" role="log" aria-live="polite"></div>
+          <div id="thinking" class="thinking" hidden>
+            <div class="orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span class="thinking-label">模型思考中</span>
+            <span id="thinkingTime" class="thinking-time"></span>
+            <button type="button" id="stopBtn" class="ghost stop-btn" title="停止生成">停止</button>
+          </div>
+          <form id="composer" class="composer">
+            <div id="slashPalette" class="slash-palette" hidden role="listbox" aria-label="补全"></div>
+            <div id="imageChips" class="chips"></div>
+            <div id="contextChip" class="chip" hidden></div>
+            <label class="sr-only" for="prompt">提示词</label>
+            <textarea id="prompt" name="prompt" rows="2" placeholder="描述任务；@ 引用工作区文件，/ 开头是命令（/help）"></textarea>
+            <p id="attachmentError" class="error" role="alert" hidden></p>
+            <input id="imageInput" type="file" accept="image/*" multiple hidden />
+            <div class="composer-bar">
+              <div class="composer-selects">
+                <select id="modelSelect" aria-label="模型"></select>
+                <select id="effortSelect" aria-label="思考强度"></select>
+              </div>
+              <div class="composer-actions">
+                <button type="button" id="attachBtn" class="icon-btn" title="添加图片" aria-label="添加图片">
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M13.2 7.6 8 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.9 11.5a1.1 1.1 0 0 1-1.5-1.5l5-5" />
+                  </svg>
+                </button>
+                <button type="submit" id="sendBtn" class="icon-btn primary" title="发送（Enter）" aria-label="发送">
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 12.6V3.4M8 3.4 4.4 7M8 3.4 11.6 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="composer-hint">@ 引用文件 · / 命令（↑↓ 选择、Enter/Tab 补全、Esc 收起）· Enter 发送 · Ctrl / ⌘ + Enter 换行 · Ctrl / ⌘ + V 粘贴图片 · Ctrl+Alt+H 打开工作台</div>
+          </form>
+        </div>
+
+        <div id="taskWorkspace" class="tasks" hidden>
+          <p id="taskError" class="error task-notice" role="alert" hidden></p>
+          <div class="task-list-col">
+            <form id="taskCreateForm" class="task-create">
+              <input id="taskTitle" placeholder="新任务标题" required />
+              <textarea id="taskContent" rows="2" placeholder="任务内容"></textarea>
+              <button type="submit">新建任务卡</button>
+            </form>
+            <div id="taskList" class="task-list"></div>
+          </div>
+          <p id="taskEmpty" class="empty">选择一张任务卡查看详情，或在上方创建新任务。</p>
+          <div id="taskDetail" class="task-detail" hidden>
+            <h2 id="taskHeading"></h2>
+            <div class="overview">
+              <section>
+                <h3>提交信息</h3>
+                <div id="taskMeta"></div>
+              </section>
+              <section>
+                <h3>任务内容</h3>
+                <textarea id="taskContentEdit" rows="4"></textarea>
+              </section>
+              <section>
+                <h3>提交内容</h3>
+                <textarea id="taskSubmissionEdit" rows="3"></textarea>
+              </section>
+              <section>
+                <h3>交付物</h3>
+                <div id="taskFiles"></div>
+                <label class="file-btn">添加交付物<input id="deliverableInput" type="file" /></label>
+              </section>
+            </div>
+            <div class="quad" id="taskQuad">
+              <div class="quad-step" data-step="submit"><span>01</span>提交验收</div>
+              <div class="quad-step" data-step="review"><span>02</span>待审</div>
+              <div class="quad-step" data-step="final"><span>03</span>待终审</div>
+              <div class="quad-step" data-step="done"><span>04</span>通过/驳回</div>
+            </div>
+            <div class="task-actions">
+              <button type="button" id="taskSaveBtn" class="secondary">保存修改</button>
+              <button type="button" id="taskBindBtn" class="secondary">绑定当前会话</button>
+              <label class="reviewer-field" for="reviewerSelect">验收审核人
+                <select id="reviewerSelect" aria-label="审核人" aria-describedby="reviewerHint"><option value="">请先选择任务卡</option></select>
+                <span id="reviewerHint" class="hint">选择其他总监或管理员进行初审</span>
+              </label>
+              <button type="button" id="taskSubmitBtn">提交验收</button>
+              <p id="submitHint" class="hint"></p>
+              <label class="review-comment" for="reviewComment">审核意见<textarea id="reviewComment" rows="2" placeholder="填写通过或驳回的原因"></textarea></label>
+              <button type="button" id="taskReviewPass">初审通过</button>
+              <button type="button" id="taskReviewReject">初审驳回</button>
+              <button type="button" id="taskFinalPass">终审通过</button>
+              <button type="button" id="taskFinalReject">终审驳回</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script nonce="{{nonce}}" src="{{js}}"></script>
+  </body>
+</html>

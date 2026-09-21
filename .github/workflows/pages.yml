@@ -1,0 +1,39 @@
+# 把 docs/intro 发布到 GitHub Pages
+# https://ethanfly.github.io/valimart-harness/
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/intro/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare site
+        run: |
+          mkdir -p _site
+          cp docs/intro/index.html docs/intro/mark.png docs/intro/logo-points.js _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

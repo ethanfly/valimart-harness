@@ -1,0 +1,14 @@
+.omc/**
+.gitignore
+**/*.map
+test/**
+scripts/**
+src/**
+node_modules/**
+.vscode-test/**
+.vscode/**
+out/evidence/**
+out/scratch/**
+out/deliverables/**
+jsconfig.json
+*.md
