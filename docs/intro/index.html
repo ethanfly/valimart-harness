@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VALIMART · 企业交付工作台</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --fg: #f4f4f4;
+      --muted: #8a8a8a;
+      --line: rgba(255,255,255,.08);
+      --glow: rgba(255,255,255,.18);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: var(--bg); color: var(--fg); }
+    body {
+      font-family: "Segoe UI", "Bahnschrift", "PingFang SC", "Microsoft YaHei", sans-serif;
+      overflow-x: hidden;
+    }
+    #boot {
+      position: fixed; inset: 0; z-index: 40;
+      background: #000;
+      display: grid; place-items: center;
+    }
+    #boot canvas { width: 100%; height: 100%; display: block; }
+    #boot .skip {
+      position: absolute; right: 28px; bottom: 28px;
+      color: var(--muted); font-size: 11px; letter-spacing: .28em;
+      text-transform: uppercase; cursor: pointer; background: none; border: 0;
+    }
+    #boot .skip:hover { color: #fff; }
+    #boot.out { animation: fadeOut .7s ease forwards; pointer-events: none; }
+    @keyframes fadeOut { to { opacity: 0; visibility: hidden; } }
+
+    .grid-bg {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse at center, #000 30%, transparent 78%);
+    }
+    main { position: relative; z-index: 1; }
+
+    header.hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 80px 24px 48px;
+    }
+    .mark {
+      width: 92px; height: 92px; margin-bottom: 28px;
+      filter: drop-shadow(0 0 22px var(--glow));
+    }
+    .kicker {
+      font-size: 11px; letter-spacing: .52em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 16px;
+    }
+    h1 {
+      font-weight: 600; font-size: clamp(42px, 8vw, 88px);
+      letter-spacing: .18em; line-height: 1;
+    }
+    .sub {
+      margin-top: 18px; color: var(--muted); font-size: 15px; letter-spacing: .12em;
+    }
+    .pills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 36px; }
+    .pills a {
+      color: #fff; text-decoration: none; font-size: 12px; letter-spacing: .16em;
+      border: 1px solid rgba(255,255,255,.22); padding: 10px 16px;
+      transition: background .2s, border-color .2s;
+    }
+    .pills a:hover { background: #fff; color: #000; border-color: #fff; }
+
+    section {
+      max-width: 1080px; margin: 0 auto; padding: 72px 28px;
+      opacity: 0; transform: translateY(28px);
+      animation: rise .8s ease forwards;
+    }
+    section:nth-of-type(1) { animation-delay: .05s; }
+    section:nth-of-type(2) { animation-delay: .12s; }
+    section:nth-of-type(3) { animation-delay: .18s; }
+    section:nth-of-type(4) { animation-delay: .24s; }
+    @keyframes rise { to { opacity: 1; transform: none; } }
+
+    .sec-label {
+      font-size: 11px; letter-spacing: .4em; color: var(--muted); text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    h2 { font-size: 28px; font-weight: 600; letter-spacing: .08em; margin-bottom: 14px; }
+    p.lead { color: #c8c8c8; line-height: 1.75; max-width: 640px; }
+
+    .cards {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 16px; margin-top: 28px;
+    }
+    article {
+      border: 1px solid var(--line); padding: 22px 20px; background: rgba(255,255,255,.02);
+      min-height: 168px; position: relative; overflow: hidden;
+    }
+    article::after {
+      content: ""; position: absolute; inset: auto -40% -60% auto; width: 160px; height: 160px;
+      border: 1px solid var(--line); border-radius: 50%;
+    }
+    article h3 { font-size: 15px; letter-spacing: .12em; margin-bottom: 8px; }
+    article p { color: var(--muted); font-size: 13px; line-height: 1.7; }
+    article .code {
+      margin-top: 12px; font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 11px; color: #ddd; letter-spacing: 0;
+    }
+
+    .arch {
+      margin-top: 28px; border: 1px solid var(--line); padding: 22px;
+      font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px;
+      line-height: 1.8; color: #cfcfcf; white-space: pre; overflow-x: auto;
+    }
+
+    footer {
+      text-align: center; padding: 48px 20px 64px; color: var(--muted);
+      font-size: 12px; letter-spacing: .2em;
+    }
+  </style>
+</head>
+<body>
+  <div id="boot">
+    <canvas id="c"></canvas>
+    <button class="skip" type="button" id="skip">跳过 SKIP</button>
+  </div>
+  <div class="grid-bg"></div>
+  <main>
+    <header class="hero">
+      <svg class="mark" viewBox="-1.1 -1.1 2.2 2.2" aria-hidden="true">
+        <g id="flower" fill="#fff"></g>
+      </svg>
+      <div class="kicker">enterprise delivery</div>
+      <h1>VALIMART</h1>
+      <p class="sub">企业交付工作台 · 密钥不出网关 · 口头完成不算完成</p>
+      <nav class="pills">
+        <a href="#platform">交付平台</a>
+        <a href="#client">Harness 客户端</a>
+        <a href="#pi">pi 包</a>
+        <a href="#vscode">VS Code 插件</a>
+      </nav>
+    </header>
+
+    <section id="platform">
+      <div class="sec-label">01 / platform</div>
+      <h2>交付平台</h2>
+      <p class="lead">公司网关是唯一真相源。账号、模型通道、周额度、任务卡和公司盘都在服务端；客户端只有登录会话令牌和网关令牌，上游密钥永不下发。</p>
+      <div class="cards">
+        <article>
+          <h3>网关</h3>
+          <p>Node 服务，默认 :8790。Windows 服务或树莓派 Docker。管理页走首次引导：公司名、管理员、通道接入。</p>
+        </article>
+        <article>
+          <h3>任务四格</h3>
+          <p>进行中 → 待审 → 待终审 → 通过 / 驳回。提交必须挂交付物，落在公司盘 projects/inbox/&lt;任务ID&gt;/。</p>
+        </article>
+        <article>
+          <h3>四层知识</h3>
+          <p>岗位手册 · 共享经验 · 个人记忆 · 检索层 company_knowledge。只回答谁 / 何时 / 在哪，不拷贝别人的会话。</p>
+        </article>
+        <article>
+          <h3>额度</h3>
+          <p>按人按周记账。通道可挂多账号轮换。Google 个人订阅走 Antigravity，不走已停用的 Gemini CLI。</p>
+        </article>
+      </div>
+      <div class="arch">员工机 ──登录令牌──▶ 公司网关 :8790
+                         │  密钥 · 账本 · 任务卡 · 公司盘
+                         ▼
+              DeepSeek · Grok · ChatGPT · 通义 · Antigravity …</div>
+    </section>
+
+    <section id="client">
+      <div class="sec-label">02 / harness client</div>
+      <h2>Harness 客户端</h2>
+      <p class="lead">Electron 桌面与浏览器同一套外壳。本机跑 Agent（读文件、跑命令、写交付物），模型请求全部经网关。内核 DeepSeek Harness，由仓库锁定并打公司补丁。</p>
+      <div class="cards">
+        <article>
+          <h3>会话</h3>
+          <p>个人 / 团队工作区，模型按厂商分组，@ 引用本机文件，流式执行。Mixed：规划 / 实施 / 审核三角色。</p>
+        </article>
+        <article>
+          <h3>公司盘镜像</h3>
+          <p>共享经验、个人记忆、相关任务收件箱同步到本机。记忆可回推；交付物必须挂到任务卡。</p>
+        </article>
+        <article>
+          <h3>安装</h3>
+          <p>Windows NSIS 安装包；macOS 解压 .app。局域网 UDP 发现网关，与插件、pi 包同一协议。</p>
+          <p class="code">npm run dist:client</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="pi">
+      <div class="sec-label">03 / pi package</div>
+      <h2>pi 包 · valimart pi desk</h2>
+      <p class="lead">不装桌面客户端时，把同一套公司网关装进 pi CLI。TUI 花标、登录、模型目录、知识检索、公司盘同步、任务卡都在。</p>
+      <div class="cards">
+        <article>
+          <h3>安装</h3>
+          <p>扩展以完整系统权限运行。本机一条命令即可。</p>
+          <p class="code">pi install npm:pi-valimart-desk</p>
+        </article>
+        <article>
+          <h3>登录与模型</h3>
+          <p>/desk-login 先扫局域网。/model 选 valimart/&lt;目录模型&gt;。Shift+Tab 循环思考档位。</p>
+        </article>
+        <article>
+          <h3>盘与任务</h3>
+          <p>镜像 ~/.pi/agent/valimart-drive/。/desk-tasks 查看，/desk-task-new 交互建卡（指派人列表）。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="vscode">
+      <div class="sec-label">04 / vscode</div>
+      <h2>VS Code 插件</h2>
+      <p class="lead">在编辑器里登录公司网关、侧边栏对话、Agent 改当前工作区。模型、额度、公司盘、任务卡仍然只走网关，不内嵌 DSH、不存上游密钥。</p>
+      <div class="cards">
+        <article>
+          <h3>工作台</h3>
+          <p>活动栏 Chat；可弹出到编辑器区。流式 Markdown、思考折叠、停止生成、改动卡片打开原生 diff。</p>
+        </article>
+        <article>
+          <h3>发现网关</h3>
+          <p>与桌面 / pi 同一套：本机 health → UDP 18790 → 私网 /24 扫描。选中地址记在本机。</p>
+        </article>
+        <article>
+          <h3>任务卡</h3>
+          <p>列表 / 新建、四格验收、交付物、会话绑定、提交与审核。当前文件与选区作为上下文发给 Agent。</p>
+        </article>
+        <article>
+          <h3>工程</h3>
+          <p>仓库 E:\orcaWorkspace\valimart-harness-vscode · npm test / compile / package → vsix。</p>
+          <p class="code">F5 运行扩展开发宿主</p>
+        </article>
+      </div>
+    </section>
+
+    <footer>VALIMART HARNESS · 密钥只在网关 · 交付必须是文件</footer>
+  </main>
+
+  <script>
+    (function () {
+      const svg = document.querySelector('#flower')
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3 - Math.PI / 2
+        const c = Math.cos(a), s = Math.sin(a)
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        p.setAttribute('d', 'M 0 0 C .18 -.08 .32 -.42 0 -.78 C -.32 -.42 -.18 -.08 0 0')
+        p.setAttribute('transform', `rotate(${(a * 180) / Math.PI})`)
+        svg.appendChild(p)
+      }
+      const core = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+      core.setAttribute('r', '0.14')
+      svg.appendChild(core)
+    })()
+
+    const canvas = document.getElementById('c')
+    const ctx = canvas.getContext('2d')
+    const boot = document.getElementById('boot')
+    let W = 0, H = 0, cx = 0, cy = 0, scale = 160
+    const N = 1400
+    const particles = []
+    const targets = []
+
+    function inFlower(x, y) {
+      const d = Math.hypot(x, y)
+      if (d < 0.12) return true
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3 - Math.PI / 2
+        const c = Math.cos(a), s = Math.sin(a)
+        const lr = x * c + y * s
+        const lt = -x * s + y * c
+        if (lr < 0 || lr > 0.82) continue
+        const w = 0.22 * Math.sin((Math.PI * lr) / 0.82)
+        if (Math.abs(lt) < w) return true
+      }
+      return false
+    }
+
+    function sampleTargets() {
+      targets.length = 0
+      const step = 0.028
+      for (let y = -1; y <= 1; y += step) {
+        for (let x = -1; x <= 1; x += step) {
+          if (inFlower(x, y)) targets.push({ x: cx + x * scale, y: cy + y * scale })
+        }
+      }
+      for (let i = targets.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0
+        const t = targets[i]; targets[i] = targets[j]; targets[j] = t
+      }
+    }
+
+    function resize() {
+      W = canvas.width = innerWidth * devicePixelRatio
+      H = canvas.height = innerHeight * devicePixelRatio
+      canvas.style.width = innerWidth + 'px'
+      canvas.style.height = innerHeight + 'px'
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+      cx = innerWidth / 2
+      cy = innerHeight / 2
+      scale = Math.min(innerWidth, innerHeight) * 0.22
+      sampleTargets()
+    }
+
+    function spawn() {
+      particles.length = 0
+      for (let i = 0; i < N; i++) {
+        const t = targets[i % targets.length]
+        particles.push({
+          x: Math.random() * innerWidth,
+          y: Math.random() * innerHeight,
+          vx: (Math.random() - 0.5) * 1.4,
+          vy: (Math.random() - 0.5) * 1.4,
+          tx: t.x, ty: t.y,
+          s: Math.random() * 1.6 + 0.4,
+        })
+      }
+    }
+
+    let start = 0
+    let done = false
+    function ease(t) { return 1 - Math.pow(1 - t, 3) }
+
+    function frame(now) {
+      if (done) return
+      if (!start) start = now
+      const t = (now - start) / 1000
+      ctx.fillStyle = 'rgba(0,0,0,.28)'
+      ctx.fillRect(0, 0, innerWidth, innerHeight)
+      ctx.fillStyle = '#fff'
+
+      const spin = t > 1.1 && t < 3.4
+      const gather = t >= 2.2
+      const g = gather ? ease(Math.min(1, (t - 2.2) / 1.8)) : 0
+      const ang = spin ? (t - 1.1) * 1.35 : 0
+
+      for (const p of particles) {
+        if (!gather) {
+          p.x += p.vx
+          p.y += p.vy
+          if (p.x < 0 || p.x > innerWidth) p.vx *= -1
+          if (p.y < 0 || p.y > innerHeight) p.vy *= -1
+        }
+        let x = p.x, y = p.y
+        if (spin && !gather) {
+          const dx = x - cx, dy = y - cy
+          const ca = Math.cos(ang * 0.016), sa = Math.sin(ang * 0.016)
+          x = cx + dx * ca - dy * sa
+          y = cy + dx * sa + dy * ca
+          p.x = x; p.y = y
+        }
+        if (gather) {
+          const dx = p.tx - cx, dy = p.ty - cy
+          const ca = Math.cos((1 - g) * 2.6), sa = Math.sin((1 - g) * 2.6)
+          const rx = cx + dx * ca - dy * sa
+          const ry = cy + dx * sa + dy * ca
+          x = p.x + (rx - p.x) * g
+          y = p.y + (ry - p.y) * g
+          p.x = x; p.y = y
+        }
+        ctx.globalAlpha = 0.55 + p.s * 0.2
+        ctx.fillRect(x, y, p.s, p.s)
+      }
+      ctx.globalAlpha = 1
+      if (t > 4.4) finish()
+      else requestAnimationFrame(frame)
+    }
+
+    function finish() {
+      if (done) return
+      done = true
+      boot.classList.add('out')
+      setTimeout(() => boot.remove(), 800)
+    }
+
+    addEventListener('resize', () => { resize(); if (!done && particles.length) {
+      sampleTargets()
+      particles.forEach((p, i) => { const t = targets[i % targets.length]; p.tx = t.x; p.ty = t.y })
+    }})
+    document.getElementById('skip').onclick = finish
+    addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Enter') finish() })
+    resize(); spawn()
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, innerWidth, innerHeight)
+    requestAnimationFrame(frame)
+  </script>
+</body>
+</html>
