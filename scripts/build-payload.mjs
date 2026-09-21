@@ -36,6 +36,24 @@ const die = (m) => {
   process.exit(1)
 }
 
+/** Windows 上 fs.cpSync 跨盘复制 npm 前缀时，碰到 peer junction 会 EPERM/EINVAL 且几乎不打堆栈。
+ *  robocopy /XJ 跳过 junction（打包前本来就要剥掉 peer 链接）。 */
+function copyKernelPrefix(src, dest) {
+  fs.mkdirSync(dest, { recursive: true })
+  if (process.platform === 'win32') {
+    const r = spawnSync(
+      'robocopy',
+      [src, dest, '/E', '/XJ', '/COPY:DAT', '/R:2', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP'],
+      { stdio: 'inherit', windowsHide: true },
+    )
+    if (r.error) throw r.error
+    const code = r.status ?? 16
+    if (code >= 8) throw new Error(`robocopy 退出码 ${code}`)
+    return
+  }
+  fs.cpSync(src, dest, { recursive: true, force: true })
+}
+
 const out = path.resolve(argOf('--out', path.join(root, 'build', 'payload')))
 const stage = path.join(root, 'build', 'kernel-stage')
 const gateway = argOf('--gateway', process.env.DESK_GATEWAY_URL)
@@ -84,7 +102,11 @@ if (!kernel || kernel.version !== PIN.version || missingPatches(kernel.root).len
   if (r.status !== 0) die('内核安装失败')
 } else {
   log(`复制内核 ${prefix} → ${stage}`)
-  fs.cpSync(prefix, stage, { recursive: true, force: true })
+  try {
+    copyKernelPrefix(prefix, stage)
+  } catch (err) {
+    die(`复制内核失败：${err.stack || err.message}`)
+  }
 }
 kernel = locateKernel(stage)
 if (!kernel) die(`暂存目录里找不到内核：${stage}`)

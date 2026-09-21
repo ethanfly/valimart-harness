@@ -21,8 +21,13 @@ jobs:
   installers:
     runs-on: windows-latest
     timeout-minutes: 120
+    env:
+      # 装到工作区盘，避免 C: 用户目录 → D: 仓库 跨盘复制内核
+      DESK_KERNEL_PREFIX: ${{ github.workspace }}\.kernel
     steps:
       - uses: actions/checkout@v4
+      - name: Enable Windows long paths
+        run: git config --global core.longpaths true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,8 +36,7 @@ jobs:
           path: |
             node_modules
             desktop/node_modules
-            ~/.company-desk/kernel
-          key: win-dist-${{ hashFiles('package.json', 'desktop/package.json', 'scripts/kernel/pin.json') }}
+          key: win-npm-${{ hashFiles('package-lock.json', 'desktop/package-lock.json') }}
       - name: Install JS deps
         run: |
           npm install

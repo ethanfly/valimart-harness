@@ -34,6 +34,7 @@ jar.txt
 
 # 安装包 / 扩展构建产物
 /build/
+/.kernel/
 dist/
 *.vsix
 packages/vscode/out/
