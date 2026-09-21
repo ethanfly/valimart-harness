@@ -8,6 +8,7 @@ import { parseDeskLoginArgs } from '../lib/login-args.mjs'
 import { GATEWAY_COMPAT, inferModelInput, isChatModel, normalizeReasoningEfforts, thinkingLevelMap, toPiModels, v1BaseUrl } from '../lib/models.mjs'
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
 import { assertInside, zoneRoot } from '../lib/drive-paths.mjs'
+import { peopleOptions, personIdFromChoice } from '../lib/people-options.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
 describe('parseDeskLoginArgs', () => {
@@ -140,6 +141,23 @@ describe('state', () => {
     } finally {
       delete process.env.PI_AGENT_DIR
     }
+  })
+})
+
+describe('peopleOptions', () => {
+  const users = [
+    { id: 'u1', username: 'emp-a', displayName: '员工A', department: '内容部', role: 'employee', online: true },
+    { id: 'u2', username: 'boss', displayName: '老板', department: '管理层', role: 'admin', online: false },
+  ]
+  it('puts me first and restricts employees to self', () => {
+    const emp = peopleOptions(users, users[0])
+    assert.equal(emp.length, 1)
+    assert.equal(emp[0].id, 'u1')
+    assert.match(emp[0].label, /^我 ·/)
+    const admin = peopleOptions(users, users[1])
+    assert.equal(admin.length, 2)
+    assert.equal(admin[0].id, 'u2')
+    assert.equal(personIdFromChoice(admin[1].label, admin), 'u1')
   })
 })
 

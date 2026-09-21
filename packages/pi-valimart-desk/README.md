@@ -36,7 +36,7 @@ pi --version
 
 ### 1. 从 npm 装（推荐）
 
-已发布 [`pi-valimart-desk@0.1.6`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
+已发布 [`pi-valimart-desk@0.1.7`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
 
 ```powershell
 pi install npm:pi-valimart-desk
@@ -96,5 +96,9 @@ pi
 - `/desk-logout`
 - `/desk-status`
 - `/desk-discover`
+- `/desk-sync` 同步公司盘
+- `/desk-tasks` 查看任务卡列表并可选绑定
+- `/desk-task [任务ID]` 绑定 / 查看当前卡
+- `/desk-task-new` 交互式新建（标题、内容、指派人列表）
 
 环境变量：`DESK_GATEWAY_URL`、`DESK_GATEWAY_USER`、`DESK_GATEWAY_PASSWORD`、`PI_AGENT_DIR` / `PI_CODING_AGENT_DIR`（状态文件目录，默认 `~/.pi/agent`）。

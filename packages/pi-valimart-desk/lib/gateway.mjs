@@ -183,6 +183,16 @@ export async function listTasks() {
   return request('GET', '/api/tasks', { token, baseUrl })
 }
 
+export async function listPeople() {
+  const { token, baseUrl } = sessionAuth()
+  return request('GET', '/api/people', { token, baseUrl })
+}
+
+export async function createTask(body) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', '/api/tasks', { token, baseUrl, body })
+}
+
 export async function getTask(id) {
   const { token, baseUrl } = sessionAuth()
   return request('GET', `/api/tasks/${encodeURIComponent(id)}`, { token, baseUrl })

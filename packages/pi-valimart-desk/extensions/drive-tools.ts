@@ -3,7 +3,8 @@ import path from "node:path";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { addDeliverables, addTaskLog, getTask, patchTask } from "../lib/gateway.mjs";
+import { addDeliverables, addTaskLog, createTask, getTask, listPeople, listTasks, patchTask } from "../lib/gateway.mjs";
+import { formatTaskCard, peopleOptions, personIdFromChoice } from "../lib/people-options.mjs";
 import { zoneRoot } from "../lib/drive-paths.mjs";
 import { getMirror, syncDrive } from "../lib/drive-runtime.mjs";
 import { isLoggedIn, loadState, saveState } from "../lib/state.mjs";
@@ -54,18 +55,93 @@ export function registerDrive(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("desk-task", {
-    description: "绑定当前任务卡（/desk-task [任务ID]；不带参数查看）",
+    description: "绑定当前任务卡（/desk-task [任务ID]；不带参数查看已绑定）",
     handler: async (args, ctx) => {
       const id = args.trim();
       if (!id) {
         const cur = loadState().currentTaskId;
-        ctx.ui.notify(cur ? `当前任务 ${cur}` : "未绑定任务卡。用法：/desk-task tk-xxxx", "info");
+        if (!cur) {
+          ctx.ui.notify("未绑定任务卡。用 /desk-tasks 查看列表，或 /desk-task tk-xxxx 绑定", "info");
+          return;
+        }
+        try {
+          const task = await fetchAndCard(cur);
+          ctx.ui.notify(formatTaskCard(task), "info");
+        } catch (err) {
+          ctx.ui.notify(errText(err), "error");
+        }
         return;
       }
       try {
         const task = await fetchAndCard(id);
         saveState({ currentTaskId: task.id });
-        ctx.ui.notify(`已绑定 ${task.id}「${task.title}」· ${getMirror().taskDir(task.id)}`, "info");
+        ctx.ui.notify(`已绑定\n${formatTaskCard(task)}\n本机 ${getMirror().taskDir(task.id)}`, "info");
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("desk-tasks", {
+    description: "查看任务卡列表，选一张看详情并可绑定",
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) {
+        ctx.ui.notify("查看任务卡请用交互模式 /desk-tasks", "error");
+        return;
+      }
+      try {
+        const r = await listTasks();
+        const tasks = Array.isArray(r.tasks) ? r.tasks : [];
+        if (!tasks.length) {
+          ctx.ui.notify("没有可见任务卡。用 /desk-task-new 新建。", "warning");
+          return;
+        }
+        const labels = tasks.map((t: { id?: string; title?: string; statusLabel?: string; status?: string }) => `${t.id}  [${t.statusLabel ?? t.status}]  ${t.title}`);
+        const picked = await ctx.ui.select("选择任务卡", labels);
+        if (!picked) return;
+        const id = String(picked).split(/\s+/)[0];
+        const task = await fetchAndCard(id);
+        const bind = await ctx.ui.confirm("绑定这张卡？", `${task.id}「${task.title}」将作为后续 attach/log 的默认任务`);
+        if (bind) saveState({ currentTaskId: task.id });
+        ctx.ui.notify(`${bind ? "已绑定\n" : ""}${formatTaskCard(task)}\n本机 ${getMirror().taskDir(task.id)}`, "info");
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("desk-task-new", {
+    description: "交互式新建任务卡（标题、内容、指派人列表）",
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) {
+        ctx.ui.notify("新建任务卡请用交互模式 /desk-task-new", "error");
+        return;
+      }
+      try {
+        const title = (await ctx.ui.input("任务标题"))?.trim();
+        if (!title) {
+          ctx.ui.notify("已取消", "warning");
+          return;
+        }
+        const content =
+          (typeof ctx.ui.editor === "function" ? await ctx.ui.editor("任务内容", "") : await ctx.ui.input("任务内容")) ?? "";
+        const project = (await ctx.ui.input("项目（可空）"))?.trim() ?? "";
+        const people = await listPeople();
+        const me = loadState().user;
+        const options = peopleOptions(people.users ?? [], me);
+        if (!options.length) throw new Error("没有可选的指派人");
+        const picked = await ctx.ui.select("指派给谁", options.map((o) => o.label));
+        const assigneeId = personIdFromChoice(picked, options);
+        if (!assigneeId) {
+          ctx.ui.notify("已取消", "warning");
+          return;
+        }
+        const r = await createTask({ title, content, project, assigneeId });
+        const task = r.task ?? r;
+        getMirror().writeTaskCard(task);
+        saveState({ currentTaskId: task.id });
+        getMirror().pull().catch(() => {});
+        ctx.ui.notify(`已创建并绑定 ${task.id}「${task.title}」\n${formatTaskCard(task)}\n本机 ${getMirror().taskDir(task.id)}`, "info");
       } catch (err) {
         ctx.ui.notify(errText(err), "error");
       }
