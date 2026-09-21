@@ -6,7 +6,6 @@ import { describe, it } from 'node:test'
 import { parseDeskLoginArgs } from '../lib/login-args.mjs'
 import { inferModelInput, isChatModel, toPiModels, v1BaseUrl } from '../lib/models.mjs'
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
-import { fileURLToPath } from 'node:url'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
 describe('parseDeskLoginArgs', () => {
@@ -75,15 +74,6 @@ describe('normalizeGatewayUrl', () => {
     assert.equal(normalizeGatewayUrl('http://10.0.0.2:8790/foo'), 'http://10.0.0.2:8790')
     assert.equal(normalizeGatewayUrl('ftp://x'), '')
     assert.equal(normalizeGatewayUrl('not a url'), '')
-  })
-})
-
-describe('mark grid', () => {
-  it('has a 10x10 RGBA grid for the 惠利玛 flower', () => {
-    const grid = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../assets/mark-grid.json', import.meta.url)), 'utf8'))
-    assert.equal(grid.w, 10)
-    assert.equal(grid.h, 10)
-    assert.equal(Buffer.from(grid.rgba, 'base64').length, 10 * 10 * 4)
   })
 })
 

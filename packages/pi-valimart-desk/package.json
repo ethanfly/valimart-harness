@@ -1,6 +1,6 @@
 {
   "name": "pi-valimart-desk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "valimart pi desk（惠利玛）：给 pi CLI 补上公司网关登录、模型目录、知识检索与任务卡",
   "type": "module",
   "license": "UNLICENSED",
