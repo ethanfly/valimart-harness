@@ -26,7 +26,7 @@ export function normalizeGatewayUrl(url) {
   }
 }
 
-async function request(method, apiPath, { body, token, timeoutMs = 30_000, baseUrl } = {}) {
+export async function request(method, apiPath, { body, token, timeoutMs = 30_000, baseUrl, raw, headers = {} } = {}) {
   const state = loadState()
   const root = (baseUrl ?? state.gatewayUrl ?? '').replace(/\/+$/, '')
   if (!root) throw new GatewayError(0, '未配置公司网关地址', 'no_gateway')
@@ -39,9 +39,10 @@ async function request(method, apiPath, { body, token, timeoutMs = 30_000, baseU
       method,
       headers: {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
-        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...(body !== undefined && !raw ? { 'content-type': 'application/json' } : {}),
+        ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       signal: ac.signal,
     })
   } catch (err) {
@@ -49,20 +50,28 @@ async function request(method, apiPath, { body, token, timeoutMs = 30_000, baseU
     throw new GatewayError(0, `无法连接公司网关 ${root}：${err.message}`, 'unreachable')
   }
   try {
-    const text = await res.text()
-    let json = null
-    try {
-      json = text ? JSON.parse(text) : null
-    } catch {
-      json = null
+    const ct = res.headers.get('content-type') ?? ''
+    if (ct.includes('application/json')) {
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new GatewayError(res.status, json?.error?.message ?? `网关返回 ${res.status}`, json?.error?.code ?? 'gateway_error', json)
+      return json
     }
-    if (!res.ok) {
-      const msg = json?.error?.message ?? (text || `网关返回 ${res.status}`).slice(0, 300)
-      throw new GatewayError(res.status, msg, json?.error?.code ?? 'gateway_error', json)
-    }
-    return json
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (!res.ok) throw new GatewayError(res.status, buf.toString('utf8').slice(0, 300) || `网关返回 ${res.status}`, 'gateway_error')
+    return buf
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/** 给 DriveMirror 用的会话令牌客户端（与 desk-host GatewayClient 同一套 /api）。 */
+export function makeApiClient() {
+  const auth = () => sessionAuth()
+  return {
+    get: (p, o) => request('GET', p, { ...auth(), ...o }),
+    post: (p, body, o) => request('POST', p, { ...auth(), ...o, body }),
+    patch: (p, body, o) => request('PATCH', p, { ...auth(), ...o, body }),
+    put: (p, body, o) => request('PUT', p, { ...auth(), ...o, body, raw: o?.raw ?? Buffer.isBuffer(body), timeoutMs: o?.timeoutMs ?? 120_000 }),
   }
 }
 
@@ -177,6 +186,21 @@ export async function listTasks() {
 export async function getTask(id) {
   const { token, baseUrl } = sessionAuth()
   return request('GET', `/api/tasks/${encodeURIComponent(id)}`, { token, baseUrl })
+}
+
+export async function patchTask(id, body) {
+  const { token, baseUrl } = sessionAuth()
+  return request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, { token, baseUrl, body })
+}
+
+export async function addTaskLog(id, body) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', `/api/tasks/${encodeURIComponent(id)}/log`, { token, baseUrl, body })
+}
+
+export async function addDeliverables(id, files) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', `/api/tasks/${encodeURIComponent(id)}/deliverables`, { token, baseUrl, body: { files } })
 }
 
 export { isLoggedIn, loadState }

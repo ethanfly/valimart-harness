@@ -7,6 +7,7 @@ import { gatewayOptions, gatewayUrlFromChoice, MANUAL_GATEWAY_LABEL, suggestedGa
 import { parseDeskLoginArgs } from '../lib/login-args.mjs'
 import { GATEWAY_COMPAT, inferModelInput, isChatModel, normalizeReasoningEfforts, thinkingLevelMap, toPiModels, v1BaseUrl } from '../lib/models.mjs'
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
+import { assertInside, zoneRoot } from '../lib/drive-paths.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
 describe('parseDeskLoginArgs', () => {
@@ -139,6 +140,19 @@ describe('state', () => {
     } finally {
       delete process.env.PI_AGENT_DIR
     }
+  })
+})
+
+describe('drive-paths', () => {
+  it('maps zones and blocks path escape', () => {
+    assert.equal(zoneRoot('personal', 'emp-a'), '_office/emp-a/_memory')
+    assert.equal(zoneRoot('shared', 'emp-a'), '_shared/_memory')
+    assert.equal(zoneRoot('handbook', 'x'), '_shared/handbook')
+    assert.throws(() => zoneRoot('nope', 'x'))
+    const root = path.join(os.tmpdir(), 'drive-root')
+    const inside = assertInside(root, '_shared/handbook/a.md')
+    assert.ok(inside.includes('handbook'))
+    assert.throws(() => assertInside(root, path.join('..', '..', 'outside.txt')))
   })
 })
 

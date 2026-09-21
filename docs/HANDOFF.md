@@ -10,6 +10,7 @@
 - 模型目录思考档位：网关常给数组 `['low','high']`，pi 要 `thinkingLevelMap`（缺档填 null 才从 TUI 藏掉）。`toPiModels` 已按 desk-host 的 `normalizeEfforts` 转，并带上网关统一的 deepseek `thinkingFormat` / `max_tokens`。
 - TUI 用惠利玛花标替换 pi logo，窗口标题 **valimart pi desk**。
 - 状态文件 `~/.pi/agent/valimart-desk.json`；上游密钥仍只在网关。不上 Electron 壳、Mixed、公司盘镜像。
+- 公司盘：登录后镜像到 `~/.pi/agent/valimart-drive/`（pull/push 个人记忆、`/desk-sync`）；工具 `company_memory_*`、`company_task_read/log/update/attach`，`/desk-task` 绑定当前卡。
 - 单测：`packages/pi-valimart-desk/test/pi-desk.test.mjs`（已并进根 `npm test`）。
 
 ## 现在在哪（卸 better-sidebar + 内核 0.1.5-rc.2 + 标题栏空隙）

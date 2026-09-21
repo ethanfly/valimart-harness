@@ -12,7 +12,9 @@
 | 局域网发现网关 | `/desk-discover`（只记下地址，不登录） |
 | llm-pi-ai 路由 `desk-gateway`（`/v1` + 网关令牌） | provider `valimart`（OpenAI completions） |
 | `company_knowledge` | 同名工具 |
-| 任务卡侧栏 | `company_tasks`（只读 list/get） |
+| 公司盘镜像 | `~/.pi/agent/valimart-drive/`（登录后同步，`/desk-sync`） |
+| 个人/共享记忆 | `company_memory_write` / `read` / `list` |
+| 任务卡 | `company_tasks`、`company_task_read` / `log` / `update` / `attach`；`/desk-task` 绑定 |
 | 公司交付简报技能 | `company-briefing` |
 
 **不上桌面壳**：Electron 标题栏、右侧栏、公司盘镜像、Mixed 三角色仍只在客户端。
@@ -34,7 +36,7 @@ pi --version
 
 ### 1. 从 npm 装（推荐）
 
-已发布 [`pi-valimart-desk@0.1.5`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
+已发布 [`pi-valimart-desk@0.1.6`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
 
 ```powershell
 pi install npm:pi-valimart-desk

@@ -26,6 +26,7 @@ import { DEFAULT_GATEWAY_URL, parseDeskLoginArgs } from "../lib/login-args.mjs";
 import { toPiModels, v1BaseUrl } from "../lib/models.mjs";
 import { publicView, saveState } from "../lib/state.mjs";
 import { createValimartHeader, PRODUCT_NAME } from "./header.ts";
+import { companyDrivePrompt, registerDrive, syncDriveQuiet } from "./drive-tools.ts";
 
 const PROVIDER_ID = "valimart";
 
@@ -185,6 +186,8 @@ function taskSummary(task: Record<string, unknown>) {
 
 export default function valimartPiDesk(pi: ExtensionAPI) {
   registerGatewayProvider(pi);
+  registerDrive(pi);
+  let driveTimer: ReturnType<typeof setInterval> | undefined;
 
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode === "tui") {
@@ -201,6 +204,19 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
       saveState({ needsRelogin: true, lastError: errText(err) });
       ctx.ui.setStatus("valimart", formatStatus());
     }
+    const sync = await syncDriveQuiet();
+    if (sync) ctx.ui.setStatus("valimart", `${formatStatus()} · 盘 ${sync.files}`);
+    if (driveTimer) clearInterval(driveTimer);
+    driveTimer = setInterval(() => {
+      syncDriveQuiet().catch(() => {});
+    }, 30_000);
+  });
+
+  pi.on("session_shutdown", () => {
+    if (driveTimer) {
+      clearInterval(driveTimer);
+      driveTimer = undefined;
+    }
   });
 
   pi.on("before_agent_start", async (event) => {
@@ -208,10 +224,10 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
     if (!isLoggedIn(state) || !event.systemPromptOptions?.sections) return;
     const who = state.user?.displayName || state.user?.username || "";
     const company = state.company?.name || "公司";
-    event.systemPromptOptions.sections.company = [
+    event.systemPromptOptions.sections.company = companyDrivePrompt() || [
       `你通过 valimart harness 公司网关干活（账号 ${who}，公司「${company}」）。`,
       "模型密钥只在网关。额度按人按周记账，满了会 429。",
-      "开工前用 company_knowledge 问「公司里有没有人做过」；任务卡用 company_tasks。",
+      "开工前用 company_knowledge 问「公司里有没有人做过」。",
       "口头说做完了不算完成：产物要能对上任务卡。",
     ].join("\n");
   });
@@ -255,7 +271,11 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
           const model = ctx.modelRegistry.find(PROVIDER_ID, first.id);
           if (model) await pi.setModel(model);
         }
-        ctx.ui.notify(`已登录 ${next.user?.displayName || next.user?.username} · ${catalogModels(next).length} 个模型`, "info");
+        const sync = await syncDriveQuiet();
+        ctx.ui.notify(
+          `已登录 ${next.user?.displayName || next.user?.username} · ${catalogModels(next).length} 个模型${sync ? ` · 公司盘 ${sync.files} 文件` : ""}`,
+          "info",
+        );
       } catch (err) {
         ctx.ui.notify(errText(err), "error");
       }
@@ -344,26 +364,35 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
     name: "company_knowledge",
     label: "公司知识",
     description:
-      "检索公司知识库第四层：岗位手册、共享经验、个人记忆、相关任务卡。只返回谁/何时/在哪/一小段上下文，不拷贝别人的会话。",
+      "企业知识库第四层通道。开工前先问「公司里有没有人做过」。在岗位手册 / 共享经验 / 个人记忆 / 相关任务格子和任务卡里按关键词搜，只返回谁、什么时候、在哪、一小段上下文；不拷贝会话。细节用 company_task_read 或读公司盘文件。",
     promptSnippet: "Search company knowledge (who / when / where)",
     promptGuidelines: [
       "Use company_knowledge before inventing company process or claiming nobody has done similar work.",
       "company_knowledge returns snippets only; follow the path or task id for details.",
     ],
     parameters: Type.Object({
-      q: Type.String({ description: "检索词，例如「验收流程」或任务关键词" }),
+      q: Type.Optional(Type.String({ description: "检索词" })),
+      query: Type.Optional(Type.String({ description: "检索词（与 q 相同）" })),
       limit: Type.Optional(Type.Number({ description: "最多条数，默认 20" })),
       kinds: Type.Optional(Type.String({ description: "可选过滤：handbook,shared,personal,task,skills，逗号分隔" })),
     }),
     async execute(_id, params) {
       try {
-        const result = await searchKnowledge(params.q, { limit: params.limit, kinds: params.kinds });
+        const q = String(params.query || params.q || "").trim();
+        const result = await searchKnowledge(q, { limit: params.limit, kinds: params.kinds });
         const hits = Array.isArray(result?.hits) ? result.hits : [];
-        const lines = hits.slice(0, 30).map((h: { kind?: string; who?: string; when?: string; path?: string; snippet?: string }) => {
-          const head = [h.kind, h.who, h.when].filter(Boolean).join(" · ");
-          return `- ${head}\n  ${h.path ?? ""}\n  ${h.snippet ?? ""}`;
+        if (!hits.length) {
+          return {
+            content: [{ type: "text" as const, text: `公司里没有人做过「${result.query ?? q}」（扫描了 ${result.scanned?.files ?? 0} 个文件、${result.scanned?.tasks ?? 0} 张任务卡）。` }],
+            details: result,
+          };
+        }
+        const lines = hits.map((h: Record<string, unknown>, i: number) => {
+          const head = `${i + 1}. [${h.kindLabel ?? h.kind}] ${h.title ?? ""}${h.statusLabel ? `（${h.statusLabel}）` : ""}`;
+          const meta = [h.who ? `谁：${h.who}` : null, `何时：${h.when}`, `在哪：${h.path}`, h.taskId ? `任务卡：${h.taskId}` : null].filter(Boolean).join(" · ");
+          return `${head}\n   ${meta}\n   ${h.snippet ?? ""}`;
         });
-        const text = lines.length ? `查询「${result.query}」${hits.length} 条\n${lines.join("\n")}` : `没有找到「${params.q}」`;
+        const text = `公司里做过「${result.query}」的记录 ${hits.length} 条（扫描 ${result.scanned?.files ?? 0} 个文件、${result.scanned?.tasks ?? 0} 张任务卡）：\n${lines.join("\n")}`;
         return { content: [{ type: "text" as const, text }], details: result };
       } catch (err) {
         return { content: [{ type: "text" as const, text: errText(err) }], details: { error: errText(err) }, isError: true };

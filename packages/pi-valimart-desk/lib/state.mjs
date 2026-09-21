@@ -6,9 +6,16 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+export function agentHome() {
+  return process.env.PI_AGENT_DIR || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent')
+}
+
 export function statePath() {
-  const home = process.env.PI_AGENT_DIR || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent')
-  return path.join(home, 'valimart-desk.json')
+  return path.join(agentHome(), 'valimart-desk.json')
+}
+
+export function defaultDriveDir() {
+  return path.join(agentHome(), 'valimart-drive')
 }
 
 export function defaults() {
@@ -24,6 +31,9 @@ export function defaults() {
     loggedInAt: null,
     lastError: null,
     needsRelogin: false,
+    driveDir: defaultDriveDir(),
+    lastSyncAt: null,
+    currentTaskId: null,
   }
 }
 
@@ -75,5 +85,8 @@ export function publicView(state = loadState()) {
     loggedInAt: state.loggedInAt,
     needsRelogin: !!state.needsRelogin,
     lastError: state.lastError,
+    driveDir: state.driveDir || defaultDriveDir(),
+    lastSyncAt: state.lastSyncAt,
+    currentTaskId: state.currentTaskId || null,
   }
 }

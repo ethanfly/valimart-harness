@@ -22,6 +22,8 @@ description: 公司交付工作台在 pi CLI 里怎么用：登录网关、任�
 
 ## 四层知识库
 
+公司盘镜像在 `~/.pi/agent/valimart-drive/`（登录后自动同步，也可 `/desk-sync`）。记忆用 `company_memory_write`；任务用 `/desk-task` 绑定后 `company_task_attach` 挂交付物。
+
 开工前先用 `company_knowledge` 问「公司里有没有人做过」：
 
 1. `_shared/handbook` — 岗位手册（全员只读）
