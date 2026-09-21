@@ -213,4 +213,19 @@ export async function addDeliverables(id, files) {
   return request('POST', `/api/tasks/${encodeURIComponent(id)}/deliverables`, { token, baseUrl, body: { files } })
 }
 
+export async function submitTask(id, { reviewerId }) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', `/api/tasks/${encodeURIComponent(id)}/submit`, { token, baseUrl, body: { reviewerId } })
+}
+
+export async function reviewTask(id, { decision, comment }) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', `/api/tasks/${encodeURIComponent(id)}/review`, { token, baseUrl, body: { decision, comment } })
+}
+
+export async function finalizeTask(id, { decision, comment }) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', `/api/tasks/${encodeURIComponent(id)}/final`, { token, baseUrl, body: { decision, comment } })
+}
+
 export { isLoggedIn, loadState }

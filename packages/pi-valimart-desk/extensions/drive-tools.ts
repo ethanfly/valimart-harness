@@ -3,8 +3,9 @@ import path from "node:path";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { addDeliverables, addTaskLog, createTask, getTask, listPeople, listTasks, patchTask } from "../lib/gateway.mjs";
+import { addDeliverables, addTaskLog, createTask, finalizeTask, getTask, listPeople, listTasks, patchTask, reviewTask, submitTask } from "../lib/gateway.mjs";
 import { formatTaskCard, peopleOptions, personIdFromChoice } from "../lib/people-options.mjs";
+import { assertDecision, canFinalize, canReview, canSubmit, hasDeliverables, reviewerOptions, workflowHint } from "../lib/task-workflow.mjs";
 import { zoneRoot } from "../lib/drive-paths.mjs";
 import { getMirror, syncDrive } from "../lib/drive-runtime.mjs";
 import { isLoggedIn, loadState, saveState } from "../lib/state.mjs";
@@ -39,6 +40,43 @@ async function fetchAndCard(taskId: string) {
   const task = r.task ?? r;
   getMirror().writeTaskCard(task);
   return task;
+}
+
+function meUser() {
+  return loadState().user;
+}
+
+async function persistTask(r: { task?: Record<string, unknown> } | Record<string, unknown>) {
+  const task = (r as { task?: Record<string, unknown> }).task ?? r;
+  getMirror().writeTaskCard(task);
+  return task as Record<string, unknown> & { id: string; title?: string; status?: string; statusLabel?: string };
+}
+
+async function pickVisibleTask(
+  ctx: { hasUI: boolean; ui: { select: (title: string, options: string[]) => Promise<string | undefined>; notify: Function } },
+  statuses?: string[],
+) {
+  const r = await listTasks();
+  let tasks = Array.isArray(r.tasks) ? r.tasks : [];
+  if (statuses?.length) tasks = tasks.filter((t: { status?: string }) => statuses.includes(String(t.status)));
+  if (!tasks.length) return null;
+  if (!ctx.hasUI) return tasks[0];
+  const labels = tasks.map((t: { id?: string; title?: string; statusLabel?: string; status?: string }) => `${t.id}  [${t.statusLabel ?? t.status}]  ${t.title}`);
+  const picked = await ctx.ui.select("选择任务卡", labels);
+  if (!picked) return null;
+  const id = String(picked).split(/\s+/)[0];
+  return tasks.find((t: { id?: string }) => t.id === id) ?? { id };
+}
+
+async function boundOrPick(
+  ctx: { hasUI: boolean; ui: { select: (title: string, options: string[]) => Promise<string | undefined>; notify: Function } },
+  statuses?: string[],
+) {
+  const bound = loadState().currentTaskId;
+  if (bound) return fetchAndCard(bound);
+  const picked = await pickVisibleTask(ctx, statuses);
+  if (!picked?.id) throw new Error("未绑定任务卡。用 /desk-task tk-xxxx 绑定");
+  return fetchAndCard(picked.id);
 }
 
 export function registerDrive(pi: ExtensionAPI) {
@@ -142,6 +180,110 @@ export function registerDrive(pi: ExtensionAPI) {
         saveState({ currentTaskId: task.id });
         getMirror().pull().catch(() => {});
         ctx.ui.notify(`已创建并绑定 ${task.id}「${task.title}」\n${formatTaskCard(task)}\n本机 ${getMirror().taskDir(task.id)}`, "info");
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("desk-task-submit", {
+    description: "提交验收：选审核人（总监/管理员），任务进入待审。必须先有交付物",
+    handler: async (_args, ctx) => {
+      try {
+        const task = await boundOrPick(ctx, ["draft", "rejected"]);
+        const me = meUser();
+        if (!canSubmit(task, me)) {
+          ctx.ui.notify(workflowHint(task), "warning");
+          return;
+        }
+        if (!hasDeliverables(task)) {
+          ctx.ui.notify("口头完成不算完成：请先把交付物挂到任务卡（company_task_attach）再提交验收", "error");
+          return;
+        }
+        if (!ctx.hasUI) {
+          ctx.ui.notify("提交验收请用交互模式 /desk-task-submit，或让 Agent 调 company_task_submit", "error");
+          return;
+        }
+        const people = await listPeople();
+        const options = reviewerOptions(people.users ?? [], me);
+        if (!options.length) {
+          ctx.ui.notify("没有可选审核人（需要总监或管理员，且不能是自己）", "error");
+          return;
+        }
+        const picked = await ctx.ui.select("发给谁验收", options.map((o) => o.label));
+        const reviewerId = personIdFromChoice(picked, options);
+        if (!reviewerId) {
+          ctx.ui.notify("已取消", "warning");
+          return;
+        }
+        const okGo = await ctx.ui.confirm("提交验收？", `${task.id}「${task.title}」将进入待审`);
+        if (!okGo) {
+          ctx.ui.notify("已取消", "warning");
+          return;
+        }
+        const next = await persistTask(await submitTask(task.id, { reviewerId }));
+        saveState({ currentTaskId: next.id });
+        ctx.ui.notify(`已提交验收\n${formatTaskCard(next)}\n${workflowHint(next)}`, "info");
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("desk-task-review", {
+    description: "初审：通过 → 待终审；驳回 → 驳回。仅指定审核人或管理员",
+    handler: async (_args, ctx) => {
+      try {
+        const task = await boundOrPick(ctx, ["pending_review"]);
+        const me = meUser();
+        if (!canReview(task, me)) {
+          ctx.ui.notify(workflowHint(task), "warning");
+          return;
+        }
+        if (!ctx.hasUI) {
+          ctx.ui.notify("初审请用交互模式 /desk-task-review，或 company_task_review", "error");
+          return;
+        }
+        const comment =
+          (typeof ctx.ui.editor === "function" ? await ctx.ui.editor("初审意见（可空）", "") : await ctx.ui.input("初审意见（可空）")) ?? "";
+        const picked = await ctx.ui.select("初审决定", ["通过 → 待终审", "驳回"]);
+        if (!picked) {
+          ctx.ui.notify("已取消", "warning");
+          return;
+        }
+        const decision = String(picked).startsWith("通过") ? "pass" : "reject";
+        const next = await persistTask(await reviewTask(task.id, { decision, comment: String(comment).trim() }));
+        ctx.ui.notify(`${decision === "pass" ? "初审通过 → 待终审" : "初审驳回"}\n${formatTaskCard(next)}`, "info");
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("desk-task-final", {
+    description: "终审：通过或驳回。仅管理员或派单的总监",
+    handler: async (_args, ctx) => {
+      try {
+        const task = await boundOrPick(ctx, ["pending_final"]);
+        const me = meUser();
+        if (!canFinalize(task, me)) {
+          ctx.ui.notify(workflowHint(task), "warning");
+          return;
+        }
+        if (!ctx.hasUI) {
+          ctx.ui.notify("终审请用交互模式 /desk-task-final，或 company_task_final", "error");
+          return;
+        }
+        const comment =
+          (typeof ctx.ui.editor === "function" ? await ctx.ui.editor("终审意见（可空）", "") : await ctx.ui.input("终审意见（可空）")) ?? "";
+        const picked = await ctx.ui.select("终审决定", ["终审通过", "驳回"]);
+        if (!picked) {
+          ctx.ui.notify("已取消", "warning");
+          return;
+        }
+        const decision = String(picked).startsWith("终审通过") ? "pass" : "reject";
+        const next = await persistTask(await finalizeTask(task.id, { decision, comment: String(comment).trim() }));
+        ctx.ui.notify(`${decision === "pass" ? "终审通过" : "终审驳回"}\n${formatTaskCard(next)}`, "info");
       } catch (err) {
         ctx.ui.notify(errText(err), "error");
       }
@@ -326,7 +468,93 @@ export function registerDrive(pi: ExtensionAPI) {
         const r = await addDeliverables(id, files);
         getMirror().writeTaskCard(r.task);
         getMirror().pull().catch(() => {});
-        return ok(`已挂载 ${args.paths.length} 个交付物到任务 ${id}：${(r.task.deliverables ?? []).map((d: { name?: string }) => d.name).join("、")}`);
+        return ok(`已挂载 ${args.paths.length} 个交付物到任务 ${id}：${(r.task.deliverables ?? []).map((d: { name?: string }) => d.name).join("、")}。下一步：写提交内容（company_task_update）后 company_task_submit 选审核人提交验收。`);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "company_task_submit",
+    label: "提交验收",
+    description:
+      "把任务卡提交验收，进入待审。必须先有交付物。审核人必须是总监或管理员且不能是自己。不传 reviewerId 时返回可选审核人列表，再带 reviewerId 调一次。不传 taskId 时用 /desk-task 绑定的任务。",
+    promptSnippet: "Submit a task card for review",
+    promptGuidelines: [
+      "After attaching deliverables and writing submission, use company_task_submit to send the card to a director/admin reviewer. Do not tell the user to click submit in the desktop UI.",
+      "If reviewerId is omitted, pick one id from the returned list and call again.",
+    ],
+    parameters: Type.Object({
+      reviewerId: Type.Optional(Type.String({ description: "审核人用户 id（总监或管理员）；省略则先列出候选人" })),
+      taskId: Type.Optional(Type.String()),
+    }),
+    async execute(_id, args) {
+      try {
+        const id = resolveTaskId(args.taskId);
+        const task = await fetchAndCard(id);
+        const me = meUser();
+        if (!canSubmit(task, me)) throw new Error(workflowHint(task));
+        if (!hasDeliverables(task)) throw new Error("口头完成不算完成：请先 company_task_attach 挂交付物再提交验收");
+        const people = await listPeople();
+        const options = reviewerOptions(people.users ?? [], me);
+        if (!options.length) throw new Error("没有可选审核人（需要总监或管理员，且不能是自己）");
+        if (!args.reviewerId) {
+          const text = `请选择审核人后再次调用 company_task_submit，传入 reviewerId：\n${options.map((o) => `- ${o.id}  ${o.label}`).join("\n")}`;
+          return ok(text, { taskId: id, reviewers: options });
+        }
+        const next = await persistTask(await submitTask(id, { reviewerId: args.reviewerId }));
+        return ok(`已提交验收 ${next.id}「${next.title}」（${next.statusLabel ?? next.status}）。${workflowHint(next)}`, next);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "company_task_review",
+    label: "初审",
+    description: "初审任务卡。decision=pass 进入待终审，reject 驳回。仅指定审核人或管理员。不传 taskId 时用绑定任务。",
+    promptSnippet: "First-round review of a task card",
+    promptGuidelines: ["Use company_task_review when the bound task is pending_review and the current user is the reviewer or admin."],
+    parameters: Type.Object({
+      decision: StringEnum(["pass", "reject"] as const, { description: "pass 通过 → 待终审；reject 驳回" }),
+      comment: Type.Optional(Type.String({ description: "审核意见" })),
+      taskId: Type.Optional(Type.String()),
+    }),
+    async execute(_id, args) {
+      try {
+        const decision = assertDecision(args.decision);
+        const id = resolveTaskId(args.taskId);
+        const task = await fetchAndCard(id);
+        if (!canReview(task, meUser())) throw new Error(workflowHint(task));
+        const next = await persistTask(await reviewTask(id, { decision, comment: args.comment ?? "" }));
+        return ok(`${decision === "pass" ? "初审通过 → 待终审" : "初审驳回"} ${next.id}「${next.title}」`, next);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "company_task_final",
+    label: "终审",
+    description: "终审任务卡。decision=pass 通过，reject 驳回。仅管理员或派单的总监。不传 taskId 时用绑定任务。",
+    promptSnippet: "Final review of a task card",
+    promptGuidelines: ["Use company_task_final when the bound task is pending_final and the current user is admin or the assigning director."],
+    parameters: Type.Object({
+      decision: StringEnum(["pass", "reject"] as const, { description: "pass 通过；reject 驳回" }),
+      comment: Type.Optional(Type.String({ description: "终审意见" })),
+      taskId: Type.Optional(Type.String()),
+    }),
+    async execute(_id, args) {
+      try {
+        const decision = assertDecision(args.decision);
+        const id = resolveTaskId(args.taskId);
+        const task = await fetchAndCard(id);
+        if (!canFinalize(task, meUser())) throw new Error(workflowHint(task));
+        const next = await persistTask(await finalizeTask(id, { decision, comment: args.comment ?? "" }));
+        return ok(`${decision === "pass" ? "终审通过" : "终审驳回"} ${next.id}「${next.title}」`, next);
       } catch (err) {
         return fail(err);
       }
@@ -350,12 +578,18 @@ export function companyDrivePrompt() {
     `- _office/${u.username}/_memory/ 你的个人记忆（跟人走）。值得复用的做法、踩过的坑，用 company_memory_write 写进去。`,
     `- projects/inbox/<任务ID>/ 任务交付物；每个任务目录里的 _task-card.md / _worklog.md 是任务卡与工作日志。`,
     `- 第四层是检索，不是知识库本身：开工前用 company_knowledge 问「公司里有没有人做过」，只拿到谁/何时/在哪，不拷贝别人的会话；细节去读那张任务卡。`,
-    `规则：口头完成不算完成——交付必须是文件，用 company_task_attach 挂到任务卡；做完把结论写进提交内容（company_task_update），过程记进工作日志（company_task_log）。`,
+    `规则：口头完成不算完成。交付必须是文件（company_task_attach）；结论写进提交内容（company_task_update）；过程记进工作日志（company_task_log）；交活用 company_task_submit 选审核人提交验收（进入待审）。初审 company_task_review，终审 company_task_final。不要让用户去桌面客户端点按钮。`,
   ];
   const taskId = state.currentTaskId;
   if (taskId) {
     const dir = getMirror().taskDir(taskId);
     lines.push("", `当前绑定任务卡 ${taskId}。任务格子（本机目录）：${dir}`, `- 交付物写到这个目录，再用 company_task_attach 挂卡。`);
+    try {
+      const card = JSON.parse(fs.readFileSync(path.join(dir, "_task-card.json"), "utf8"));
+      lines.push(`- 下一步：${workflowHint(card)}`);
+    } catch {
+      /* 尚未同步 json */
+    }
     try {
       lines.push("", fs.readFileSync(path.join(dir, "_task-card.md"), "utf8"));
     } catch {

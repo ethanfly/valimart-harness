@@ -9,6 +9,7 @@ import { GATEWAY_COMPAT, inferModelInput, isChatModel, normalizeReasoningEfforts
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
 import { assertInside, zoneRoot } from '../lib/drive-paths.mjs'
 import { peopleOptions, personIdFromChoice } from '../lib/people-options.mjs'
+import { assertDecision, canFinalize, canReview, canSubmit, hasDeliverables, reviewerOptions, workflowHint } from '../lib/task-workflow.mjs'
 import { driveLog, setDriveLogSink } from '../lib/drive-runtime.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
@@ -159,6 +160,56 @@ describe('peopleOptions', () => {
     assert.equal(admin.length, 2)
     assert.equal(admin[0].id, 'u2')
     assert.equal(personIdFromChoice(admin[1].label, admin), 'u1')
+  })
+})
+
+describe('task workflow', () => {
+  const emp = { id: 'u1', username: 'emp-a', role: 'employee' }
+  const boss = { id: 'u2', username: 'boss', role: 'admin' }
+  const dir = { id: 'u3', username: 'dir', role: 'director' }
+  const users = [
+    { id: 'u1', username: 'emp-a', displayName: '员工A', role: 'employee' },
+    { id: 'u2', username: 'boss', displayName: '老板', role: 'admin' },
+    { id: 'u3', username: 'dir', displayName: '总监', role: 'director' },
+  ]
+
+  it('reviewerOptions drops employees and self', () => {
+    const forEmp = reviewerOptions(users, emp)
+    assert.deepEqual(forEmp.map((o) => o.id).sort(), ['u2', 'u3'])
+    const forBoss = reviewerOptions(users, boss)
+    assert.deepEqual(forBoss.map((o) => o.id), ['u3'])
+  })
+
+  it('canSubmit only draft/rejected by assignee or admin', () => {
+    const draft = { status: 'draft', assigneeId: 'u1', deliverables: [{ name: 'a.md' }] }
+    assert.equal(canSubmit(draft, emp), true)
+    assert.equal(canSubmit(draft, dir), false)
+    assert.equal(canSubmit(draft, boss), true)
+    assert.equal(canSubmit({ ...draft, status: 'pending_review' }, emp), false)
+    assert.equal(canSubmit({ ...draft, status: 'rejected' }, emp), true)
+  })
+
+  it('canReview / canFinalize match 四格', () => {
+    const pending = { status: 'pending_review', reviewerId: 'u3', assigneeId: 'u1' }
+    assert.equal(canReview(pending, dir), true)
+    assert.equal(canReview(pending, emp), false)
+    assert.equal(canReview(pending, boss), true)
+    const fin = { status: 'pending_final', assignerId: 'u3', assigneeId: 'u1' }
+    assert.equal(canFinalize(fin, boss), true)
+    assert.equal(canFinalize(fin, dir), true)
+    assert.equal(canFinalize(fin, emp), false)
+  })
+
+  it('workflowHint tells agent to submit, never that the channel cannot', () => {
+    const empty = { status: 'draft', deliverables: [] }
+    assert.match(workflowHint(empty), /company_task_attach/)
+    assert.match(workflowHint({ status: 'draft', deliverables: [{ name: 'a' }], submission: 'done' }), /company_task_submit/)
+    assert.equal(workflowHint(empty).includes('不能提交'), false)
+    assert.match(workflowHint({ status: 'pending_review' }), /company_task_review/)
+    assert.match(workflowHint({ status: 'pending_final' }), /company_task_final/)
+    assert.equal(hasDeliverables({ deliverables: [] }), false)
+    assert.equal(assertDecision('pass'), 'pass')
+    assert.throws(() => assertDecision('ok'))
   })
 })
 

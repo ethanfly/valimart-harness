@@ -431,12 +431,20 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
   pi.registerTool({
     name: "company_tasks",
     label: "任务卡",
-    description: "列出或查看公司任务卡（待初审 / 待终审 / 通过 / 退回）。不创建、不提交验收。",
+    description: "列出或查看公司任务卡（进行中 / 待审 / 待终审 / 通过 / 驳回）。只读。交活用 company_task_submit，初审 company_task_review，终审 company_task_final。",
     promptSnippet: "List or read company task cards",
-    promptGuidelines: ["Use company_tasks to list visible task cards or fetch one by id. Do not claim a task is done unless the card status says so."],
+    promptGuidelines: [
+      "Use company_tasks to list visible task cards or fetch one by id.",
+      "Do not claim a task is done unless status is approved. To submit for review use company_task_submit, not this tool.",
+    ],
     parameters: Type.Object({
       action: StringEnum(["list", "get"] as const, { description: "list 列出可见任务；get 查看一张" }),
       id: Type.Optional(Type.String({ description: "get 时的任务 id" })),
+      status: Type.Optional(
+        StringEnum(["draft", "pending_review", "pending_final", "approved", "rejected"] as const, {
+          description: "list 时按状态过滤",
+        }),
+      ),
     }),
     async execute(_id, params) {
       try {
@@ -449,11 +457,13 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
           return { content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }], details: task };
         }
         const result = await listTasks();
-        const tasks = Array.isArray(result.tasks) ? result.tasks.map(taskSummary) : [];
-        const text = tasks.length
-          ? tasks.map((t: { id?: string; title?: string; status?: string }) => `- ${t.id}  [${t.status}]  ${t.title}`).join("\n")
+        let tasks = Array.isArray(result.tasks) ? result.tasks : [];
+        if (params.status) tasks = tasks.filter((t: { status?: string }) => t.status === params.status);
+        const rows = tasks.map(taskSummary);
+        const text = rows.length
+          ? rows.map((t: { id?: string; title?: string; status?: string }) => `- ${t.id}  [${t.status}]  ${t.title}`).join("\n")
           : "没有可见任务卡";
-        return { content: [{ type: "text" as const, text }], details: { tasks, statuses: result.statuses } };
+        return { content: [{ type: "text" as const, text }], details: { tasks: rows, statuses: result.statuses } };
       } catch (err) {
         return { content: [{ type: "text" as const, text: errText(err) }], details: { error: errText(err) }, isError: true };
       }

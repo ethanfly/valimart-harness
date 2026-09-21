@@ -14,10 +14,10 @@
 | `company_knowledge` | 同名工具 |
 | 公司盘镜像 | `~/.pi/agent/valimart-drive/`（登录后同步，`/desk-sync`） |
 | 个人/共享记忆 | `company_memory_write` / `read` / `list` |
-| 任务卡 | `company_tasks`、`company_task_read` / `log` / `update` / `attach`；`/desk-task` 绑定 |
+| 任务卡四格 | `company_tasks`、`company_task_read` / `log` / `update` / `attach` / **`submit` / `review` / `final`**；`/desk-task` 绑定，`/desk-task-submit` 提交验收 |
 | 公司交付简报技能 | `company-briefing` |
 
-**不上桌面壳**：Electron 标题栏、右侧栏、公司盘镜像、Mixed 三角色仍只在客户端。
+**不上桌面壳**：Electron 标题栏、右侧栏、Mixed 三角色仍只在客户端。任务卡四格（提交/初审/终审）在本包即可走完。
 
 密钥仍只在网关。本机 `~/.pi/agent/valimart-desk.json` 只存登录会话令牌和网关令牌。
 
@@ -36,7 +36,7 @@ pi --version
 
 ### 1. 从 npm 装（推荐）
 
-已发布 [`pi-valimart-desk@0.1.8`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
+已发布 [`pi-valimart-desk`](https://www.npmjs.com/package/pi-valimart-desk)（本仓库 0.1.9）。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
 
 ```powershell
 pi install npm:pi-valimart-desk
@@ -100,5 +100,8 @@ pi
 - `/desk-tasks` 查看任务卡列表并可选绑定
 - `/desk-task [任务ID]` 绑定 / 查看当前卡
 - `/desk-task-new` 交互式新建（标题、内容、指派人列表）
+- `/desk-task-submit` 选审核人提交验收（须先有交付物）
+- `/desk-task-review` 初审通过/驳回
+- `/desk-task-final` 终审通过/驳回
 
 环境变量：`DESK_GATEWAY_URL`、`DESK_GATEWAY_USER`、`DESK_GATEWAY_PASSWORD`、`PI_AGENT_DIR` / `PI_CODING_AGENT_DIR`（状态文件目录，默认 `~/.pi/agent`）。
