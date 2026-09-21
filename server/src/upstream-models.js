@@ -5,7 +5,7 @@
 import { HttpError } from './http.js'
 import { inferUpstreamApi, usesAnthropicMessages, anthropicHeaders } from './upstream-anthropic.js'
 import { usesChatgptCodex } from './upstream-chatgpt.js'
-import { usesGeminiCodeAssist } from './upstream-gemini.js'
+import { usesCloudCodePa } from './upstream-gemini.js'
 
 const DEFAULT_EFFORTS = ['low', 'medium', 'high']
 
@@ -35,6 +35,12 @@ export const FALLBACK_CATALOGS = {
   grok: [
     { id: 'grok-4.6', contextWindow: 256_000, maxTokens: 32_000, reasoningEfforts: ['low', 'high'] },
     { id: 'grok-4.6-fast', contextWindow: 256_000, maxTokens: 16_384, reasoningEfforts: ['low', 'high'] },
+  ],
+  antigravity: [
+    { id: 'gemini-3.5-flash', contextWindow: 1_048_576, maxTokens: 65_536, reasoningEfforts: ['low', 'high'] },
+    { id: 'gemini-3.1-pro-preview', contextWindow: 1_048_576, maxTokens: 65_536, reasoningEfforts: ['low', 'high'] },
+    { id: 'gemini-2.5-pro', contextWindow: 1_048_576, maxTokens: 65_536, reasoningEfforts: ['low', 'high'] },
+    { id: 'gemini-2.5-flash', contextWindow: 1_048_576, maxTokens: 65_536, reasoningEfforts: ['low', 'high'] },
   ],
   openai: [
     { id: 'gpt-5.5', contextWindow: 256_000, maxTokens: 32_768, reasoningEfforts: DEFAULT_EFFORTS },
@@ -119,8 +125,8 @@ export async function discoverUpstreamModels({
   timeoutMs = 12_000,
 } = {}) {
   const upstream = { baseUrl, api: api || inferUpstreamApi(baseUrl), authStyle }
-  if (usesGeminiCodeAssist(upstream)) {
-    return { models: fallbackModelsFor(channel), source: 'fallback', reason: 'Gemini 订阅无公开 /models；显示内置候选目录，模型权限以 Google 账号为准。' }
+  if (usesCloudCodePa(upstream)) {
+    return { models: fallbackModelsFor(channel), source: 'fallback', reason: 'Cloud Code / Antigravity 无公开 /models；显示内置候选目录，模型权限以 Google 账号为准。' }
   }
   if (usesChatgptCodex(upstream)) {
     return { models: fallbackModelsFor(channel ?? { id: 'chatgpt' }), source: 'fallback', reason: 'chatgpt-codex 无公开 /models' }

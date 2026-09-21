@@ -78,7 +78,7 @@ export function installKernelPackage({ version, prefix, log = () => {}, registry
     log('执行依赖安装脚本（koffi、node-pty 等）')
     runNpm(['rebuild', '-g', '--prefix', prefix, '--ignore-scripts=false', '--no-fund', '--no-audit'])
   }
-  // 内核就位后装 profile 插件（better-sidebar / dsh-browser）。它们随 kernel.tar 离线分发，
+  // 内核就位后装 profile 插件（dsh-browser / anysearch 等）。它们随 kernel.tar 离线分发，
   // 员工机器不需要 npm/pnpm；装进内核前缀的 node_modules 会被 profile 的 bundle 解析到。
   installProfilePlugins({ prefix, log, registry })
 }
@@ -97,6 +97,39 @@ export function profilePluginStatus({ prefix, plugins = PIN.profilePlugins ?? []
   })
 }
 
+/** stamp.profilePlugins 条目是 `name@version`（scoped 名里还有 @）。 */
+export function stampPluginName(entry) {
+  const s = String(entry ?? '')
+  const i = s.lastIndexOf('@')
+  return i > 0 ? s.slice(0, i) : s
+}
+
+/**
+ * 卸掉前缀里已不在 pin 的 profile 插件（含历史上随包的 dsh-better-sidebar）。
+ * 只删插件自己的目录，不扫它曾经拷进来的第三方依赖。
+ */
+export function removeUnpinnedProfilePlugins({ prefix, plugins = PIN.profilePlugins ?? [], log = () => {} }) {
+  const keep = new Set(plugins.map((p) => p.name))
+  let stamp = null
+  try {
+    stamp = JSON.parse(fs.readFileSync(stampPath(prefix), 'utf8'))
+  } catch {
+    stamp = null
+  }
+  const names = new Set(['dsh-better-sidebar', ...(stamp?.profilePlugins ?? []).map(stampPluginName)])
+  const modules = path.join(prefix, 'node_modules')
+  const removed = []
+  for (const name of names) {
+    if (!name || keep.has(name)) continue
+    const dir = path.join(modules, name)
+    if (!fs.existsSync(dir)) continue
+    fs.rmSync(dir, { recursive: true, force: true })
+    log(`卸载插件 ${name}`)
+    removed.push(name)
+  }
+  return removed
+}
+
 /**
  * 把 pin.json 的 profilePlugins 装进内核前缀。
  *
@@ -107,6 +140,7 @@ export function profilePluginStatus({ prefix, plugins = PIN.profilePlugins ?? []
  * 插件自己的包除外），最后删 staging。prune 里的包只服务预打包的浏览器端 bundle，不拷。
  */
 export function installProfilePlugins({ prefix, plugins = PIN.profilePlugins ?? [], log = () => {}, registry, force = false }) {
+  removeUnpinnedProfilePlugins({ prefix, plugins, log })
   if (!plugins.length) return []
   const modules = path.join(prefix, 'node_modules')
   fs.mkdirSync(modules, { recursive: true })

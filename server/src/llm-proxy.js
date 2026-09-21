@@ -23,9 +23,9 @@ import {
   toCodexResponsesBody,
   usesChatgptCodex,
 } from './upstream-chatgpt.js'
-import { isUpstreamQuotaExhausted } from './upstream-quota.js'
+import { isUpstreamQuotaExhausted, quotaExhaustedMessage } from './upstream-quota.js'
 import { openaiCompatUrl } from './upstream-models.js'
-import { sendGeminiRequest, usesGeminiCodeAssist } from './upstream-gemini.js'
+import { sendGeminiRequest, usesCloudCodePa } from './upstream-gemini.js'
 import {
   dashscopeOrigin,
   parseDashscopeImage,
@@ -409,6 +409,9 @@ export class LlmProxy {
     if (!upstreamRes.ok) {
       const text = await upstreamRes.text()
       finish(undefined, 'upstream_' + upstreamRes.status)
+      if (isUpstreamQuotaExhausted(upstreamRes.status, text)) {
+        throw new HttpError(429, quotaExhaustedMessage(upstream), 'upstream_quota_exhausted')
+      }
       res.writeHead(upstreamRes.status, { 'content-type': upstreamRes.headers.get('content-type') ?? 'application/json' })
       res.end(text)
       return
@@ -518,6 +521,9 @@ export class LlmProxy {
         current = bind(await this.prepareUpstream(current, { force: true, accountId: acc?.id }), acc)
         res = await this.sendUpstream(current, body, model, opts)
       }
+      if (acc?.id && isUpstreamQuotaExhausted(res.status, await res.clone().text().catch(() => ''))) {
+        this.channels?.markAccountExhausted?.(upstream.channel, acc.id, { error: 'quota exhausted' })
+      }
       return res
     }
     let last = null
@@ -531,10 +537,12 @@ export class LlmProxy {
       }
       if (res.ok) return res
       const peek = await res.clone().text().catch(() => '')
-      if (isUpstreamQuotaExhausted(res.status, peek) && i < pool.length - 1) {
+      if (isUpstreamQuotaExhausted(res.status, peek)) {
         this.channels?.markAccountExhausted?.(upstream.channel, acc.id, { error: peek.slice(0, 200) })
-        last = res
-        continue
+        if (i < pool.length - 1) {
+          last = res
+          continue
+        }
       }
       return res
     }
@@ -697,7 +705,7 @@ export class LlmProxy {
       if (usesDashscopeImages(upstream) && String(apiPath).includes('/images')) {
         return this.dashscopeImages(upstream, body, model, apiPath, { signal })
       }
-      if (usesAnthropicMessages(upstream) || usesGeminiCodeAssist(upstream)) {
+      if (usesAnthropicMessages(upstream) || usesCloudCodePa(upstream)) {
         throw new HttpError(400, '该上游不支持媒体接口（仅 OpenAI 兼容通道，如 Grok / xAI）', 'media_unsupported')
       }
       const forward = mediaForwardBody(body, model, apiPath)
@@ -709,7 +717,7 @@ export class LlmProxy {
         signal,
       })
     }
-    if (usesGeminiCodeAssist(upstream)) return sendGeminiRequest(upstream, body, model, { stream, signal })
+    if (usesCloudCodePa(upstream)) return sendGeminiRequest(upstream, body, model, { stream, signal })
     if (usesChatgptCodex(upstream)) {
       const forward = toCodexResponsesBody({ ...body, stream: true }, model)
       return fetch(chatgptResponsesUrl(upstream.baseUrl), {

@@ -12,9 +12,9 @@ import {
   annotateDiscoverWithNpm, fetchNpmVersions, resolveNpmRegistry,
 } from '../lib/kernel-update.mjs'
 import { fetchKernelUpdate } from '../../plugins/desk-host/lib/kernel-update.js'
-import { packPatchedPrefix, formatNpmInstallError, prepareKernelTarball } from '../lib/kernel-prepare.mjs'
+import { packPatchedPrefix, formatNpmInstallError, prepareKernelTarball, removeUnpinnedProfilePlugins } from '../lib/kernel-prepare.mjs'
 import { ALL_MARKS, KernelPatchError } from '../kernel/patches.mjs'
-import { locateKernel } from '../kernel/locate.mjs'
+import { locateKernel, PIN, stampPath } from '../kernel/locate.mjs'
 import { applyPendingKernel, findTar, preparePackaged } from '../lib/bootstrap.mjs'
 
 function writeBareKernel(prefix, version) {
@@ -27,7 +27,7 @@ function writeBareKernel(prefix, version) {
 /** 与 bootstrap.test pinSkillsRoot 假内核相同：每个补丁文件只写 mark，yml 放 v2 骨架。 */
 function writeMarkedKernel(prefix, version) {
   writeBareKernel(prefix, version)
-  for (const name of ['dsh-better-sidebar', '@anweat/dsh-browser', '@anysearch/anysearch-dsh']) {
+  for (const { name } of PIN.profilePlugins ?? []) {
     const plugin = path.join(prefix, 'node_modules', name)
     fs.mkdirSync(path.join(plugin, 'lib'), { recursive: true })
     fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({ name }))
@@ -355,17 +355,39 @@ test('更新包有全部补丁但遗漏面板插件：拒绝打包和切换，�
   const skillsDir = path.join(dir, 'skills')
   writeMarkedKernel(targetPrefix, '1.0.0')
   writeMarkedKernel(src, '9.0.0')
-  fs.rmSync(path.join(src, 'node_modules', 'dsh-better-sidebar'), { recursive: true })
-  assert.throws(() => packPatchedPrefix({ prefix: src, version: '9.0.0', outDir: path.join(dir, 'out'), skillsDir }), /缺少必需插件.*dsh-better-sidebar/)
+  const required = PIN.profilePlugins[0].name
+  const requiredRe = new RegExp('缺少必需插件.*' + required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  fs.rmSync(path.join(src, 'node_modules', required), { recursive: true })
+  assert.throws(() => packPatchedPrefix({ prefix: src, version: '9.0.0', outDir: path.join(dir, 'out'), skillsDir }), requiredRe)
   fs.mkdirSync(pendingDir)
   packPrefixTar(src, pendingPaths(pendingDir).tar)
   writePending(pendingDir, { version: '9.0.0', sha256: hashFile(pendingPaths(pendingDir).tar) })
   const result = applyPendingKernel({ pendingDir, targetPrefix, skillsDir })
   assert.equal(result.applied, false)
-  assert.match(result.detail, /缺少必需插件.*dsh-better-sidebar/)
+  assert.match(result.detail, requiredRe)
   assert.equal(locateKernel(targetPrefix).version, '1.0.0')
-  assert.ok(fs.existsSync(path.join(targetPrefix, 'node_modules', 'dsh-better-sidebar', 'lib', 'index.js')))
+  assert.ok(fs.existsSync(path.join(targetPrefix, 'node_modules', required, 'lib', 'index.js')))
   assert.equal(readPending(pendingDir), null)
+})
+
+test('removeUnpinnedProfilePlugins：卸掉 stamp 里已不在 pin 的插件', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-unpin-plugin-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  writeBareKernel(dir, '9.0.0')
+  const leftover = path.join(dir, 'node_modules', 'dsh-better-sidebar')
+  fs.mkdirSync(path.join(leftover, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(leftover, 'package.json'), '{"name":"dsh-better-sidebar"}\n')
+  const keptName = PIN.profilePlugins[0].name
+  const kept = path.join(dir, 'node_modules', keptName)
+  fs.mkdirSync(path.join(kept, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(kept, 'package.json'), JSON.stringify({ name: keptName }) + '\n')
+  fs.writeFileSync(stampPath(dir), JSON.stringify({
+    profilePlugins: ['dsh-better-sidebar@0.18.0', `${keptName}@9.9.9`],
+  }) + '\n')
+  const removed = removeUnpinnedProfilePlugins({ prefix: dir, log: () => {} })
+  assert.deepEqual(removed, ['dsh-better-sidebar'])
+  assert.equal(fs.existsSync(leftover), false)
+  assert.ok(fs.existsSync(path.join(kept, 'package.json')))
 })
 
 function shaOf(buf) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createGeminiSseTranslator, fromGeminiResponse, sendGeminiRequest, setupGeminiProject, toGeminiBody } from '../src/upstream-gemini.js'
+import { createGeminiSseTranslator, fromGeminiResponse, sendGeminiRequest, setupGeminiProject, toGeminiBody, usesAntigravity } from '../src/upstream-gemini.js'
 
 const model = { id: 'gemini-test', upstreamModel: 'gemini-3.1-pro-preview', maxTokens: 4096 }
 const wrap = (parts, finishReason, usageMetadata) => ({ response: { candidates: [{ content: { role: 'model', parts }, ...(finishReason ? { finishReason } : {}) }], ...(usageMetadata ? { usageMetadata } : {}) } })
@@ -157,9 +157,26 @@ test('Gemini：识别个人版客户端停用，显示迁移说明而非项目�
     await assert.rejects(setupGeminiProject({ credential: 'token', fetchImpl: async () => Response.json(payload, { status }) }), (err) => {
       assert.equal(err.code, 'gemini_client_retired')
       assert.match(err.message, /2026-06-18/)
-      assert.match(err.message, /尚未实现 Antigravity/)
+      assert.match(err.message, /Antigravity/)
       assert.doesNotMatch(err.message, /private-response-marker/)
       return true
     })
   }
+})
+
+test('Antigravity：不走 loadCodeAssist，请求不含 project', async () => {
+  const seen = []
+  const fetchImpl = async (url, opts) => {
+    seen.push({ url, headers: opts.headers, body: JSON.parse(opts.body) })
+    return Response.json({ response: { candidates: [{ content: { role: 'model', parts: [{ text: 'ag' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 } } })
+  }
+  const upstream = { api: 'antigravity', resolvedKey: 'tok', baseUrl: 'https://cloudcode-pa.googleapis.com/v1internal' }
+  assert.equal(usesAntigravity(upstream), true)
+  const res = await sendGeminiRequest(upstream, { messages: [{ role: 'user', content: 'hi' }] }, model, { fetchImpl })
+  assert.equal(res.ok, true)
+  assert.equal(seen.length, 1)
+  assert.match(seen[0].url, /:generateContent$/)
+  assert.equal(seen[0].headers['user-agent'], 'antigravity')
+  assert.equal(seen[0].body.project, undefined)
+  assert.equal((await res.json()).choices[0].message.content, 'ag')
 })

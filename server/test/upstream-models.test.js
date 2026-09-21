@@ -9,7 +9,7 @@ import {
   openaiCompatUrl,
   normalizeDiscoveredModel,
 } from '../src/upstream-models.js'
-import { isUpstreamQuotaExhausted } from '../src/upstream-quota.js'
+import { isUpstreamQuotaExhausted, quotaExhaustedMessage } from '../src/upstream-quota.js'
 
 test('inferModelMeta：按 id 自动补上下文与思考强度', () => {
   const gpt = inferModelMeta('gpt-5.5')
@@ -85,6 +85,9 @@ test('mergeDiscoveredModels：单模型上下文优先于通道默认', () => {
 test('isUpstreamQuotaExhausted：额度用尽才切号，普通 429 不切', () => {
   assert.equal(isUpstreamQuotaExhausted(402, ''), true)
   assert.equal(isUpstreamQuotaExhausted(429, '{"error":{"code":"insufficient_quota"}}'), true)
+  assert.equal(isUpstreamQuotaExhausted(429, '{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}'), true)
   assert.equal(isUpstreamQuotaExhausted(429, 'too many requests'), false)
   assert.equal(isUpstreamQuotaExhausted(400, 'bad request'), false)
+  assert.match(quotaExhaustedMessage({ api: 'antigravity', channel: 'antigravity' }), /Antigravity/)
+  assert.match(quotaExhaustedMessage({ api: 'gemini-code-assist' }), /Gemini/)
 })

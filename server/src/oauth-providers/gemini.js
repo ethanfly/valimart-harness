@@ -2,7 +2,7 @@
  * Reference: https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/oauth2.ts
  * The loopback callback is pasted back, so login also works with a remote gateway.
  */
-export const GEMINI_MIGRATION_NOTICE = 'Google 已于 2026-06-18 停用 Gemini CLI 的个人 Google AI Pro / Ultra 接入，请迁移到 https://antigravity.google 。当前网关尚未实现 Antigravity 接入，重试旧登录或配置项目 ID 不能恢复个人订阅。Gemini Code Assist Standard / Enterprise 不在此次停用范围内。'
+export const GEMINI_MIGRATION_NOTICE = 'Google 已于 2026-06-18 停用 Gemini CLI 的个人 Google AI Pro / Ultra 接入。请在「加入订阅」里选 Antigravity 通道（与 CPA / CLIProxyAPI 同一套 Cloud Code 客户端）。不要重试本通道或配置项目 ID。Gemini Code Assist Standard / Enterprise 可继续用本通道。'
 
 export const geminiProvider = {
   id: 'gemini',

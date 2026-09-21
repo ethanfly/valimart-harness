@@ -1,0 +1,366 @@
+/**
+ * valimart pi desk（惠利玛）：公司网关当模型路由，补上 CLI 没有的登录 / 知识检索 / 任务卡。
+ *
+ * /login valimart 或 /desk-login
+ * /model 选 valimart/<公司目录里的模型>
+ */
+import os from "node:os";
+import { StringEnum, type OAuthCredentials, type OAuthLoginCallbacks } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { discoverGateways } from "../lib/discover.mjs";
+import {
+  fetchMe,
+  GatewayError,
+  getTask,
+  isLoggedIn,
+  listTasks,
+  loadState,
+  login,
+  logout,
+  normalizeGatewayUrl,
+  searchKnowledge,
+} from "../lib/gateway.mjs";
+import { DEFAULT_GATEWAY_URL, parseDeskLoginArgs } from "../lib/login-args.mjs";
+import { toPiModels, v1BaseUrl } from "../lib/models.mjs";
+import { publicView, saveState } from "../lib/state.mjs";
+import { createValimartHeader, PRODUCT_NAME } from "./header.ts";
+
+const PROVIDER_ID = "valimart";
+
+function errText(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function catalogModels(state = loadState()) {
+  const baseUrl = v1BaseUrl(state.gatewayUrl || DEFAULT_GATEWAY_URL);
+  return toPiModels(state.models ?? [], { baseUrl });
+}
+
+function registerGatewayProvider(pi: ExtensionAPI) {
+  const state = loadState();
+  const baseUrl = v1BaseUrl(state.gatewayUrl || DEFAULT_GATEWAY_URL);
+  const models = catalogModels(state);
+  pi.unregisterProvider(PROVIDER_ID);
+  pi.registerProvider(PROVIDER_ID, {
+    name: PRODUCT_NAME,
+    baseUrl,
+    api: "openai-completions",
+    apiKey: state.gatewayToken || undefined,
+    authHeader: true,
+    ...(models.length ? { models } : {}),
+    async refreshModels() {
+      if (!isLoggedIn()) return catalogModels();
+      try {
+        const next = await fetchMe();
+        return catalogModels(next);
+      } catch (err) {
+        if (err instanceof GatewayError && (err.status === 401 || err.code === "not_logged_in")) {
+          saveState({ needsRelogin: true, lastError: err.message });
+        }
+        return catalogModels();
+      }
+    },
+    oauth: {
+      name: `${PRODUCT_NAME} 公司网关`,
+      isSubscription: true,
+      async login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
+        const current = loadState();
+        const urlRaw =
+          (await callbacks.onPrompt({
+            message: `网关地址（回车 = ${current.gatewayUrl || DEFAULT_GATEWAY_URL}）`,
+          })) || current.gatewayUrl || DEFAULT_GATEWAY_URL;
+        const url = normalizeGatewayUrl(urlRaw) || DEFAULT_GATEWAY_URL;
+        const username = (await callbacks.onPrompt({ message: "公司账号" })).trim();
+        const password = await callbacks.onPrompt({ message: "密码" });
+        callbacks.onProgress?.("正在登录公司网关…");
+        const next = await login({
+          gatewayUrl: url,
+          username,
+          password,
+          device: `pi-agent (${os.hostname()})`,
+        });
+        registerGatewayProvider(pi);
+        return {
+          access: next.gatewayToken,
+          refresh: next.sessionToken,
+          expires: Date.now() + 30 * 24 * 3600 * 1000,
+        };
+      },
+      async refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials> {
+        if (credentials.refresh) saveState({ sessionToken: credentials.refresh, gatewayToken: credentials.access });
+        const next = await fetchMe();
+        registerGatewayProvider(pi);
+        return {
+          access: next.gatewayToken || credentials.access,
+          refresh: next.sessionToken || credentials.refresh,
+          expires: Date.now() + 30 * 24 * 3600 * 1000,
+        };
+      },
+      getApiKey(credentials: OAuthCredentials) {
+        return credentials.access;
+      },
+    },
+  });
+}
+
+function formatStatus(state = loadState()) {
+  if (!isLoggedIn(state)) return state.needsRelogin ? "valimart: 需重新登录" : "valimart: 未登录";
+  const who = state.user?.displayName || state.user?.username || "已登录";
+  const company = state.company?.name ? `@${state.company.name}` : "";
+  return `valimart: ${who}${company}`;
+}
+
+function summarizeQuota(quota: unknown) {
+  if (!Array.isArray(quota) || quota.length === 0) return "额度：无";
+  return quota
+    .map(
+      (q: {
+        label?: string;
+        kind?: string;
+        usedCny?: unknown;
+        limitCny?: unknown;
+        usedTokens?: unknown;
+        limitTokens?: unknown;
+        usedPct?: unknown;
+        refreshAt?: string;
+      }) => {
+        const name = q.label || "总额度";
+        const used = q.kind === "tokens" ? q.usedTokens : q.usedCny;
+        const limit = q.kind === "tokens" ? q.limitTokens : q.limitCny;
+        const unit = q.kind === "tokens" ? "token" : "元";
+        const pct = q.usedPct != null ? ` ${q.usedPct}%` : "";
+        const refresh = q.refreshAt ? ` 刷新 ${q.refreshAt}` : "";
+        return `${name} ${used}/${limit} ${unit}${pct}${refresh}`;
+      },
+    )
+    .join("\n");
+}
+
+function taskSummary(task: Record<string, unknown>) {
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    assignee: task.assignee ?? task.assigneeName,
+    reviewer: task.reviewer,
+    updatedAt: task.updatedAt ?? task.updated_at,
+  };
+}
+
+export default function valimartPiDesk(pi: ExtensionAPI) {
+  registerGatewayProvider(pi);
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (ctx.mode === "tui") {
+      ctx.ui.setTitle(PRODUCT_NAME);
+      ctx.ui.setHeader((_tui, theme) => createValimartHeader(theme));
+    }
+    ctx.ui.setStatus("valimart", formatStatus());
+    if (!isLoggedIn()) return;
+    try {
+      const next = await fetchMe();
+      registerGatewayProvider(pi);
+      ctx.ui.setStatus("valimart", formatStatus(next));
+    } catch (err) {
+      saveState({ needsRelogin: true, lastError: errText(err) });
+      ctx.ui.setStatus("valimart", formatStatus());
+    }
+  });
+
+  pi.on("before_agent_start", async (event) => {
+    const state = loadState();
+    if (!isLoggedIn(state) || !event.systemPromptOptions?.sections) return;
+    const who = state.user?.displayName || state.user?.username || "";
+    const company = state.company?.name || "公司";
+    event.systemPromptOptions.sections.company = [
+      `你通过 valimart harness 公司网关干活（账号 ${who}，公司「${company}」）。`,
+      "模型密钥只在网关。额度按人按周记账，满了会 429。",
+      "开工前用 company_knowledge 问「公司里有没有人做过」；任务卡用 company_tasks。",
+      "口头说做完了不算完成：产物要能对上任务卡。",
+    ].join("\n");
+  });
+
+  pi.registerCommand("desk-login", {
+    description: "登录公司网关（/desk-login [网关URL] [账号]）",
+    handler: async (args, ctx) => {
+      const parsed = parseDeskLoginArgs(args);
+      const current = loadState();
+      let url = parsed.url;
+      let username = parsed.username;
+      let password = parsed.password;
+      if (!url || !username || !password) {
+        if (!ctx.hasUI) {
+          ctx.ui.notify("非交互登录请设 DESK_GATEWAY_URL / DESK_GATEWAY_USER / DESK_GATEWAY_PASSWORD 后执行 /desk-login", "error");
+          return;
+        }
+        url = url || (await ctx.ui.input("公司网关地址", current.gatewayUrl || DEFAULT_GATEWAY_URL)) || current.gatewayUrl || DEFAULT_GATEWAY_URL;
+        username = username || (await ctx.ui.input("公司账号", current.user?.username || "")) || "";
+        password = password || (await ctx.ui.input("密码")) || "";
+      }
+      if (!username || !password) {
+        ctx.ui.notify("已取消登录", "warning");
+        return;
+      }
+      try {
+        const next = await login({ gatewayUrl: url, username, password, device: `pi-agent (${os.hostname()})` });
+        registerGatewayProvider(pi);
+        ctx.ui.setStatus("valimart", formatStatus(next));
+        const first = catalogModels(next)[0];
+        if (first) {
+          const model = ctx.modelRegistry.find(PROVIDER_ID, first.id);
+          if (model) await pi.setModel(model);
+        }
+        ctx.ui.notify(`已登录 ${next.user?.displayName || next.user?.username} · ${catalogModels(next).length} 个模型`, "info");
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("desk-logout", {
+    description: "登出公司网关",
+    handler: async (_args, ctx) => {
+      try {
+        await logout();
+      } catch {
+        /* still clear locally */
+      }
+      registerGatewayProvider(pi);
+      ctx.ui.setStatus("valimart", formatStatus());
+      ctx.ui.notify("已登出公司网关", "info");
+    },
+  });
+
+  pi.registerCommand("desk-status", {
+    description: "查看公司网关登录态与额度",
+    handler: async (_args, ctx) => {
+      try {
+        if (isLoggedIn()) {
+          const next = await fetchMe();
+          registerGatewayProvider(pi);
+          ctx.ui.setStatus("valimart", formatStatus(next));
+        }
+      } catch (err) {
+        ctx.ui.notify(errText(err), "error");
+      }
+      const view = publicView();
+      const lines = [
+        view.loggedIn ? `已登录 ${view.user?.displayName || view.user?.username}` : "未登录",
+        `网关 ${view.gatewayUrl}`,
+        view.company?.name ? `公司 ${view.company.name}` : "",
+        view.defaultModel ? `默认模型 ${view.defaultModel}` : "",
+        view.models?.length ? `目录 ${view.models.join(", ")}` : "",
+        summarizeQuota(loadState().quota),
+        view.lastError ? `上次错误：${view.lastError}` : "",
+      ].filter(Boolean);
+      ctx.ui.notify(lines.join("\n"), view.loggedIn ? "info" : "warning");
+    },
+  });
+
+  pi.registerCommand("desk-discover", {
+    description: "在局域网寻找公司网关",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("正在寻找公司网关…", "info");
+      const found = await discoverGateways();
+      if (!found.length) {
+        ctx.ui.notify("没有发现网关。本机可试 http://127.0.0.1:8790，或手动 /desk-login", "warning");
+        return;
+      }
+      const labels = found.flatMap((g) =>
+        g.urls.map((u) => `${g.name}${g.needsSetup ? "（待初始设置）" : ""}  ${u}  [${g.source}]`),
+      );
+      const picked = await ctx.ui.select("选择公司网关", labels);
+      if (!picked) return;
+      const url = picked.split(/\s+/).find((p) => p.startsWith("http")) || "";
+      const normalized = normalizeGatewayUrl(url);
+      if (!normalized) return;
+      saveState({ gatewayUrl: normalized });
+      registerGatewayProvider(pi);
+      ctx.ui.notify(`已记下网关 ${normalized}，接着 /desk-login`, "info");
+    },
+  });
+
+  pi.registerTool({
+    name: "company_whoami",
+    label: "公司账号",
+    description: "查看当前公司网关登录账号、公司名和本周额度。密钥不会返回。",
+    promptSnippet: "Current company-gateway login and weekly quota",
+    promptGuidelines: ["Use company_whoami when the user asks who they are logged in as, which company gateway, or remaining quota."],
+    parameters: Type.Object({}),
+    async execute() {
+      try {
+        const next = await fetchMe();
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(publicView(next), null, 2) }],
+          details: publicView(next),
+        };
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: errText(err) }], details: { error: errText(err) }, isError: true };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "company_knowledge",
+    label: "公司知识",
+    description:
+      "检索公司知识库第四层：岗位手册、共享经验、个人记忆、相关任务卡。只返回谁/何时/在哪/一小段上下文，不拷贝别人的会话。",
+    promptSnippet: "Search company knowledge (who / when / where)",
+    promptGuidelines: [
+      "Use company_knowledge before inventing company process or claiming nobody has done similar work.",
+      "company_knowledge returns snippets only; follow the path or task id for details.",
+    ],
+    parameters: Type.Object({
+      q: Type.String({ description: "检索词，例如「验收流程」或任务关键词" }),
+      limit: Type.Optional(Type.Number({ description: "最多条数，默认 20" })),
+      kinds: Type.Optional(Type.String({ description: "可选过滤：handbook,shared,personal,task,skills，逗号分隔" })),
+    }),
+    async execute(_id, params) {
+      try {
+        const result = await searchKnowledge(params.q, { limit: params.limit, kinds: params.kinds });
+        const hits = Array.isArray(result?.hits) ? result.hits : [];
+        const lines = hits.slice(0, 30).map((h: { kind?: string; who?: string; when?: string; path?: string; snippet?: string }) => {
+          const head = [h.kind, h.who, h.when].filter(Boolean).join(" · ");
+          return `- ${head}\n  ${h.path ?? ""}\n  ${h.snippet ?? ""}`;
+        });
+        const text = lines.length ? `查询「${result.query}」${hits.length} 条\n${lines.join("\n")}` : `没有找到「${params.q}」`;
+        return { content: [{ type: "text" as const, text }], details: result };
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: errText(err) }], details: { error: errText(err) }, isError: true };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "company_tasks",
+    label: "任务卡",
+    description: "列出或查看公司任务卡（待初审 / 待终审 / 通过 / 退回）。不创建、不提交验收。",
+    promptSnippet: "List or read company task cards",
+    promptGuidelines: ["Use company_tasks to list visible task cards or fetch one by id. Do not claim a task is done unless the card status says so."],
+    parameters: Type.Object({
+      action: StringEnum(["list", "get"] as const, { description: "list 列出可见任务；get 查看一张" }),
+      id: Type.Optional(Type.String({ description: "get 时的任务 id" })),
+    }),
+    async execute(_id, params) {
+      try {
+        if (params.action === "get") {
+          if (!params.id) {
+            return { content: [{ type: "text" as const, text: "get 需要任务 id" }], details: {}, isError: true };
+          }
+          const result = await getTask(params.id);
+          const task = result.task ?? result;
+          return { content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }], details: task };
+        }
+        const result = await listTasks();
+        const tasks = Array.isArray(result.tasks) ? result.tasks.map(taskSummary) : [];
+        const text = tasks.length
+          ? tasks.map((t: { id?: string; title?: string; status?: string }) => `- ${t.id}  [${t.status}]  ${t.title}`).join("\n")
+          : "没有可见任务卡";
+        return { content: [{ type: "text" as const, text }], details: { tasks, statuses: result.statuses } };
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: errText(err) }], details: { error: errText(err) }, isError: true };
+      }
+    },
+  });
+}

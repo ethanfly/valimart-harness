@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, profilePluginBundles, readGatewayUrl } from '../lib/bootstrap.mjs'
 import { ALL_MARKS, resolvePresetRel } from '../kernel/patches.mjs'
+import { PIN } from '../kernel/locate.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'diva-bootstrap-'))
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -91,10 +92,16 @@ test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bun
   fs.mkdirSync(kernelRoot, { recursive: true })
   // 没装任何插件：不加
   assert.deepEqual(profilePluginBundles({ root: kernelRoot }), [])
-  // 装了 better-sidebar、没装 browser：只加装了的
-  const sidebar = path.join(dir, 'kernel', 'node_modules', 'dsh-better-sidebar')
-  fs.mkdirSync(sidebar, { recursive: true })
-  fs.writeFileSync(path.join(sidebar, 'package.json'), '{"name":"dsh-better-sidebar"}\n')
+  // 磁盘上残留的已卸载插件不得进 bundle
+  const leftover = path.join(dir, 'kernel', 'node_modules', 'dsh-better-sidebar')
+  fs.mkdirSync(leftover, { recursive: true })
+  fs.writeFileSync(path.join(leftover, 'package.json'), '{"name":"dsh-better-sidebar"}\n')
+  assert.deepEqual(profilePluginBundles({ root: kernelRoot }), [])
+  // 装了 pin 里的第一个插件、没装其余：只加装了的
+  const pluginName = PIN.profilePlugins[0].name
+  const pluginDir = path.join(dir, 'kernel', 'node_modules', pluginName)
+  fs.mkdirSync(pluginDir, { recursive: true })
+  fs.writeFileSync(path.join(pluginDir, 'package.json'), JSON.stringify({ name: pluginName }) + '\n')
   // 内核嵌套的 @deepseek-ai/* peer：ensureProfile 会把它们链接到顶层 scope，插件才 import 得到
   const nestedPeer = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-tools')
   fs.mkdirSync(nestedPeer, { recursive: true })
@@ -102,7 +109,7 @@ test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bun
   const nestedZod = path.join(kernelRoot, 'node_modules', 'zod')
   fs.mkdirSync(nestedZod, { recursive: true })
   fs.writeFileSync(path.join(nestedZod, 'package.json'), '{"name":"zod","version":"4.0.0"}\n')
-  assert.deepEqual(profilePluginBundles({ root: kernelRoot }), ['dsh-better-sidebar'])
+  assert.deepEqual(profilePluginBundles({ root: kernelRoot }), [pluginName])
   // 没有内核 root（旧调用/测试桩）时静默返回空，不炸
   assert.deepEqual(profilePluginBundles({ bin: 'unused' }), [])
   // ensureProfile 把插件写进 manifest.dsh.profile.bundles
@@ -115,9 +122,10 @@ test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bun
   fs.mkdirSync(path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai'), { recursive: true })
   const { profileDir } = ensureProfile({ profileName: 'desk-plugins', dshHome, root, pluginsDir, patchFile, kernel: { root: kernelRoot }, selfHeal: false, log: () => {} })
   const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'))
-  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-better-sidebar'])
+  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', pluginName])
   // 插件还要链接到 profiles/node_modules（运行时 import 只沿 profile 目录向上找）
-  assert.ok(fs.lstatSync(path.join(dshHome, 'profiles', 'node_modules', 'dsh-better-sidebar')).isSymbolicLink())
+  assert.ok(fs.lstatSync(path.join(dshHome, 'profiles', 'node_modules', pluginName)).isSymbolicLink())
+  assert.equal(fs.existsSync(path.join(dshHome, 'profiles', 'node_modules', 'dsh-better-sidebar')), false)
   // 内核嵌套的 @deepseek-ai/* peer 链接到顶层 scope（插件真实路径的 import 才找得到）
   assert.ok(fs.lstatSync(path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh-tools')).isSymbolicLink())
 })
@@ -281,7 +289,7 @@ test('needsExtract：无 state.json → 首次；buildId 不同 → 版本更新
   r = decide()
   assert.equal(r.fresh, true)
   assert.match(r.reason, /缺少必需插件/)
-  for (const name of ['dsh-better-sidebar', '@anweat/dsh-browser', '@anysearch/anysearch-dsh']) {
+  for (const { name } of PIN.profilePlugins ?? []) {
     const plugin = path.join(kernelPrefix, 'node_modules', name)
     fs.mkdirSync(path.join(plugin, 'lib'), { recursive: true })
     fs.writeFileSync(path.join(plugin, 'package.json'), '{}')

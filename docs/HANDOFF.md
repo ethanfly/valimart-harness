@@ -2,6 +2,21 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 现在在哪（pi CLI 包 pi-valimart-desk）
+
+- 桌面客户端才有的公司网关登录 / 模型路由 / 知识检索 / 任务卡，收成可安装的 pi 包：`packages/pi-valimart-desk`（`pi install <仓库>/packages/pi-valimart-desk`）。
+- 扩展注册 provider `valimart`（`/v1/chat/completions` + 网关令牌）、命令 `/desk-login` `/desk-logout` `/desk-status` `/desk-discover`、工具 `company_whoami` `company_knowledge` `company_tasks`、技能 `company-briefing`。
+- TUI 用惠利玛花标替换 pi logo，窗口标题 **valimart pi desk**。
+- 状态文件 `~/.pi/agent/valimart-desk.json`；上游密钥仍只在网关。不上 Electron 壳、Mixed、公司盘镜像。
+- 单测：`packages/pi-valimart-desk/test/pi-desk.test.mjs`（已并进根 `npm test`）。
+
+## 现在在哪（卸 better-sidebar + 内核 0.1.5-rc.2 + 标题栏空隙）
+
+- 已从 `scripts/kernel/pin.json` 卸掉 `dsh-better-sidebar@0.18.0`，改走官方右侧边栏开关。`@anweat/dsh-browser` / `@anysearch/anysearch-dsh` 仍随内核前缀分发。
+- 内核 pin 升到 npm `latest`/`next` 的 **`@deepseek-ai/dsh@0.1.5-rc.2`**（未跟 0.1.6-alpha：会话多实例 / slot 变更）。本机开发前缀 `~/.company-desk/kernel` 与安装版前缀 `~/.company-desk/app/kernel` 均已 `--force` 重装，17 处公司补丁干净命中；`desk` / `desk-app` profile bundle 已去掉 better-sidebar。
+- 标题栏改为独立 48px 空隙，窗控 32px 置顶；会话顶栏不再挤进标题栏，官方「打开/关闭右侧边栏」恢复显示且不与三件套叠层。`e2e/sidebar-toggle-align.spec.js` + `e2e/desktop-chrome.spec.js` 已按新几何改过。
+- 下次启动客户端即可看到官方侧栏按钮。未打新的 `dist:client` 安装包。
+
 ## 现在在哪（2026-09-10 Mixed 模式）
 
 - [详细计划](superpowers/plans/2026-09-09-mixed-mode-implementation.md)：T01–T10 已在计划中勾完；**T09 于本轮补完 waiting_input 问答**（规划缺关键需求 → 面板按 questionId 回答 → 重规划，25/25 recovery）。

@@ -1,0 +1,33 @@
+{
+  "name": "pi-valimart-desk",
+  "version": "0.1.2",
+  "description": "valimart pi desk（惠利玛）：给 pi CLI 补上公司网关登录、模型目录、知识检索与任务卡",
+  "type": "module",
+  "license": "UNLICENSED",
+  "author": "ethanfly",
+  "keywords": ["pi-package", "valimart", "company-desk"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ethanfly/valimart-harness.git",
+    "directory": "packages/pi-valimart-desk"
+  },
+  "homepage": "https://github.com/ethanfly/valimart-harness/tree/main/packages/pi-valimart-desk",
+  "files": [
+    "assets",
+    "extensions",
+    "lib",
+    "prompts",
+    "skills",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "pi": {
+    "extensions": ["./extensions/index.ts"],
+    "skills": ["./skills/company-briefing"],
+    "prompts": ["./prompts"]
+  }
+}

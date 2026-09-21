@@ -7,7 +7,7 @@ import { serveSessionImage } from '../plugins/desk-host/lib/session-image.js'
 const electronBinary = path.resolve('desktop/node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron')
 test.skip(!fs.existsSync(electronBinary), '需要已安装的桌面 Electron 依赖')
 
-test('Electron：会话标题贴顶、操作可点击，标题可拖动，最大化无外围留白', async () => {
+test('Electron：会话标题贴顶与窗控同一行，操作可点击，标题可拖动，最大化无外围留白', async () => {
   const server = http.createServer((_req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(`<html class="dk-desk-electron"><style>
@@ -43,7 +43,7 @@ test('Electron：会话标题贴顶、操作可点击，标题可拖动，最大
         return { header: rect('.session-header'), row: rect('.session-header > div'), sidebar: rect('.dk-col-sidebar'), frame: rect('.dk-frame'), w: innerWidth, h: innerHeight }
       })
       expect(geometry.header.top).toBe(0)
-      expect(geometry.row.top).toBe(8)
+      expect(geometry.row.top).toBe(0)
       expect(geometry.sidebar.left).toBe(0)
       expect(geometry.sidebar.top).toBe(0)
       expect(geometry.sidebar.bottom).toBe(geometry.h)

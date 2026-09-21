@@ -8,10 +8,10 @@
 <p align="center">
   <a href="https://github.com/ethanfly/valimart-harness"><img alt="GitHub" src="https://img.shields.io/badge/github-ethanfly%2Fvalimart-harness-181717?logo=github"></a>
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white">
-  <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.1.5--rc.1-1484fc">
+  <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.1.5--rc.2-1484fc">
 </p>
 
-本仓库是公司自己的桌面客户端 + 公司网关。内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.1.5-rc.1`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
+本仓库是公司自己的桌面客户端 + 公司网关。内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.1.5-rc.2`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
 
 > 接手看 [`docs/HANDOFF.md`](docs/HANDOFF.md)。过程记录在 [`docs/sessions/`](docs/sessions/)。
 
@@ -26,6 +26,7 @@
 | 员工 | 桌面客户端（会话 / 任务 / 设置） |
 | 管理员 / 总监 | 同一客户端 + 管理页 `http://<网关>:8790/admin` |
 | 公司服务器 | 网关服务（Windows 安装包，或树莓派 Docker） |
+| 只要 CLI | [pi](https://github.com/earendil-works/pi) + `pi install npm:pi-valimart-desk`（登录公司网关、选模型） |
 
 **产品能力一览**
 
@@ -35,6 +36,7 @@
 - **公司知识库（四层）**：岗位手册 → 共享经验 → 个人记忆 → 检索层 `company_knowledge`（只回答谁 / 何时 / 在哪）。
 - **公司网关**：账号与设备令牌、模型通道、周额度（跨上游合计一条「总额度」）、公司盘、管理页。
 - **生图**：`image_generate` / `image_edit` 走网关，短名 `gpt` / `qwen` / `grok`。
+- **pi CLI**：不装桌面客户端时，`pi install npm:pi-valimart-desk` 走同一套公司网关。
 
 ```
   员工客户端 (Electron / 浏览器 :3470)
@@ -72,6 +74,7 @@ company-harness/                 # npm 包名仍是 company-desk
 │  ├─ launch.mjs                 # npm run dev / client / desktop
 │  └─ build-*.mjs                # 安装包流水线
 ├─ e2e/                          # Playwright
+├─ packages/pi-valimart-desk/    # pi-valimart-desk：公司网关登录 / 模型 / 知识 / 任务卡
 └─ docs/                         # 交接、会话记录、设计与计划
 ```
 
@@ -89,7 +92,7 @@ company-harness/                 # npm 包名仍是 company-desk
 
 ## 使用方法
 
-分三条路：**开发机跑源码**、**员工装客户端**、**公司装网关**。
+分四条路：**开发机跑源码**、**员工装客户端**、**公司装网关**、**pi CLI 装公司包**。
 
 ### 1. 开发机（源码）
 
@@ -208,7 +211,66 @@ $env:ANYSEARCH_API_KEY = "as_sk-..."
 
 或 `server/config.local.json`（不入库）。没有真实 key 时目录里仍有 `mock-echo` 供离线演示。
 
-个人 Google One / Gemini CLI 旧接入已于 2026-06-18 停用，本仓库尚未做 Antigravity。不要把 AI Studio API key 当成 Google One 订阅填。
+个人 Google One / AI Pro / Ultra 请在「加入订阅」选 **Antigravity**（OAuth 与 CPA / CLIProxyAPI 同一套 Cloud Code 客户端，回调 `localhost:51121`）。旧 **Google One / Gemini CLI** 通道只留给 Code Assist 企业账号。不要把 AI Studio API key 当成订阅填。
+
+### 4. pi CLI（不装桌面客户端）
+
+公司网关已经在跑、只想用 [pi](https://github.com/earendil-works/pi) 写代码时，装本仓库的 **`pi-valimart-desk`** 包：登录、公司模型目录、知识检索、任务卡只读。Electron 壳 / Mixed / 公司盘镜像仍只在桌面客户端。
+
+包带扩展，装上后会改 `settings.json` 的 `extensions`，并以完整系统权限运行。先看源码再装。
+
+**1. 先装 pi CLI**（Node.js ≥ 22）
+
+```powershell
+npm install -g @earendil-works/pi-coding-agent
+pi --version
+```
+
+**2. 再装公司包**
+
+已发 npm [`pi-valimart-desk@0.1.2`](https://www.npmjs.com/package/pi-valimart-desk)。本机（写入 `~/.pi/agent/settings.json`，所有项目都能用）：
+
+```powershell
+pi install npm:pi-valimart-desk
+pi list
+```
+
+只给当前仓库（写入 `.pi/settings.json`，同事拉代码后会自动装）：
+
+```powershell
+pi install -l npm:pi-valimart-desk
+```
+
+不写入 settings、只试一次：
+
+```powershell
+pi -e npm:pi-valimart-desk
+```
+
+开发改包时用仓库路径（必须是 `packages/pi-valimart-desk` 这一层，不要指仓库根）：
+
+```powershell
+cd E:\orcaWorkspace\company-harness
+pi install .\packages\pi-valimart-desk
+```
+
+`pi list` 里应出现 `pi-valimart-desk`。卸掉：`pi remove npm:pi-valimart-desk`（项目级加 `-l`）。
+
+**3. 登录公司网关并选模型**
+
+先确保网关在跑（本机 `http://127.0.0.1:8790`，或局域网地址）。然后：
+
+```powershell
+pi
+```
+
+TUI 标题为 **valimart pi desk**（惠利玛花标）。在 pi 里：
+
+1. `/desk-discover` 找局域网网关，或 `/desk-login http://127.0.0.1:8790 <账号>`（也可 `/login valimart`）。密码不要写进 slash；脚本用 `DESK_GATEWAY_PASSWORD`。
+2. `/model` 选 `valimart/<公司目录里的聊天模型>`。
+3. `/desk-status` 看账号和额度。知识检索用 `company_knowledge`，任务卡用 `company_tasks`。
+
+登录态在 `~/.pi/agent/valimart-desk.json`（只有会话令牌和网关令牌，没有上游密钥）。完整说明：[`packages/pi-valimart-desk/README.md`](packages/pi-valimart-desk/README.md)。
 
 ---
 
@@ -224,6 +286,7 @@ $env:ANYSEARCH_API_KEY = "as_sk-..."
 | 打 macOS Intel 客户端 | `npm run dist:client:mac` → `dist/valimart-harness-<ver>-mac-x64.zip` |
 | 发布客户端给员工 | `npm run client:publish -- --gateway <url> --user <管理员> --password <密码> --from dist/valimart-harness-Setup-0.1.0.exe` |
 | 备份网关数据 | `npm run backup -- --data-dir <数据目录> --out backup.zip` |
+| 给本机 pi 装公司包 | `pi install npm:pi-valimart-desk` 然后 `pi list` |
 
 `launch.mjs` 常用参数：`--port`、`--gateway`、`--no-open`、`--prefix`、`--dsh-home`。
 
@@ -239,6 +302,7 @@ $env:ANYSEARCH_API_KEY = "as_sk-..."
 | 公司盘 `projects/inbox/<任务ID>/` | 任务卡、工作日志、交付物 |
 | 客户端 `~/.dsh/desk/` | 登录令牌、公司盘镜像 |
 | 客户端 `~/.dsh/sessions/` | 会话记录 |
+| pi 包 `~/.pi/agent/valimart-desk.json` | pi CLI 的登录会话令牌 + 网关令牌 |
 | 开发内核 `~/.company-desk/kernel/` | 打过补丁的 dsh |
 | 安装版客户端 `~/.company-desk/app/` | 解压的内核与 Electron userData |
 

@@ -1,14 +1,8 @@
 {
-  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-10 从 0.1.3-alpha.2 升到 0.1.5-rc.1：prepare 验证 16 处补丁干净命中（MarkdownText 增加 pathImages，已加锚点变体）。0.1.5 起 POSIX 会话锁改走 @deepseek-ai/node-addon-system/flock，不再打 fs-ext v2。0.1.5-alpha.1 仍因发布不完整（子包 ETARGET）勿试。",
+  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-17 从 0.1.5-rc.1 升到 npm latest/next 的 0.1.5-rc.2，并卸掉 dsh-better-sidebar（改走官方右侧边栏）。0.1.6-alpha.* 有会话多实例 / slot 变更，暂不跟。0.1.5 起 POSIX 会话锁改走 @deepseek-ai/node-addon-system/flock，不再打 fs-ext v2。0.1.5-alpha.1 仍因发布不完整（子包 ETARGET）勿试。",
   "package": "@deepseek-ai/dsh",
-  "version": "0.1.5-rc.1",
+  "version": "0.1.5-rc.2",
   "profilePlugins": [
-    {
-      "name": "dsh-better-sidebar",
-      "version": "0.18.0",
-      "$comment": "改动预览/审查工作台：文件树、编辑器、内嵌浏览器、终端、Git 视角 + 本轮文件视角。prune 里的包只被预打包的 client bundle 用，host 侧不 import。",
-      "prune": ["react-icons", "mermaid", "@mermaid-js", "cytoscape", "cytoscape-fcose", "katex", "dompurify", "@codemirror", "@lezer"]
-    },
     {
       "name": "@anweat/dsh-browser",
       "version": "0.1.11",

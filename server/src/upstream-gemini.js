@@ -8,6 +8,8 @@ import { HttpError } from './http.js'
 import { GEMINI_MIGRATION_NOTICE } from './oauth-providers/gemini.js'
 
 export const usesGeminiCodeAssist = (upstream) => upstream?.api === 'gemini-code-assist'
+export const usesAntigravity = (upstream) => upstream?.api === 'antigravity'
+export const usesCloudCodePa = (upstream) => usesGeminiCodeAssist(upstream) || usesAntigravity(upstream)
 export const GEMINI_BASE_URL = 'https://cloudcode-pa.googleapis.com/v1internal'
 const metadata = { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' }
 
@@ -16,8 +18,13 @@ export function geminiBaseUrl(baseUrl = GEMINI_BASE_URL) {
   return base.endsWith('/v1internal') ? base : `${base}/v1internal`
 }
 
-function headers(credential) {
-  return { authorization: `Bearer ${credential}`, 'content-type': 'application/json', accept: 'application/json' }
+function headers(credential, { api, accept } = {}) {
+  return {
+    authorization: `Bearer ${credential}`,
+    'content-type': 'application/json',
+    accept: accept || 'application/json',
+    ...(api === 'antigravity' ? { 'user-agent': 'antigravity' } : {}),
+  }
 }
 
 function projectIdOf(value) {
@@ -32,7 +39,7 @@ export async function setupGeminiProject({ credential, baseUrl, projectId, fetch
   const base = geminiBaseUrl(baseUrl)
   const request = async (suffix, body) => {
     const r = await fetchImpl(`${base}${suffix}`, {
-      method: body ? 'POST' : 'GET', headers: headers(credential),
+      method: body ? 'POST' : 'GET', headers: headers(credential, { api: 'gemini-code-assist' }),
       ...(body ? { body: JSON.stringify(body) } : {}), signal,
     })
     const data = await r.json().catch(() => ({}))
@@ -264,10 +271,16 @@ export function createGeminiSseTranslator({ model }) {
 }
 
 export async function sendGeminiRequest(upstream, body, model, { stream = false, signal, fetchImpl = fetch } = {}) {
-  const project = upstream.googleProjectId || await setupGeminiProject({ credential: upstream.resolvedKey, baseUrl: upstream.baseUrl, fetchImpl, signal })
+  const project = usesAntigravity(upstream)
+    ? upstream.googleProjectId
+    : (upstream.googleProjectId || await setupGeminiProject({ credential: upstream.resolvedKey, baseUrl: upstream.baseUrl, fetchImpl, signal }))
   const forward = toGeminiBody(body, model, project)
+  if (!forward.project) delete forward.project
   const r = await fetchImpl(`${geminiBaseUrl(upstream.baseUrl)}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`, {
-    method: 'POST', headers: { ...headers(upstream.resolvedKey), accept: stream ? 'text/event-stream' : 'application/json' }, body: JSON.stringify(forward), signal,
+    method: 'POST',
+    headers: headers(upstream.resolvedKey, { api: upstream.api, accept: stream ? 'text/event-stream' : 'application/json' }),
+    body: JSON.stringify(forward),
+    signal,
   })
   if (!r.ok) return r
   if (!stream) return Response.json(fromGeminiResponse(await r.json(), model.id))

@@ -190,7 +190,24 @@ export function profilePluginBundles(kernel, plugins = PIN.profilePlugins ?? [])
  * DSH 的 bundle patch 能从安装锚点解析，但运行时 import() 只沿 profile 目录向上找，
  * 插件必须出现在这个共享闭包目录里才能在员工机器上加载。
  */
+function unlinkUnpinnedProfilePlugins({ dshHome, plugins = PIN.profilePlugins ?? [], log = noop }) {
+  const targetModules = path.join(dshHome, 'profiles', 'node_modules')
+  if (!fs.existsSync(targetModules)) return []
+  const keep = new Set(plugins.map((p) => p.name))
+  const removed = []
+  for (const name of ['dsh-better-sidebar']) {
+    if (keep.has(name)) continue
+    const target = path.join(targetModules, name)
+    if (!fs.existsSync(target)) continue
+    fs.rmSync(target, { recursive: true, force: true })
+    log(`卸掉 profile 插件链接 ${name}`)
+    removed.push(name)
+  }
+  return removed
+}
+
 export function linkProfilePlugins({ kernel, dshHome, plugins = PIN.profilePlugins ?? [], log = noop }) {
+  unlinkUnpinnedProfilePlugins({ dshHome, plugins, log })
   if (!kernel?.root || !plugins.length) return []
   const sourceModules = path.resolve(kernel.root, '..', '..')
   const targetModules = path.join(dshHome, 'profiles', 'node_modules')

@@ -2,6 +2,7 @@
  * 订阅通道官方 OAuth（授权码 + PKCE / 设备码）。
  * 令牌只落在服务端，与手动粘贴同一套 channels.connect；不抓 cookie、不伪造登录页。
  * ChatGPT 对齐 Codex CLI 设备码；Grok 对齐 Grok CLI 的 RFC 8628 设备码；Claude 对齐 Claude Code 浏览器授权（回调页贴回授权码）。
+ * Antigravity 对齐 CPA / CLIProxyAPI 的 Cloud Code 客户端（端口 51121）。
  */
 import crypto from 'node:crypto'
 import { HttpError, readJson, sendJson, parseUrl } from './http.js'
@@ -415,7 +416,7 @@ export class OAuthSubscribe {
       api: provider.upstreamApi,
       oauthProvider: s.channelId,
       googleProjectId,
-      googleAccountId: provider.upstreamApi === 'gemini-code-assist' ? decodeJwtPayload(tokens.id_token)?.sub : undefined,
+      googleAccountId: provider.upstreamApi === 'gemini-code-assist' || provider.upstreamApi === 'antigravity' ? decodeJwtPayload(tokens.id_token)?.sub : undefined,
       chatgptAccountId: accountIdFromToken(tokens.id_token || access),
     }
     s.discoveredModels = catalog

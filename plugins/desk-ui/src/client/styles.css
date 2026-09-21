@@ -21,40 +21,47 @@
   --dk-mono: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
-/* ---------- 外壳 ---------- */
+/* ---------- 外壳 ----------
+   VS Code / Cursor 式合并标题栏：内容顶到 y=0，窗控叠在同一行右侧。
+   不要把会话/右侧栏整体下推——那会空出一截难看的白边。 */
 html.dk-desk-electron {
   --dk-titlebar-h: 36px;
   --dk-win-inset: 0px;
-  --dk-caption-top: calc(4px + var(--dk-win-inset));
+  --dk-winbtn-h: 36px;
   --dk-win-controls-w: 138px;
-  --dk-caption-right: calc(148px + var(--dk-win-inset));
-  --dk-toggle-cluster-w: 60px;
-  --dk-caption-reserve: calc(var(--dk-caption-right) + var(--dk-toggle-cluster-w) + 8px);
+  --dk-sidebar-chrome-w: 80px;
+  --dk-caption-right: calc(var(--dk-win-controls-w) + 10px + var(--dk-win-inset));
 }
 html.dk-desk-electron.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset); }
-/* Preserve the workbench's right-panel reservation when sizing the frame. */
-html.dk-desk-electron #root .dk-frame[data-dsh-frame] {
-  padding-right: calc(var(--dsh-sidebar-width, 0px) + var(--dk-win-inset));
-}
 html.dk-desk-electron.dk-desk-maximized .dk-titlebar {
   top: var(--dk-win-inset);
   left: var(--dk-win-inset);
   right: var(--dk-win-inset);
 }
-/* 遮罩盖满窗口（含标题栏条上的 + / 折叠）。窗控靠 .dk-titlebar 更高的 z-index 露在遮罩之上。 */
 html.dk-desk-electron .dk-mask,
 html.dk-desk-electron .dk-overlay,
 html.dk-desk-electron [data-shell-overlay] { top: var(--dk-win-inset); }
+/* 无会话顶栏时（空态/任务）给标题栏留位；有会话顶栏则贴顶，与窗控同一行。 */
 html.dk-desk-electron .dk-col-main,
 html.dk-desk-electron .dk-col-right { padding-top: var(--dk-titlebar-h); }
-/* Active conversations own the top row; an empty session keeps the draggable
-   shell strip. Scope to chat mode so task/details headings keep their space. */
-html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-main:has([data-slot='conversation.session.header']) {
+html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-main:has([data-slot='conversation.session.header']),
+html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-right {
   padding-top: 0;
 }
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header {
-  padding-top: 8px;
-  padding-right: 20px;
+  padding-top: 0;
+  padding-right: 12px;
+  min-height: 0;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
+  box-sizing: border-box;
+  min-height: var(--dk-titlebar-h);
+  height: var(--dk-titlebar-h);
+  align-items: center;
+  -webkit-app-region: drag;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'][data-rightbar-collapsed] [data-slot='conversation.session.header'] > header > :first-child {
+  margin-right: var(--dk-caption-right);
 }
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > [role='tablist'] {
   margin-top: 8px;
@@ -64,26 +71,35 @@ html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.sessi
 [data-slot='conversation.session.header.utilities'] {
   display: none !important;
 }
-/* Official「打开右侧边栏」和 better-sidebar 工作台开关重复；只留插件那颗。 */
-[data-conversation-header-corner],
-[data-sidebar-right-expand] {
-  display: none !important;
+html.dk-desk-electron [data-conversation-header-corner] {
+  margin-right: 0;
+  position: relative;
+  z-index: 1;
 }
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
-  min-height: 32px;
-  height: 32px;
-  -webkit-app-region: drag;
+html.dk-desk-electron [data-sidebar-right-expand],
+html.dk-desk-electron [data-sidebar-right-toggle],
+html.dk-desk-electron [data-sidebar-right-mode] {
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
 }
-html.dk-desk-electron body[data-dsh-sidebar-collapsed] .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
-  margin-right: var(--dk-caption-reserve);
+/* 官方右侧栏绝对定位 top:0，与窗控同一行；只把标签条右侧让给三件套。 */
+html.dk-desk-electron [data-sidebar-right-panel] {
+  top: 0 !important;
 }
-html.dk-desk-electron body:not(:has([data-dsh-panel-host])) .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
-  margin-right: var(--dk-caption-right);
+html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-right {
+  border-left: none;
 }
+html.dk-desk-electron [data-sidebar-right-panel] *:has(> [data-sidebar-right-toggle]) {
+  box-sizing: border-box;
+  min-height: var(--dk-titlebar-h);
+  height: var(--dk-titlebar-h);
+  padding-right: var(--dk-caption-right);
+  align-items: center;
+}
+/* 标题栏整条是 drag；侧栏按钮上方用子元素 no-drag 开洞，点击才能落到下层。 */
 html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-main {
-  /* 点击穿透到会话顶栏按钮；不要写成 no-drag。
-     Chromium 会把所有 no-drag 矩形从原生拖区里扣掉，上层再扣一次整条顶栏，
-     会话标题自己的 drag 就到不了系统合成器，窗口只能靠 IPC setPosition，会卡。 */
   pointer-events: none;
 }
 html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-title {
@@ -110,38 +126,6 @@ html.dk-desk-electron .dk-rail .dk-iconbtn {
   z-index: 1;
 }
 html.dk-desk-electron .dk-rail { padding-top: 16px; }
-/* better-sidebar 工作台开关：展开时骑在面板标签栏，收起后留在窗控左侧。 */
-html.dk-desk-electron [data-dsh-toggle-cluster] {
-  top: var(--dk-caption-top);
-  right: var(--dk-caption-right);
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-}
-html.dk-desk-electron body[data-dsh-sidebar-collapsed] [data-dsh-toggle-cluster] {
-  top: var(--dk-caption-top);
-  right: var(--dk-caption-right);
-}
-html.dk-desk-electron:has(.dk-overlay) [data-dsh-toggle-cluster] {
-  visibility: hidden;
-  pointer-events: none;
-}
-html.dk-desk-electron [data-dsh-panel]:not([data-dsh-bottom-panel]) {
-  top: var(--dk-win-inset);
-  right: var(--dk-win-inset);
-  bottom: var(--dk-win-inset);
-  padding-top: 0;
-}
-/* Keep the host's viewport origin: the plugin measures bottom-panel left
-   and right in viewport coordinates, so insetting the host would shift twice. */
-html.dk-desk-electron [data-dsh-bottom-panel] { bottom: var(--dk-win-inset); }
-html.dk-desk-electron [data-dsh-panel]:not([data-dsh-bottom-panel]) [class*='_tabBar']:has(> [class*='_tabList']) {
-  box-sizing: border-box;
-  height: var(--dk-titlebar-h, 36px);
-  padding-right: var(--dk-caption-reserve);
-}
-html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
-  margin-right: max(var(--dk-caption-reserve), var(--dsh-sidebar-width, 0px));
-}
 /* Both workbenches carry data-dsh-panel. The bottom one must stay anchored
    to bottom:0; giving it a top over-constrains its explicit height. The
    portal lives outside .dk-frame, so it also needs border-box sizing. */
@@ -171,8 +155,16 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
   user-select: none;
   z-index: 1100;
   pointer-events: none;
-  /* 整条 36px 交给系统合成器拖窗（含侧栏上方）。pointer-events:none 只让点击落到下层按钮。 */
   -webkit-app-region: drag;
+}
+.dk-titlebar-pass {
+  position: absolute;
+  top: 0;
+  right: var(--dk-win-controls-w, 138px);
+  width: var(--dk-sidebar-chrome-w, 80px);
+  height: 100%;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
 }
 .dk-titlebar-side {
   flex: none;
@@ -212,8 +204,9 @@ html.dk-desk-electron body:has([data-dsh-panel-host]) .dk-titlebar-main {
   top: 0;
   right: 0;
   margin-left: auto;
-  height: 100%;
+  height: var(--dk-winbtn-h, 36px);
   display: flex;
+  align-items: stretch;
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }

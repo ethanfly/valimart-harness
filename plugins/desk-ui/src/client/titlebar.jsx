@@ -62,6 +62,7 @@ export function DeskTitlebar({ sidebarWidth }) {
           <span>{PRODUCT_NAME}</span>
         </span>
       </div>
+      <div className="dk-titlebar-pass" aria-hidden />
       <div className="dk-titlebar-controls">
         <button type="button" className="dk-winbtn" aria-label="最小化" onClick={() => shell.minimize()}>
           <IconWinMin />
