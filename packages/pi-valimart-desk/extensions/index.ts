@@ -22,6 +22,7 @@ import {
   normalizeGatewayUrl,
   searchKnowledge,
 } from "../lib/gateway.mjs";
+import { setDriveLogSink } from "../lib/drive-runtime.mjs";
 import { DEFAULT_GATEWAY_URL, parseDeskLoginArgs } from "../lib/login-args.mjs";
 import { toPiModels, v1BaseUrl } from "../lib/models.mjs";
 import { publicView, saveState } from "../lib/state.mjs";
@@ -29,6 +30,24 @@ import { createValimartHeader, PRODUCT_NAME } from "./header.ts";
 import { companyDrivePrompt, registerDrive, syncDriveQuiet } from "./drive-tools.ts";
 
 const PROVIDER_ID = "valimart";
+
+type DriveUi = {
+  notify(message: string, type?: "info" | "warning" | "error"): void;
+  setStatus(key: string, text: string): void;
+};
+
+/** TUI 里 console.log 是裸 stdout，字会落进输入框。启动时例行同步只改状态栏；后台有推拉才弹窗。 */
+let driveUi: DriveUi | undefined;
+
+function applyDriveSync(ui: DriveUi | undefined, sync: { files: number; pulled?: number; pushed?: number } | null, notifyOnChange = false) {
+  if (!sync || !ui) return;
+  ui.setStatus("valimart", `${formatStatus()} · 盘 ${sync.files}`);
+  const pulled = sync.pulled ?? 0;
+  const pushed = sync.pushed ?? 0;
+  if (notifyOnChange && (pulled || pushed)) {
+    ui.notify(`公司盘已同步：远端 ${sync.files} 个，下载 ${pulled}，回推 ${pushed}`, "info");
+  }
+}
 
 function errText(err: unknown) {
   return err instanceof Error ? err.message : String(err);
@@ -191,8 +210,13 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode === "tui") {
+      driveUi = ctx.ui;
+      setDriveLogSink(() => {});
       ctx.ui.setTitle(PRODUCT_NAME);
       ctx.ui.setHeader((_tui, theme) => createValimartHeader(theme));
+    } else {
+      driveUi = undefined;
+      setDriveLogSink(null);
     }
     ctx.ui.setStatus("valimart", formatStatus());
     if (!isLoggedIn()) return;
@@ -205,10 +229,12 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
       ctx.ui.setStatus("valimart", formatStatus());
     }
     const sync = await syncDriveQuiet();
-    if (sync) ctx.ui.setStatus("valimart", `${formatStatus()} · 盘 ${sync.files}`);
+    applyDriveSync(ctx.ui, sync);
     if (driveTimer) clearInterval(driveTimer);
     driveTimer = setInterval(() => {
-      syncDriveQuiet().catch(() => {});
+      syncDriveQuiet()
+        .then((r) => applyDriveSync(driveUi, r, true))
+        .catch(() => {});
     }, 30_000);
   });
 
@@ -217,6 +243,8 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
       clearInterval(driveTimer);
       driveTimer = undefined;
     }
+    driveUi = undefined;
+    setDriveLogSink(null);
   });
 
   pi.on("before_agent_start", async (event) => {

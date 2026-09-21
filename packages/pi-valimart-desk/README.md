@@ -36,7 +36,7 @@ pi --version
 
 ### 1. 从 npm 装（推荐）
 
-已发布 [`pi-valimart-desk@0.1.7`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
+已发布 [`pi-valimart-desk@0.1.8`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
 
 ```powershell
 pi install npm:pi-valimart-desk

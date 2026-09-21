@@ -4,6 +4,18 @@ import { defaultDriveDir, loadState, saveState } from './state.mjs'
 
 let mirror
 
+/** 默认走 console；TUI 下由扩展改道（console.log 是裸 stdout 写，会把字写进输入框、画花屏幕）。 */
+const defaultLogSink = (msg) => console.log(`[valimart-drive] ${msg}`)
+let logSink = defaultLogSink
+
+export function setDriveLogSink(sink) {
+  logSink = typeof sink === 'function' ? sink : defaultLogSink
+}
+
+export function driveLog(msg) {
+  logSink(msg)
+}
+
 export function deskStateBox() {
   const data = loadState()
   if (!data.driveDir) data.driveDir = defaultDriveDir()
@@ -22,7 +34,7 @@ export function getMirror() {
       root: st.data.driveDir,
       gateway: makeApiClient(),
       state: st,
-      log: (msg) => console.log(`[valimart-drive] ${msg}`),
+      log: driveLog,
     })
   } else {
     mirror.state = st

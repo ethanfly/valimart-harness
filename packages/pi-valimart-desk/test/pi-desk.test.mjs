@@ -9,6 +9,7 @@ import { GATEWAY_COMPAT, inferModelInput, isChatModel, normalizeReasoningEfforts
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
 import { assertInside, zoneRoot } from '../lib/drive-paths.mjs'
 import { peopleOptions, personIdFromChoice } from '../lib/people-options.mjs'
+import { driveLog, setDriveLogSink } from '../lib/drive-runtime.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
 describe('parseDeskLoginArgs', () => {
@@ -209,5 +210,18 @@ describe('gatewayOptions', () => {
     assert.equal(suggestedGatewayUrl([found[0]], 'http://elsewhere:1'), 'http://127.0.0.1:8790')
     assert.equal(suggestedGatewayUrl(found, 'http://elsewhere:1'), 'http://elsewhere:1')
     assert.equal(suggestedGatewayUrl([], 'http://127.0.0.1:8790'), 'http://127.0.0.1:8790')
+  })
+})
+
+describe('drive log sink', () => {
+  it('routes messages to the installed sink; TUI can swallow them so they do not hit stdout', () => {
+    const got = []
+    setDriveLogSink((m) => got.push(m))
+    driveLog('公司盘同步完成：256 个文件，下载 0 个')
+    assert.deepEqual(got, ['公司盘同步完成：256 个文件，下载 0 个'])
+    setDriveLogSink(() => {})
+    driveLog('个人记忆回推 203 个文件')
+    assert.deepEqual(got, ['公司盘同步完成：256 个文件，下载 0 个'])
+    setDriveLogSink(null)
   })
 })
