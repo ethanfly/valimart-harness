@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
+import { gatewayOptions, gatewayUrlFromChoice, MANUAL_GATEWAY_LABEL, suggestedGatewayUrl } from '../lib/gateway-choice.mjs'
 import { parseDeskLoginArgs } from '../lib/login-args.mjs'
 import { inferModelInput, isChatModel, toPiModels, v1BaseUrl } from '../lib/models.mjs'
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
@@ -101,5 +102,43 @@ describe('state', () => {
     } finally {
       delete process.env.PI_AGENT_DIR
     }
+  })
+})
+
+describe('gatewayOptions', () => {
+  const found = [
+    { name: '本机', urls: ['http://127.0.0.1:8790'], source: 'http', needsSetup: false },
+    { name: '树莓派', urls: ['http://10.56.41.60:8790', 'http://127.0.0.1:8790'], source: 'udp', needsSetup: true },
+  ]
+
+  it('dedupes urls and appends the manual fallback last', () => {
+    const options = gatewayOptions(found)
+    assert.deepEqual(
+      options.map((o) => o.url),
+      ['http://127.0.0.1:8790', 'http://10.56.41.60:8790', ''],
+    )
+    assert.equal(options.at(-1).label, MANUAL_GATEWAY_LABEL)
+    assert.match(options[1].label, /待初始设置/)
+    assert.equal(options[1].label.includes('[udp]'), false)
+  })
+
+  it('skips the manual row when asked, and can tag the source', () => {
+    const options = gatewayOptions(found, { manual: '', withSource: true })
+    assert.equal(options.length, 2)
+    assert.match(options[0].label, /\[http\]/)
+  })
+
+  it('maps a selected label back to its url, empty for the fallback row', () => {
+    const options = gatewayOptions(found)
+    assert.equal(gatewayUrlFromChoice(options[1].label, options), 'http://10.56.41.60:8790')
+    assert.equal(gatewayUrlFromChoice(MANUAL_GATEWAY_LABEL, options), '')
+    assert.equal(gatewayUrlFromChoice(undefined, options), '')
+  })
+
+  it('suggestedGatewayUrl prefers the already-saved address, else the only find', () => {
+    assert.equal(suggestedGatewayUrl(found, 'http://10.56.41.60:8790'), 'http://10.56.41.60:8790')
+    assert.equal(suggestedGatewayUrl([found[0]], 'http://elsewhere:1'), 'http://127.0.0.1:8790')
+    assert.equal(suggestedGatewayUrl(found, 'http://elsewhere:1'), 'http://elsewhere:1')
+    assert.equal(suggestedGatewayUrl([], 'http://127.0.0.1:8790'), 'http://127.0.0.1:8790')
   })
 })

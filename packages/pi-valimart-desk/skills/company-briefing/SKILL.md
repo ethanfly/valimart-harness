@@ -9,8 +9,8 @@ description: 公司交付工作台在 pi CLI 里怎么用：登录网关、任�
 
 ## 登录
 
-1. `/desk-discover` 找局域网网关，或 `/desk-login http://127.0.0.1:8790 <账号>`。
-2. 也可以 `/login valimart`。密码不要写进 slash 命令；脚本用环境变量 `DESK_GATEWAY_PASSWORD`。
+1. `/desk-login`：会先在本机 / 局域网找网关并列出可选，没有才让手填。也可以 `/desk-login http://127.0.0.1:8790 <账号>` 直接指定。
+2. 也可以 `/login valimart`（会把发现到的地址填成默认值）。密码不要写进 slash 命令；脚本用环境变量 `DESK_GATEWAY_PASSWORD`。
 3. `/model` 选 `valimart/<公司目录里的模型>`。真实密钥只在网关，本机只有网关令牌。
 4. `/desk-status` 看账号和本周额度。满了会 429。
 

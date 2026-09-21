@@ -8,7 +8,7 @@ import zlib from 'node:zlib'
 
 const SRC = new URL('../assets/valimart-mark.png', import.meta.url)
 const OUT = new URL('../assets/mark-grid.json', import.meta.url)
-const TARGET = 10
+const TARGET = 24
 
 function readPng(buf) {
   if (buf.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('not png')
@@ -63,35 +63,47 @@ function readPng(buf) {
   return { width, height, pixels }
 }
 
+function opaqueBounds({ width, height, pixels }, minA = 40) {
+  let x0 = width
+  let y0 = height
+  let x1 = 0
+  let y1 = 0
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] < minA) continue
+      if (x < x0) x0 = x
+      if (y < y0) y0 = y
+      if (x > x1) x1 = x
+      if (y > y1) y1 = y
+    }
+  }
+  if (x1 < x0) return { x0: 0, y0: 0, x1: width - 1, y1: height - 1 }
+  const pad = 1
+  return {
+    x0: Math.max(0, x0 - pad),
+    y0: Math.max(0, y0 - pad),
+    x1: Math.min(width - 1, x1 + pad),
+    y1: Math.min(height - 1, y1 + pad),
+  }
+}
+
+/** 最近邻 + 透明度阈值：保住花瓣边缘，不要平均成一团。 */
 function sample({ width, height, pixels }, size) {
+  const b = opaqueBounds({ width, height, pixels })
+  const bw = b.x1 - b.x0 + 1
+  const bh = b.y1 - b.y0 + 1
   const out = []
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const x0 = Math.floor((x * width) / size)
-      const x1 = Math.max(x0 + 1, Math.floor(((x + 1) * width) / size))
-      const y0 = Math.floor((y * height) / size)
-      const y1 = Math.max(y0 + 1, Math.floor(((y + 1) * height) / size))
-      let r = 0
-      let g = 0
-      let b = 0
-      let a = 0
-      let n = 0
-      for (let yy = y0; yy < y1; yy++) {
-        for (let xx = x0; xx < x1; xx++) {
-          const i = (yy * width + xx) * 4
-          const aa = pixels[i + 3]
-          r += pixels[i] * aa
-          g += pixels[i + 1] * aa
-          b += pixels[i + 2] * aa
-          a += aa
-          n++
-        }
-      }
-      if (!n || a < 8 * n) {
+      const sx = b.x0 + Math.min(bw - 1, Math.floor(((x + 0.5) * bw) / size))
+      const sy = b.y0 + Math.min(bh - 1, Math.floor(((y + 0.5) * bh) / size))
+      const i = (sy * width + sx) * 4
+      const a = pixels[i + 3]
+      if (a < 96) {
         out.push(0, 0, 0, 0)
         continue
       }
-      out.push(Math.round(r / a), Math.round(g / a), Math.round(b / a), Math.round(a / n))
+      out.push(pixels[i], pixels[i + 1], pixels[i + 2], a)
     }
   }
   return Buffer.from(out)

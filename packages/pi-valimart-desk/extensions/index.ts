@@ -9,6 +9,7 @@ import { StringEnum, type OAuthCredentials, type OAuthLoginCallbacks } from "@ea
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { discoverGateways } from "../lib/discover.mjs";
+import { gatewayOptions, gatewayUrlFromChoice, MANUAL_GATEWAY_LABEL, suggestedGatewayUrl } from "../lib/gateway-choice.mjs";
 import {
   fetchMe,
   GatewayError,
@@ -30,6 +31,39 @@ const PROVIDER_ID = "valimart";
 
 function errText(err: unknown) {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** 发现失败（无网卡 / 权限）不能挡住登录：当作「没发现到网关」，退回手填。 */
+async function safeDiscover() {
+  try {
+    return await discoverGateways();
+  } catch {
+    return [];
+  }
+}
+
+/** OAuth 那条路只有单行输入框（callbacks.onPrompt 不支持列表）：先把发现的地址填成默认值，回车即用。 */
+async function suggestGatewayUrl(current = loadState()) {
+  return suggestedGatewayUrl(await safeDiscover(), current.gatewayUrl || DEFAULT_GATEWAY_URL);
+}
+
+/**
+ * /desk-login 的网关这一步：先自动发现并列出可选，发现不到才让手填。
+ * 返回 null = 用户取消；discovered = 地址来自发现结果（失败时也值得记下，免得重打一遍）。
+ */
+async function promptGatewayUrl(ctx: { ui: { notify: Function; select: Function; input: Function } }, current = loadState()) {
+  const fallback = current.gatewayUrl || DEFAULT_GATEWAY_URL;
+  ctx.ui.notify("正在寻找公司网关…", "info");
+  const options = gatewayOptions(await safeDiscover(), { manual: MANUAL_GATEWAY_LABEL });
+  if (options.some((o) => o.url)) {
+    const picked = await ctx.ui.select("选择公司网关", options.map((o) => o.label));
+    if (picked === undefined) return null;
+    const url = gatewayUrlFromChoice(picked, options);
+    if (url) return { url, discovered: true };
+  }
+  const typed = await ctx.ui.input("公司网关地址", fallback);
+  if (typed === undefined) return null;
+  return { url: String(typed).trim() || fallback, discovered: false };
 }
 
 function catalogModels(state = loadState()) {
@@ -66,10 +100,11 @@ function registerGatewayProvider(pi: ExtensionAPI) {
       isSubscription: true,
       async login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
         const current = loadState();
+        const suggested = await suggestGatewayUrl(current);
         const urlRaw =
           (await callbacks.onPrompt({
-            message: `网关地址（回车 = ${current.gatewayUrl || DEFAULT_GATEWAY_URL}）`,
-          })) || current.gatewayUrl || DEFAULT_GATEWAY_URL;
+            message: `网关地址（回车 = ${suggested}）`,
+          })) || suggested;
         const url = normalizeGatewayUrl(urlRaw) || DEFAULT_GATEWAY_URL;
         const username = (await callbacks.onPrompt({ message: "公司账号" })).trim();
         const password = await callbacks.onPrompt({ message: "密码" });
@@ -182,7 +217,7 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("desk-login", {
-    description: "登录公司网关（/desk-login [网关URL] [账号]）",
+    description: "登录公司网关（先自动发现，没有才手填；也可 /desk-login [网关URL] [账号]）",
     handler: async (args, ctx) => {
       const parsed = parseDeskLoginArgs(args);
       const current = loadState();
@@ -194,7 +229,16 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
           ctx.ui.notify("非交互登录请设 DESK_GATEWAY_URL / DESK_GATEWAY_USER / DESK_GATEWAY_PASSWORD 后执行 /desk-login", "error");
           return;
         }
-        url = url || (await ctx.ui.input("公司网关地址", current.gatewayUrl || DEFAULT_GATEWAY_URL)) || current.gatewayUrl || DEFAULT_GATEWAY_URL;
+        // 命令行 / 环境变量给了地址就不打扰：只有要问地址时才去发现网关
+        if (!url) {
+          const picked = await promptGatewayUrl(ctx, current);
+          if (!picked) {
+            ctx.ui.notify("已取消登录", "warning");
+            return;
+          }
+          url = picked.url;
+          if (picked.discovered && url !== current.gatewayUrl) saveState({ gatewayUrl: url });
+        }
         username = username || (await ctx.ui.input("公司账号", current.user?.username || "")) || "";
         password = password || (await ctx.ui.input("密码")) || "";
       }
@@ -262,22 +306,17 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
     description: "在局域网寻找公司网关",
     handler: async (_args, ctx) => {
       ctx.ui.notify("正在寻找公司网关…", "info");
-      const found = await discoverGateways();
-      if (!found.length) {
+      const options = gatewayOptions(await safeDiscover(), { manual: "", withSource: true });
+      if (!options.length) {
         ctx.ui.notify("没有发现网关。本机可试 http://127.0.0.1:8790，或手动 /desk-login", "warning");
         return;
       }
-      const labels = found.flatMap((g) =>
-        g.urls.map((u) => `${g.name}${g.needsSetup ? "（待初始设置）" : ""}  ${u}  [${g.source}]`),
-      );
-      const picked = await ctx.ui.select("选择公司网关", labels);
-      if (!picked) return;
-      const url = picked.split(/\s+/).find((p) => p.startsWith("http")) || "";
-      const normalized = normalizeGatewayUrl(url);
-      if (!normalized) return;
-      saveState({ gatewayUrl: normalized });
+      const picked = await ctx.ui.select("选择公司网关", options.map((o) => o.label));
+      const url = gatewayUrlFromChoice(picked, options);
+      if (!url) return;
+      saveState({ gatewayUrl: url });
       registerGatewayProvider(pi);
-      ctx.ui.notify(`已记下网关 ${normalized}，接着 /desk-login`, "info");
+      ctx.ui.notify(`已记下网关 ${url}，接着 /desk-login`, "info");
     },
   });
 

@@ -228,7 +228,7 @@ pi --version
 
 **2. 再装公司包**
 
-已发 npm [`pi-valimart-desk@0.1.3`](https://www.npmjs.com/package/pi-valimart-desk)。本机（写入 `~/.pi/agent/settings.json`，所有项目都能用）：
+已发 npm [`pi-valimart-desk@0.1.4`](https://www.npmjs.com/package/pi-valimart-desk)。本机（写入 `~/.pi/agent/settings.json`，所有项目都能用）：
 
 ```powershell
 pi install npm:pi-valimart-desk

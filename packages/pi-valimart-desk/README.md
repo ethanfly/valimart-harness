@@ -8,8 +8,8 @@
 
 | 桌面客户端 | pi 包 |
 | --- | --- |
-| 公司账号登录 → 会话令牌 + 网关令牌 | `/desk-login` 或 `/login valimart` |
-| 局域网发现网关 | `/desk-discover` |
+| 公司账号登录 → 会话令牌 + 网关令牌 | `/desk-login`（先自动发现网关，没有才手填）或 `/login valimart` |
+| 局域网发现网关 | `/desk-discover`（只记下地址，不登录） |
 | llm-pi-ai 路由 `desk-gateway`（`/v1` + 网关令牌） | provider `valimart`（OpenAI completions） |
 | `company_knowledge` | 同名工具 |
 | 任务卡侧栏 | `company_tasks`（只读 list/get） |
@@ -34,7 +34,7 @@ pi --version
 
 ### 1. 从 npm 装（推荐）
 
-已发布 [`pi-valimart-desk@0.1.3`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
+已发布 [`pi-valimart-desk@0.1.4`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
 
 ```powershell
 pi install npm:pi-valimart-desk
@@ -74,7 +74,7 @@ pi remove .\packages\pi-valimart-desk      # 本机路径安装
 
 1. 公司网关已在跑（默认 `http://127.0.0.1:8790`）。
 2. 开 `pi`。标题应是 **valimart pi desk**。
-3. `/desk-login` 或 `/login valimart`。密码不要写进 slash 命令。
+3. `/desk-login` 或 `/login valimart`。会先在本机 / 局域网找网关并列出可选，没有才让手填；命令行给了地址就不打扰。密码不要写进 slash 命令。
 4. `/model` 选 `valimart/<目录里的聊天模型>`。
 5. 需要时 `/desk-status`、`company_knowledge`、`company_tasks`。
 
@@ -90,7 +90,7 @@ pi
 
 命令：
 
-- `/desk-login [网关URL] [账号]`
+- `/desk-login [网关URL] [账号]`（不带地址时先自动发现）
 - `/desk-logout`
 - `/desk-status`
 - `/desk-discover`
