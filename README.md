@@ -7,8 +7,8 @@
 
 <p align="center">
   <a href="https://ethanfly.github.io/valimart-harness/"><img alt="介绍页" src="https://img.shields.io/badge/intro-github.io-ffffff?labelColor=111111"></a>
-  <a href="https://github.com/ethanfly/valimart-harness/releases/latest"><img alt="下载" src="https://img.shields.io/github/v/release/ethanfly/valimart-harness?include_prereleases&label=download"></a>
-  <a href="https://github.com/ethanfly/valimart-harness"><img alt="GitHub" src="https://img.shields.io/badge/github-ethanfly%2Fvalimart-harness-181717?logo=github"></a>
+  <a href="https://github.com/ethanfly/valimart-harness/releases/latest"><img alt="下载" src="https://img.shields.io/badge/download-Releases-181717?logo=github"></a>
+  <a href="https://github.com/ethanfly/valimart-harness"><img alt="GitHub" src="https://img.shields.io/badge/github-ethanfly%2Fvalimart--harness-181717?logo=github"></a>
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white">
   <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.1.5--rc.2-1484fc">
 </p>
