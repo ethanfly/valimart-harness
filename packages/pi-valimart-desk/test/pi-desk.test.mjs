@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, it } from 'node:test'
 import { gatewayOptions, gatewayUrlFromChoice, MANUAL_GATEWAY_LABEL, suggestedGatewayUrl } from '../lib/gateway-choice.mjs'
 import { parseDeskLoginArgs } from '../lib/login-args.mjs'
-import { inferModelInput, isChatModel, toPiModels, v1BaseUrl } from '../lib/models.mjs'
+import { GATEWAY_COMPAT, inferModelInput, isChatModel, normalizeReasoningEfforts, thinkingLevelMap, toPiModels, v1BaseUrl } from '../lib/models.mjs'
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
@@ -58,6 +58,43 @@ describe('models', () => {
     assert.equal(models[0].baseUrl, 'http://127.0.0.1:8790/v1')
     assert.deepEqual(models[0].input, ['text', 'image'])
     assert.equal(models[0].thinkingLevelMap.high, 'high')
+    assert.equal(models[0].thinkingLevelMap.max, 'max')
+    assert.equal(models[0].thinkingLevelMap.low, null)
+    assert.equal('off' in models[0].thinkingLevelMap, false)
+    assert.equal(models[0].compat.thinkingFormat, GATEWAY_COMPAT.thinkingFormat)
+    assert.equal(models[0].compat.maxTokensField, 'max_tokens')
+    assert.equal(models[0].compat.supportsReasoningEffort, true)
+  })
+
+  it('turns array-shaped reasoningEfforts into a thinkingLevelMap pi can cycle', () => {
+    const [grok] = toPiModels([{ id: 'grok-4.6', reasoningEfforts: ['low', 'high'] }])
+    assert.equal(grok.reasoning, true)
+    assert.deepEqual(grok.thinkingLevelMap, {
+      low: 'low',
+      medium: null,
+      high: 'high',
+      minimal: null,
+      xhigh: null,
+      max: null,
+    })
+    assert.equal('off' in grok.thinkingLevelMap, false)
+  })
+
+  it('models without sendable efforts stay reasoning:false so the TUI does not fake a cycle', () => {
+    const [echo] = toPiModels([{ id: 'mock-echo', reasoningEfforts: false }])
+    assert.equal(echo.reasoning, false)
+    assert.equal(echo.thinkingLevelMap, undefined)
+    assert.equal(echo.compat.supportsReasoningEffort, undefined)
+  })
+
+  it('normalizeReasoningEfforts drops null off and unknown keys', () => {
+    assert.deepEqual(normalizeReasoningEfforts({ off: null, high: 'high', max: 'max', bogus: 'x' }), {
+      high: 'high',
+      max: 'max',
+    })
+    assert.equal(normalizeReasoningEfforts(['low', 'high']).low, 'low')
+    assert.equal(normalizeReasoningEfforts(false), null)
+    assert.equal(thinkingLevelMap(null), undefined)
   })
 
   it('mock and gen-only models are text-only', () => {

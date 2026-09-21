@@ -7,6 +7,7 @@
 - 桌面客户端才有的公司网关登录 / 模型路由 / 知识检索 / 任务卡，收成可安装的 pi 包：`packages/pi-valimart-desk`（`pi install <仓库>/packages/pi-valimart-desk`）。
 - 扩展注册 provider `valimart`（`/v1/chat/completions` + 网关令牌）、命令 `/desk-login` `/desk-logout` `/desk-status` `/desk-discover`、工具 `company_whoami` `company_knowledge` `company_tasks`、技能 `company-briefing`。
 - `/desk-login` 不带地址时先走局域网发现（`lib/discover.mjs`）列出可选，列表末尾「手动输入其他地址…」；发现不到才手填。`/login valimart` 把发现到的地址填成默认值。
+- 模型目录思考档位：网关常给数组 `['low','high']`，pi 要 `thinkingLevelMap`（缺档填 null 才从 TUI 藏掉）。`toPiModels` 已按 desk-host 的 `normalizeEfforts` 转，并带上网关统一的 deepseek `thinkingFormat` / `max_tokens`。
 - TUI 用惠利玛花标替换 pi logo，窗口标题 **valimart pi desk**。
 - 状态文件 `~/.pi/agent/valimart-desk.json`；上游密钥仍只在网关。不上 Electron 壳、Mixed、公司盘镜像。
 - 单测：`packages/pi-valimart-desk/test/pi-desk.test.mjs`（已并进根 `npm test`）。

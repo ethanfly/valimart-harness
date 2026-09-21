@@ -34,7 +34,7 @@ pi --version
 
 ### 1. 从 npm 装（推荐）
 
-已发布 [`pi-valimart-desk@0.1.4`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
+已发布 [`pi-valimart-desk@0.1.5`](https://www.npmjs.com/package/pi-valimart-desk)。写入 `~/.pi/agent/settings.json`，之后在任何目录开 `pi` 都会加载：
 
 ```powershell
 pi install npm:pi-valimart-desk
@@ -75,7 +75,7 @@ pi remove .\packages\pi-valimart-desk      # 本机路径安装
 1. 公司网关已在跑（默认 `http://127.0.0.1:8790`）。
 2. 开 `pi`。标题应是 **valimart pi desk**。
 3. `/desk-login` 或 `/login valimart`。会先在本机 / 局域网找网关并列出可选，没有才让手填；命令行给了地址就不打扰。密码不要写进 slash 命令。
-4. `/model` 选 `valimart/<目录里的聊天模型>`。
+4. `/model` 选 `valimart/<目录里的聊天模型>`。思考强度用 **Shift+Tab** 循环（跟桌面端同一套网关档位：DeepSeek 是 off/high/max，Grok 是 off/low/high，GPT 是 off/low/medium/high）。
 5. 需要时 `/desk-status`、`company_knowledge`、`company_tasks`。
 
 非交互登录（密码不进 slash 历史）：
