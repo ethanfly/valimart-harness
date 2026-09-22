@@ -39,11 +39,11 @@ test('parseSlashInput and filterSlashCommands', () => {
   assert.ok(filterSlashCommands('').some((c) => c.name === 'help'))
 })
 
-test('/help lists /goal /model /effort /new /rename /status', () => {
+test('/help lists /goal /model /effort /new /rename /status /sync /drive', () => {
   const { session, dir } = controller()
   const r = session.handleSlash('/help')
   const listed = r.commands.join(' ')
-  for (const name of ['/goal', '/model', '/effort', '/new', '/rename', '/status']) {
+  for (const name of ['/goal', '/model', '/effort', '/new', '/rename', '/status', '/sync', '/drive']) {
     assert.ok(listed.includes(name), `missing ${name}`)
   }
   fs.rmSync(dir, { recursive: true, force: true })

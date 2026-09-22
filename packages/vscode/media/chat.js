@@ -456,6 +456,12 @@ function renderState(next, nextBusy) {
     document.getElementById('companyStatus').textContent = c.error || `手册、团队经验、个人记忆和技能：已读取 ${c.loaded ?? 0} / ${c.files?.length ?? 0} 份。每次发送前刷新；其余资料由 Agent 按需读取。`
     document.getElementById('memoryStatus').textContent = c.memory || '尚未生成'
     document.getElementById('autoMemory').checked = state.autoMemory !== false
+    const driveEl = document.getElementById('driveStatus')
+    if (driveEl) {
+      driveEl.textContent = state.driveDir
+        ? `公司盘 ${state.driveDir}${state.lastSyncAt ? ` · 同步 ${state.lastSyncAt}` : ''}${state.driveLog ? ` · ${state.driveLog}` : ''}`
+        : '公司盘未同步'
+    }
     renderQuota(state.quota)
     renderSelects(state)
     renderSessions(state)
@@ -853,6 +859,8 @@ promptEl.addEventListener('paste', (event) => {
   void addImages(files)
 })
 document.getElementById('companyRefresh').addEventListener('click', () => vscode.postMessage({ type: 'companyRefresh' }))
+document.getElementById('driveSync').addEventListener('click', () => vscode.postMessage({ type: 'driveSync' }))
+document.getElementById('driveOpen').addEventListener('click', () => vscode.postMessage({ type: 'openDrive' }))
 document.getElementById('autoMemory').addEventListener('change', event => vscode.postMessage({ type: 'setAutoMemory', enabled: event.target.checked }))
 
 function readDataUrl(file) {

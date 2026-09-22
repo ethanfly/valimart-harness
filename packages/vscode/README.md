@@ -18,8 +18,9 @@ Press F5 (`Run Extension`) to open an Extension Development Host.
 3. The login pane finds the gateway by itself (本机 → 局域网 UDP 广播 → `/health` 网段扫描, same protocol as the desktop client). Pick another one from the list if several are found, or type the URL by hand.
 4. Sign in with username and password. The extension stores `sessionToken` and `gatewayToken` only — never upstream model API keys.
 5. Type a prompt. The agent calls `POST /v1/chat/completions` with a catalog model id and can read/write/patch workspace files. The current editor file and selection are attached as context.
-6. Switch **model** and **思考强度**, watch **剩余额度**, attach **images**, start a **新会话**, switch or rename past sessions, and use the two inline palettes: type **`@`** to reference a workspace file, or **`/`** for commands `/goal`, `/model`, `/effort`, `/new`, `/rename`, `/status`, `/help`. 只有这些已知命令会被当作命令；`/src/...`、`/api/users` 这类以斜杠开头的普通文本原样发给 Agent。**Enter 发送**，**Ctrl / ⌘ + Enter 换行**。点击 **停止** 可取消当前生成。
-7. Open the **任务卡** tab for list/create, 四格验收 (提交验收 → 待审 → 待终审 → 通过/驳回), deliverables, session bind, submit/review/final.
+6. Switch **model** and **思考强度**, watch **剩余额度**, attach **images**, start a **新会话**, switch or rename past sessions, and use the two inline palettes: type **`@`** to reference a workspace file, or **`/`** for commands `/goal`, `/model`, `/effort`, `/new`, `/rename`, `/status`, `/sync`, `/drive`, `/help`。只有这些已知命令会被当作命令；`/src/...` 这类以斜杠开头的普通文本原样发给 Agent。**Enter 发送**，**Ctrl / ⌘ + Enter 换行**。点击 **停止** 可取消当前生成。
+7. Open the **任务卡** tab for list/create, 四格验收, deliverables, session bind, submit/review/final。
+8. **公司盘**（与桌面客户端同一套镜像）：登录后同步到扩展 `globalStorage/drive/`。命令 **同步公司盘** / **打开公司盘**，斜杠 `/sync` `/drive`。Agent 可用 `read_file` 读 `_shared/…` `_office/…` `projects/…`；写共享走 `company_memory_write`；个人记忆回推网关。
 
 ## Tests
 
@@ -34,7 +35,11 @@ npm run compile
 npm run package
 ```
 
-Install the generated `valimart-harness-0.3.0.vsix` in VS Code: **Extensions → … → Install from VSIX…**
+Install the generated `valimart-harness-0.3.1.vsix` in VS Code: **Extensions → … → Install from VSIX…**
+
+## 0.3.1 公司盘本机镜像（对齐桌面客户端）
+
+登录后把可见公司盘拉到 `globalStorage/drive/`：共享经验、手册、个人记忆、任务 inbox。每 30 秒静默同步；个人区本地改动能回推。任务卡写入 `_task-card.md` / `_worklog.md`。Agent 工具补齐 `company_task_submit` / `review` / `final` / `company_tasks` / `company_whoami`。
 
 ## 0.3.0 工作台：对照 DeepSeek Harness for VS Code
 

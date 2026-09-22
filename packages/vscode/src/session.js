@@ -2,6 +2,7 @@
  * Login + agent send + sessions + slash + 任务卡 orchestration. No VS Code types here.
  */
 import os from 'node:os'
+import path from 'node:path'
 import crypto from 'node:crypto'
 import { catalogModelId, catalogModels, findCatalogModel, listEfforts, resolveSelection } from './lib/models.js'
 import { summarizeQuota } from './lib/quota.js'
@@ -13,6 +14,7 @@ import { WorkspaceIndex } from './lib/workspace-index.js'
 import { runAgentLoop, DEFAULT_SYSTEM_PROMPT, DEFAULT_MAX_TURNS, DEFAULT_MAX_ELAPSED_MS } from './lib/agent-loop.js'
 import { FileChangeLog, summarizeChange } from './lib/text-diff.js'
 import { CompanyContext } from './lib/company-context.js'
+import { DriveMirror, makeDriveGateway } from './lib/drive-mirror.js'
 import { parseSlashInput, dispatchSlash, SLASH_COMMANDS } from './lib/slash.js'
 import { GatewayFinder, normalizeUrl } from './lib/lan-discover.js'
 import { runUntilGoal, workspaceGoalCheck } from './lib/goal.js'
@@ -42,7 +44,19 @@ export class SessionController {
     this.store = store
     this.client = client
     this.tasks = new TaskClient(client)
-    this.companyContext = new CompanyContext(client)
+    this.driveDir = this.store?.dir ? path.join(this.store.dir, 'drive') : null
+    this.driveLog = ''
+    this.mirror = this.driveDir && client
+      ? new DriveMirror({
+          root: this.driveDir,
+          gateway: makeDriveGateway(client),
+          state: store,
+          log: (m) => {
+            this.driveLog = m
+          },
+        })
+      : null
+    this.companyContext = new CompanyContext(client, { mirror: this.mirror })
     this.getWorkspaceRoot = getWorkspaceRoot ?? (() => null)
     this.getEditorContext = getEditorContext ?? (() => ({}))
     this.fileIndex = new WorkspaceIndex({ getWorkspaceRoot: () => this.getWorkspaceRoot() })
@@ -141,6 +155,9 @@ export class SessionController {
       taskDetail: this.taskDetail,
       people: this.people,
       boundTaskId: this.boundTaskId,
+      driveDir: this.driveDir,
+      lastSyncAt: this.store?.data?.lastSyncAt ?? null,
+      driveLog: this.driveLog,
       companyContext: this.companyContext.state,
       autoMemory: this.store.data.autoMemory !== false,
       peopleStatus: this.peopleStatus ?? 'idle',
@@ -172,7 +189,12 @@ export class SessionController {
     this.people = []
     this.companyContext.reset()
     this.restoreChats()
-    await this.companyContext.refresh()
+    await Promise.all([
+      this.companyContext.refresh(),
+      this.syncDrive().catch((e) => {
+        this.driveLog = e.message
+      }),
+    ])
     return this.publicState()
   }
 
@@ -413,6 +435,8 @@ export class SessionController {
       const tools = this.companyContext.tools(
         createWorkspaceTools({
           workspaceRoot,
+          driveRoot: this.driveDir,
+          username: this.username(),
           // 改动正文只留在本机内存里供 diff 预览，不进模型上下文、不落盘。
           onFileChange: (change) => {
             if (!change?.path) return
@@ -484,6 +508,13 @@ export class SessionController {
     })
   }
 
+  async syncDrive() {
+    if (!this.store.loggedIn) throw new Error('请先登录公司网关')
+    if (!this.mirror) throw new Error('没有公司盘镜像目录')
+    const r = await this.mirror.sync()
+    return { ...r, driveDir: this.driveDir, log: this.driveLog }
+  }
+
   async refreshTasks() {
     const r = await this.tasks.list()
     this.taskList = r.tasks ?? []
@@ -509,6 +540,7 @@ export class SessionController {
   async createTask(body) {
     const r = await this.tasks.create(body)
     this.taskDetail = r.task
+    this.mirror?.writeTaskCard(r.task)
     await this.refreshTasks()
     return r
   }
@@ -516,6 +548,7 @@ export class SessionController {
   async openTask(id) {
     const r = await this.tasks.get(id)
     this.taskDetail = r.task
+    this.mirror?.writeTaskCard(r.task)
     return r
   }
 
@@ -534,6 +567,7 @@ export class SessionController {
     })
     this.taskDetail = r.task
     this.boundTaskId = taskId
+    this.mirror?.writeTaskCard(r.task)
     return r
   }
 

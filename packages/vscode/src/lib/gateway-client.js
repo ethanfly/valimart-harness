@@ -40,6 +40,7 @@ export class GatewayClient {
     baseUrl,
     raw = false,
     responseText = false,
+    responseBuffer = false,
     signal,
     stream = false,
     onDelta,
@@ -110,6 +111,11 @@ export class GatewayClient {
         }
         this.log?.info(`${method} ${apiPath} json-fallback ${Date.now() - started}ms`)
         return jsonToCompletion(json, { onDelta })
+      }
+      if (responseBuffer) {
+        const buf = Buffer.from(await res.arrayBuffer())
+        this.log?.info(`${method} ${apiPath} ${Date.now() - started}ms ${buf.length}B`)
+        return buf
       }
       const text = await res.text()
       if (responseText) return text

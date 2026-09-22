@@ -398,6 +398,7 @@ export function renderAdminHtml({ companyName }) {
       return '<details class="fold"><summary><span>' + title + '</span><span class="muted">' + list.length + '</span></summary><div class="fold-body">' + body + '</div></details>';
     };
     const posOpts = (selected) => '<option value="">未派岗位</option>' + (personnel.positions || []).map((p) => '<option value="' + esc(p.id) + '"' + (p.id === selected ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+    const roleOpts = (selected) => (personnel.roles || []).map((r) => '<option value="' + esc(r.id) + '"' + (r.id === selected ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('');
     const impexpBtn = (kinds, label) => '<button type="button" data-export="' + kinds + '">导出' + label + '</button><label class="btn" style="display:inline-flex;align-items:center">导入' + label + '<input type="file" accept="application/json" hidden data-import="' + kinds + '" /></label>';
     const impexp = (kinds, label) => isAdmin ? '<div class="row impexp">' + impexpBtn(kinds, label) + '</div>' : '';
     const impexpMany = (items) => isAdmin ? '<div class="row impexp">' + items.map((x) => impexpBtn(x[0], x[1])).join('') + '</div>' : '';
@@ -602,7 +603,7 @@ export function renderAdminHtml({ companyName }) {
         \${(personnel.departments || []).map((dep) => \`<details class="fold"><summary><span>\${esc(dep.name)}</span><span class="muted">\${dep.users.length} 人</span></summary><div class="fold-body"><table><thead><tr><th>账号</th><th>角色</th><th>岗位</th><th>额度</th></tr></thead><tbody>
           \${dep.users.map((u) => \`<tr>
             <td>\${esc(u.displayName)} <span class="mono muted">\${esc(u.username)}</span></td>
-            <td>\${esc(u.roleLabel)}</td>
+            <td>\${isAdmin ? (u.seed ? esc(u.roleLabel) + ' <span class="muted" title="种子管理员不能降级">种子</span>' : '<select data-roleset="' + esc(u.id) + '">' + roleOpts(u.role) + '</select>') : esc(u.roleLabel)}</td>
             <td>\${isAdmin ? '<select data-posset="' + esc(u.id) + '">' + posOpts(u.positionId) + '</select>' : esc((personnel.positions || []).find((x) => x.id === u.positionId)?.name || '—')}</td>
             <td class="mono">\${u.quota && u.quota.kind === 'tokens' ? (u.quota.limit + ' tokens') : ('¥' + (u.quota ? u.quota.limit : '—'))}<div class="muted">\${esc((u.quota && u.quota.source) || '')}</div></td>
           </tr>\`).join('')}
@@ -788,6 +789,9 @@ export function renderAdminHtml({ companyName }) {
     }));
     document.querySelectorAll('[data-posset]').forEach((sel) => sel.addEventListener('change', async () => {
       try { await api('PATCH', '/api/personnel/users/' + encodeURIComponent(sel.dataset.posset), { positionId: sel.value || null }); toast('已改岗位'); renderMain(); } catch (err) { toast(err.message, true); }
+    }));
+    document.querySelectorAll('[data-roleset]').forEach((sel) => sel.addEventListener('change', async () => {
+      try { await api('PATCH', '/api/personnel/users/' + encodeURIComponent(sel.dataset.roleset), { role: sel.value }); toast('已改角色'); renderMain(); } catch (err) { toast(err.message, true); renderMain(); }
     }));
     document.querySelectorAll('[data-depdel]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('从目录删除部门「' + b.dataset.depdel + '」？人员上的部门名仍保留。')) return;

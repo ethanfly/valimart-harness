@@ -170,7 +170,17 @@ export class ChatViewProvider {
           return
         case 'companyRefresh':
           await this.session.companyContext.refresh()
+          await this.session.syncDrive().catch(() => {})
           this.pushState()
+          return
+        case 'driveSync':
+          await this.session.syncDrive()
+          this.pushState()
+          return
+        case 'openDrive':
+          if (this.session.driveDir) {
+            await vscode.commands.executeCommand('valimartHarness.openDrive')
+          }
           return
         case 'setAutoMemory':
           this.session.store.data.autoMemory = !!msg.enabled
@@ -324,6 +334,19 @@ export class ChatViewProvider {
         if (result.message) this.session.pushSystemNote(result.message)
         this.post({ type: 'slash-result', result, inTranscript: !!result.message, html: renderMarkdown(result.message ?? '') })
         this.pushState()
+        if (result.startSync) {
+          this.busy = true
+          this.pushState()
+          try {
+            const r = await this.session.syncDrive()
+            const note = `公司盘已同步：远端 ${r.files} 个，下载 ${r.pulled}，回推 ${r.pushed}\n${r.driveDir}`
+            this.session.pushSystemNote(note)
+            this.post({ type: 'slash-result', result: { ...result, message: note }, inTranscript: true, html: renderMarkdown(note) })
+          } finally {
+            this.busy = false
+            this.pushState()
+          }
+        }
         if (result.startLoop) {
           this.busy = true
           this.pushState()

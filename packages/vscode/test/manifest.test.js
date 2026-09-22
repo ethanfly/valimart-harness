@@ -19,7 +19,9 @@ test('package.json declares engines.vscode, chat view, and open command', () => 
   assert.ok(cmds.some((c) => c.command === 'valimartHarness.openChatWindow'))
   assert.ok(cmds.some((c) => c.command === 'valimartHarness.showLogs'))
   assert.ok(cmds.some((c) => c.command === 'valimartHarness.cancel'))
-  assert.equal(pkg.version, '0.3.0')
+  assert.ok(cmds.some((c) => c.command === 'valimartHarness.syncDrive'))
+  assert.ok(cmds.some((c) => c.command === 'valimartHarness.openDrive'))
+  assert.equal(pkg.version, '0.3.1')
 })
 
 test('webview markup has a prompt box and message list', () => {
@@ -52,4 +54,6 @@ test('webview has thinking animation, image attach, slash palette, 四格验收'
   assert.match(html, /id="sessionSelect"/)
   assert.match(html, /id="stopBtn"/)
   assert.match(html, /id="detachBtn"/)
+  assert.match(html, /id="driveSync"/)
+  assert.match(html, /id="driveOpen"/)
 })

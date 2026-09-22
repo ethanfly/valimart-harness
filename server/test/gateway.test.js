@@ -426,6 +426,7 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.ok(html.includes('data-export='), '管理页应有导出')
   assert.ok(html.includes('data-import='), '管理页应有导入')
   assert.ok(html.includes('data-posset='), '人员应能派岗位')
+  assert.ok(html.includes('data-roleset='), '人员应能改角色')
   for (const s of ["['knowledge', '知识库']", "['skills', '技能']", "['personnel', '人员']", "['positions', '岗位']", "['departments', '部门']", "impexp('tools', '工具目录')"]) {
     assert.ok(html.includes(s), `管理页应有 ${s} 导入导出`)
   }

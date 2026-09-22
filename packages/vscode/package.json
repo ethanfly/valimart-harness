@@ -2,7 +2,7 @@
   "name": "valimart-harness",
   "displayName": "valimart harness",
   "description": "VS Code client for the company-desk gateway: login, chat, and an agent that edits the workspace.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "valimart",
   "license": "UNLICENSED",
   "type": "module",
@@ -62,6 +62,18 @@
         "title": "停止生成",
         "category": "valimart harness",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "valimartHarness.syncDrive",
+        "title": "同步公司盘",
+        "category": "valimart harness",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "valimartHarness.openDrive",
+        "title": "打开公司盘",
+        "category": "valimart harness",
+        "icon": "$(folder-opened)"
       }
     ],
     "menus": {
@@ -75,6 +87,16 @@
           "command": "valimartHarness.showLogs",
           "when": "view == valimartHarness.chat",
           "group": "navigation@2"
+        },
+        {
+          "command": "valimartHarness.syncDrive",
+          "when": "view == valimartHarness.chat",
+          "group": "navigation@3"
+        },
+        {
+          "command": "valimartHarness.openDrive",
+          "when": "view == valimartHarness.chat",
+          "group": "navigation@4"
         }
       ]
     },
@@ -107,7 +129,7 @@
   },
   "scripts": {
     "compile": "node scripts/compile.mjs",
-    "test": "node --test test/gateway-client.test.js test/agent-loop.test.js test/editor-context.test.js test/manifest.test.js test/session.test.js test/mentions.test.js test/lan-discover.test.js test/text-diff.test.js test/markdown.test.js test/slash.test.js test/goal.test.js test/tasks.test.js test/session-store.test.js test/sse.test.js",
+    "test": "node --test test/gateway-client.test.js test/agent-loop.test.js test/editor-context.test.js test/manifest.test.js test/session.test.js test/mentions.test.js test/lan-discover.test.js test/text-diff.test.js test/markdown.test.js test/slash.test.js test/goal.test.js test/tasks.test.js test/session-store.test.js test/sse.test.js test/drive-mirror.test.js",
     "test:vscode": "node scripts/try-vscode-host.mjs",
     "test:company": "node --test test/company-context.test.js",
     "test:ui": "node --test test/webview.test.js",

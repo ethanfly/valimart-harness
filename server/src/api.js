@@ -589,7 +589,11 @@ export function registerApi(router, ctx) {
       settingsPatch.quotaKind = body.quotaKind || undefined
     }
     if (Object.keys(settingsPatch).length) db.updateUserSettings(target.id, settingsPatch)
+    const prevRole = target.role
     const updated = db.updateUser(target.id, patch)
+    if (patch.role && patch.role !== prevRole) {
+      console.log(`[gateway] ${user.username} 把 ${target.username} 角色改为 ${ROLE_LABELS[patch.role] ?? patch.role}`)
+    }
     sendJson(res, 200, { user: publicUser(updated), ...personnelView() })
   })
   router.post('/api/personnel/users/:id/revoke-token', async (req, res) => {

@@ -11,6 +11,8 @@ export const OPEN_CHAT_COMMAND = 'valimartHarness.openChat'
 export const OPEN_CHAT_WINDOW_COMMAND = 'valimartHarness.openChatWindow'
 export const SHOW_LOGS_COMMAND = 'valimartHarness.showLogs'
 export const CANCEL_COMMAND = 'valimartHarness.cancel'
+export const SYNC_DRIVE_COMMAND = 'valimartHarness.syncDrive'
+export const OPEN_DRIVE_COMMAND = 'valimartHarness.openDrive'
 
 export function activate(context) {
   const stateDir = context.globalStorageUri?.fsPath ?? context.globalStoragePath
@@ -52,11 +54,33 @@ export function activate(context) {
     }),
     vscode.commands.registerCommand(SHOW_LOGS_COMMAND, () => log.show()),
     vscode.commands.registerCommand(CANCEL_COMMAND, () => session.cancel()),
+    vscode.commands.registerCommand(SYNC_DRIVE_COMMAND, async () => {
+      try {
+        const r = await session.syncDrive()
+        vscode.window.showInformationMessage(`公司盘已同步：${r.files} 个文件，下载 ${r.pulled}，回推 ${r.pushed}`)
+        provider.pushState?.()
+      } catch (err) {
+        vscode.window.showErrorMessage(err.message)
+      }
+    }),
+    vscode.commands.registerCommand(OPEN_DRIVE_COMMAND, async () => {
+      const dir = session.driveDir
+      if (!dir) {
+        vscode.window.showWarningMessage('请先登录公司网关')
+        return
+      }
+      const uri = vscode.Uri.file(dir)
+      await vscode.env.openExternal(uri)
+    }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('valimartHarness')) applyLimits()
     }),
   )
   bindEditorContext(context, provider)
+  const driveTimer = setInterval(() => {
+    if (session.store.loggedIn) session.syncDrive().catch(() => {})
+  }, 30_000)
+  context.subscriptions.push({ dispose: () => clearInterval(driveTimer) })
   log.info('extension activated')
   return {
     store,

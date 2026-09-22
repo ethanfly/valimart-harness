@@ -8,6 +8,8 @@ export const SLASH_COMMANDS = [
   { name: 'new', usage: '/new', description: '创建新会话' },
   { name: 'rename', usage: '/rename [标题]', description: '重命名当前会话（之后不再被自动标题覆盖）' },
   { name: 'status', usage: '/status', description: '当前登录人员与剩余额度' },
+  { name: 'sync', usage: '/sync', description: '同步公司盘镜像（回推个人记忆 + 拉取）' },
+  { name: 'drive', usage: '/drive', description: '显示公司盘本机镜像路径' },
   { name: 'help', usage: '/help', description: '列出斜杠命令' },
 ]
 
@@ -102,6 +104,18 @@ export function dispatchSlash(app, parsed) {
         model: state.model,
         effort: state.effort,
         message: formatStatus(state),
+      }
+    }
+    case 'sync':
+      return { type: 'sync', command: 'sync', startSync: true, message: '正在同步公司盘…' }
+    case 'drive': {
+      const st = app.publicState()
+      return {
+        type: 'drive',
+        command: 'drive',
+        driveDir: st.driveDir,
+        lastSyncAt: st.lastSyncAt,
+        message: `公司盘 ${st.driveDir ?? '（无）'}${st.lastSyncAt ? `\n上次同步 ${st.lastSyncAt}` : ''}${st.driveLog ? `\n${st.driveLog}` : ''}`,
       }
     }
     case 'goal': {
