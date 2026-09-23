@@ -573,9 +573,27 @@ export function presetCandidates(name) {
   ]
 }
 
+/**
+ * 补丁目标在两种 npm 布局下都要能找到：
+ * - 嵌套：`<kernelRoot>/node_modules/@deepseek-ai/<pkg>`（本机 npm 11）
+ * - 提升：`<prefix>/node_modules/@deepseek-ai/<pkg>`（CI 的 Node 22 / npm 10 全局安装）
+ * kernelRoot 是 `…/node_modules/@deepseek-ai/dsh`，所以提升位置是上两级再进包名。
+ * 两边都有时优先嵌套：Node 解析也是先看包内 node_modules。
+ */
+export function resolveKernelFile(kernelRoot, rel) {
+  const nested = path.join(kernelRoot, rel)
+  if (fs.existsSync(nested)) return nested
+  const parts = String(rel).split(/[\\/]+/).filter(Boolean)
+  if (parts[0] === 'node_modules' && parts.length >= 2) {
+    const hoisted = path.join(kernelRoot, '..', '..', ...parts.slice(1))
+    if (fs.existsSync(hoisted)) return hoisted
+  }
+  return null
+}
+
 export function resolvePresetRel(kernelRoot, name) {
   for (const rel of presetCandidates(name)) {
-    if (fs.existsSync(path.join(kernelRoot, rel))) return rel
+    if (resolveKernelFile(kernelRoot, rel)) return rel
   }
   return null
 }
@@ -583,8 +601,8 @@ export function resolvePresetRel(kernelRoot, name) {
 export function resolveMarkFile(kernelRoot, entry) {
   const candidates = entry.files ?? [entry.file]
   for (const rel of candidates) {
-    const abs = path.join(kernelRoot, rel)
-    if (fs.existsSync(abs)) return abs
+    const abs = resolveKernelFile(kernelRoot, rel)
+    if (abs) return abs
   }
   return null
 }
@@ -601,7 +619,7 @@ const yamlStr = (s) => `'${String(s).replace(/\\/g, '/').replace(/'/g, "''")}'`
 function pinPresetSkills(kernelRoot, skillsDir, log, counters) {
   const rel = resolvePresetRel(kernelRoot, 'standard')
   if (!rel) throw new KernelPatchError('preset-missing', 'standard')
-  const file = path.join(kernelRoot, rel)
+  const file = resolveKernelFile(kernelRoot, rel)
   let text = fs.readFileSync(file, 'utf8')
   const dirLine = (indent, key) => `${indent}${key}${yamlStr(skillsDir)}   ${SKILLS_TAG}`
   const wantBundled = dirLine('    ', 'bundledSkillDir: ')
@@ -660,7 +678,7 @@ function pinPresetFetch(kernelRoot, name, log, counters) {
     log(`PRESET_FETCH_SKIP=${name}|missing`)
     return
   }
-  const file = path.join(kernelRoot, rel)
+  const file = resolveKernelFile(kernelRoot, rel)
   const mark = 'company-preset-web-fetch-v1'
   const mark2 = 'company-preset-web-fetch-v2'
   let text = fs.readFileSync(file, 'utf8')
@@ -834,9 +852,9 @@ function pinAnySearchFetchRetry(kernelRoot, log, counters) {
 }
 
 function pinPresetInstrRoot(kernelRoot, rel, log, counters) {
-  const file = path.join(kernelRoot, rel)
+  const file = resolveKernelFile(kernelRoot, rel)
   const mark = 'company-preset-instr-root-v1'
-  if (!fs.existsSync(file)) {
+  if (!file) {
     log(`PRESET_INSTR_SKIP=${rel}|missing`)
     return
   }
@@ -900,8 +918,8 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log })
   log(`PATCH_KERNEL_ROOT=${kernelRoot}`)
 
   for (const patch of CODE_PATCHES) {
-    const target = path.join(kernelRoot, patch.file)
-    if (!fs.existsSync(target)) throw new KernelPatchError('target-missing', target)
+    const target = resolveKernelFile(kernelRoot, patch.file)
+    if (!target) throw new KernelPatchError('target-missing', path.join(kernelRoot, patch.file))
     let text = fs.readFileSync(target, 'utf8')
 
     const already = [patch.mark].concat(patch.already ?? [])

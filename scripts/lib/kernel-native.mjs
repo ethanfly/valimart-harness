@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { KernelPatchError } from '../kernel/patches.mjs'
+import { KernelPatchError, resolveKernelFile } from '../kernel/patches.mjs'
 
 /** v1 标记：只让 POSIX 加载 fs-ext（Windows 跳过编译）。 */
 export const WINDOWS_FLOCK_MARK = 'company-session-posix-flock-v1'
@@ -84,7 +84,9 @@ const FLOCK_IMPL = [
   'const flock = companyPosixFlock();',
 ].join('\n')
 
-export const sessionLockFile = (kernelRoot) => path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-session-persistence-jsonl', 'lib', 'index.js')
+export const sessionLockFile = (kernelRoot) =>
+  resolveKernelFile(kernelRoot, path.join('node_modules', '@deepseek-ai', 'dsh-session-persistence-jsonl', 'lib', 'index.js')) ??
+  path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-session-persistence-jsonl', 'lib', 'index.js')
 
 /** fs-ext 的 flock 标志串（上游只传 "exnb"；这里按 fs-ext 的约定解析，保持等价）。 */
 export function flockFlagsToOperation(flags) {
@@ -132,8 +134,8 @@ export function prepareSessionLockDependency({ kernelRoot, log = () => {} }) {
 /** Windows 安装内核用：v2 补丁 + 不让 npm 编译没用到的 fs-ext。 */
 export function prepareWindowsNativeDependencies({ kernelRoot, platform = process.platform, log = () => {} }) {
   if (platform !== 'win32') return false
-  const nativePackage = path.join(kernelRoot, 'node_modules', 'fs-ext', 'package.json')
-  if (!fs.existsSync(nativePackage)) return false // 0.1.2 尚未引入；0.1.5 改走 node-addon-system。
+  const nativePackage = resolveKernelFile(kernelRoot, path.join('node_modules', 'fs-ext', 'package.json'))
+  if (!nativePackage) return false // 0.1.2 尚未引入；0.1.5 改走 node-addon-system。
   const pkg = JSON.parse(fs.readFileSync(nativePackage, 'utf8'))
   if (pkg.name !== 'fs-ext' || pkg.version !== '2.1.1') {
     throw new KernelPatchError('native-dependency-version', `fs-ext@${pkg.version} 尚未验证 Windows 安装兼容性`)

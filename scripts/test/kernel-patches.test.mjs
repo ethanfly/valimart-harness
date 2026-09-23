@@ -11,6 +11,7 @@ import {
   applyKernelPatches,
   CODE_PATCHES,
   missingPatches,
+  resolveKernelFile,
   resolveMarkFile,
   resolvePresetRel,
 } from '../kernel/patches.mjs'
@@ -327,6 +328,66 @@ test('AnySearch client：瞬时 fetch failed / 5xx 重试，并把 cause 写进�
   assert.equal(patched.includes('request failed: ${String(error)}'), false)
   applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} })
   assert.equal(fs.readFileSync(client, 'utf8'), patched)
+  assert.deepEqual(missingPatches(kernelRoot), [])
+})
+
+function hoistedKernelFile(kernelRoot, rel) {
+  const parts = String(rel).split(/[\\/]+/).filter(Boolean)
+  if (parts[0] !== 'node_modules') return path.join(kernelRoot, rel)
+  return path.join(kernelRoot, '..', '..', ...parts.slice(1))
+}
+
+test('npm 提升布局：补丁目标不在 dsh/node_modules 里也能找到并打上', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-patch-hoisted-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  const chatRel = path.join('node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js')
+  assert.equal(resolveKernelFile(kernelRoot, chatRel), null)
+
+  const live = new Set(['company-goal-resume-armed-v1', 'company-win-junction-mklink-v3', 'company-win-junction-mklink-v4'])
+  const marksByFile = new Map()
+  for (const patch of CODE_PATCHES) {
+    const f = hoistedKernelFile(kernelRoot, patch.file)
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    if (patch.mark === 'company-goal-resume-armed-v1') fs.writeFileSync(f, GOAL_RC12)
+    else if (patch.mark === 'company-win-junction-mklink-v3') fs.writeFileSync(f, JUNCTION_RC12)
+    if (live.has(patch.mark)) continue
+    const marks = marksByFile.get(patch.file) ?? []
+    marks.push(patch.mark, ...(patch.already ?? []))
+    marksByFile.set(patch.file, marks)
+  }
+  for (const [file, marks] of marksByFile) {
+    fs.writeFileSync(hoistedKernelFile(kernelRoot, file), marks.map((m) => `// ${m}`).join('\n') + '\n')
+  }
+  const presetRel = path.join('node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets', 'standard', 'agent.cordis.yml')
+  const preset = hoistedKernelFile(kernelRoot, presetRel)
+  fs.mkdirSync(path.dirname(preset), { recursive: true })
+  fs.writeFileSync(
+    preset,
+    [
+      "- id: skill-filesystem",
+      "  name: '@deepseek-ai/dsh-skill-filesystem'",
+      '',
+      '- id: tool-web',
+      "  name: '@deepseek-ai/dsh-tool-web'",
+      '  config:',
+      '    fetch: true',
+      '    searchTimeoutMs: 60000',
+      '',
+      '- id: agent-instructions',
+      "  name: '@deepseek-ai/dsh-agent-instructions'",
+      '  config:',
+      '    maxBytes: 65536',
+      '',
+    ].join('\n'),
+  )
+  assert.equal(fs.existsSync(path.join(kernelRoot, chatRel)), false)
+  assert.equal(resolveKernelFile(kernelRoot, chatRel), hoistedKernelFile(kernelRoot, chatRel))
+  applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} })
+  const goal = fs.readFileSync(hoistedKernelFile(kernelRoot, patchNamed('company-goal-resume-armed-v1').file), 'utf8')
+  assert.match(goal, /company-goal-resume-armed-v1/)
+  assert.equal(fs.existsSync(path.join(kernelRoot, patchNamed('company-goal-resume-armed-v1').file)), false)
   assert.deepEqual(missingPatches(kernelRoot), [])
 })
 
