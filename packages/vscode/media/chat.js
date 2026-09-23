@@ -980,20 +980,21 @@ function renderTaskDetail(task) {
   const previous = reviewerTaskId === task.id ? reviewerSelect.value : task.reviewerId || ''
   reviewerTaskId = task.id
   reviewerSelect.replaceChildren()
-  const people = (state.people ?? []).filter(p => ['admin', 'director'].includes(p.role) && p.id !== state.user?.id && !p.disabled)
+  const roleLabel = { admin: '管理员', director: '总监', employee: '员工' }
+  const people = (state.people ?? []).filter(p => p.id !== state.user?.id && !p.disabled)
   const placeholder = document.createElement('option')
   placeholder.value = ''
-  placeholder.textContent = state.peopleStatus === 'loading' ? '正在加载审核人…' : state.peopleStatus === 'error' ? '审核人加载失败' : people.length ? '请选择审核人' : '暂无其他总监或管理员'
+  placeholder.textContent = state.peopleStatus === 'loading' ? '正在加载审核人…' : state.peopleStatus === 'error' ? '审核人加载失败' : people.length ? '请选择审核人' : '没有其他可选审核人'
   reviewerSelect.append(placeholder)
   for (const p of people) {
     const opt = document.createElement('option')
     opt.value = p.id
-    opt.textContent = `${p.displayName || p.username} · ${p.role === 'admin' ? '管理员' : '总监'}${p.department ? ` · ${p.department}` : ''}`
+    opt.textContent = `${p.displayName || p.username} · ${roleLabel[p.role] ?? p.role ?? ''}${p.department ? ` · ${p.department}` : ''}`
     reviewerSelect.append(opt)
   }
   reviewerSelect.value = people.some(p => p.id === previous) ? previous : ''
   reviewerSelect.disabled = !people.length || state.peopleStatus !== 'ready'
-  document.getElementById('reviewerHint').textContent = state.peopleError || (people.length ? '选择其他总监或管理员进行初审，不能选择自己。' : '需要另一个总监或管理员账号。可切换回会话后重新打开任务卡刷新名单。')
+  document.getElementById('reviewerHint').textContent = state.peopleError || (people.length ? '可以选择任意同事初审，不能选择自己。' : '没有其他可选审核人。可切换回会话后重新打开任务卡刷新名单。')
   document.getElementById('taskBindBtn').textContent = state.boundTaskId === task.id ? '已绑定当前会话' : '绑定当前会话'
   updateTaskActions()
 }

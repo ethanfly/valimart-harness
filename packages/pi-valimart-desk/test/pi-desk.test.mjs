@@ -173,11 +173,12 @@ describe('task workflow', () => {
     { id: 'u3', username: 'dir', displayName: '总监', role: 'director' },
   ]
 
-  it('reviewerOptions drops employees and self', () => {
-    const forEmp = reviewerOptions(users, emp)
+  it('reviewerOptions includes any role except self and disabled', () => {
+    const withDisabled = [...users, { id: 'u4', username: 'gone', displayName: '停用', role: 'employee', disabled: true }]
+    const forEmp = reviewerOptions(withDisabled, emp)
     assert.deepEqual(forEmp.map((o) => o.id).sort(), ['u2', 'u3'])
-    const forBoss = reviewerOptions(users, boss)
-    assert.deepEqual(forBoss.map((o) => o.id), ['u3'])
+    const forBoss = reviewerOptions(withDisabled, boss)
+    assert.deepEqual(forBoss.map((o) => o.id).sort(), ['u1', 'u3'])
   })
 
   it('canSubmit only draft/rejected by assignee or admin', () => {

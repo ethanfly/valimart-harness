@@ -616,7 +616,7 @@ function Deliverables({ ctx, task, editable, currentSession, driveDir }) {
 
 function SubmitBox({ task, me }) {
   const people = useStoreValue(deskStore, (s) => s.people)
-  const reviewers = people.filter((p) => p.role !== 'employee' && p.id !== me.id)
+  const reviewers = people.filter((p) => p.id !== me.id && !p.disabled)
   const [reviewerId, setReviewerId] = useState(task.reviewerId ?? reviewers[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -635,7 +635,7 @@ function SubmitBox({ task, me }) {
   return (
     <div>
       <div className="dk-small dk-dim" style={{ marginBottom: 8 }}>
-        {task.status === 'rejected' ? '任务被驳回，修改后可以重新提交验收。' : '选择审核人（总监或管理员），把任务卡发出去。提交后进入「待审」。'}
+        {task.status === 'rejected' ? '任务被驳回，修改后可以重新提交验收。' : '选择审核人（任意同事，不能是自己），把任务卡发出去。提交后进入「待审」。'}
       </div>
       <div className="dk-row wrap">
         <select className="dk-select" style={{ width: 260 }} value={reviewerId} onChange={(e) => setReviewerId(e.target.value)}>

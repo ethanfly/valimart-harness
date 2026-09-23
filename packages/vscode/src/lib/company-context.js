@@ -151,7 +151,7 @@ export class CompanyContext {
           if (!args.reviewerId) {
             await session.refreshPeople()
             const me = session.store.data.user
-            const reviewers = (session.people ?? []).filter((p) => p.role !== 'employee' && p.id !== me?.id)
+            const reviewers = (session.people ?? []).filter((p) => p.id !== me?.id && !p.disabled)
             return { needReviewer: true, reviewers: reviewers.map((p) => ({ id: p.id, username: p.username, displayName: p.displayName, role: p.role, department: p.department })) }
           }
           return session.submitTask(id, { reviewerId: args.reviewerId })

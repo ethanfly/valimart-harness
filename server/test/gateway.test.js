@@ -171,6 +171,43 @@ test('任务卡：新建 → 绑定进程 → 口头完成不算 → 加交付�
   assert.equal(resubmit.json.task.status, 'pending_review')
 })
 
+test('任务卡审核人：任意同事可以初审，不能是自己，停用账号不可选', async () => {
+  const createdUser = await api('POST', '/api/personnel/users', {
+    token: ctx.boss.sessionToken,
+    body: { username: 'review-emp', password: 'review123', displayName: '审核同事', role: 'employee', department: '内容部' },
+  })
+  assert.equal(createdUser.status, 201)
+  const colleague = createdUser.json.user
+  const login = await api('POST', '/api/auth/login', { body: { username: 'review-emp', password: 'review123', device: 'test' } })
+  assert.equal(login.status, 200)
+
+  const task = (await api('POST', '/api/tasks', { token: ctx.emp.sessionToken, body: { title: '员工互审' } })).json.task
+  await api('POST', `/api/tasks/${task.id}/deliverables`, { token: ctx.emp.sessionToken, body: { files: [{ name: 'a.txt', dataBase64: Buffer.from('x').toString('base64') }] } })
+
+  const self = await api('POST', `/api/tasks/${task.id}/submit`, { token: ctx.emp.sessionToken, body: { reviewerId: ctx.emp.user.id } })
+  assert.equal(self.status, 400)
+  assert.match(self.json.error.message, /不能把任务发给自己审核/)
+
+  const submitted = await api('POST', `/api/tasks/${task.id}/submit`, { token: ctx.emp.sessionToken, body: { reviewerId: colleague.id } })
+  assert.equal(submitted.status, 200)
+  assert.equal(submitted.json.task.status, 'pending_review')
+  assert.equal(submitted.json.task.reviewer.username, 'review-emp')
+  assert.equal(submitted.json.task.reviewer.role, 'employee')
+  assert.match(submitted.json.task.log.at(-1).text, /员工/)
+
+  const reviewed = await api('POST', `/api/tasks/${task.id}/review`, { token: login.json.sessionToken, body: { decision: 'pass', comment: '同事初审' } })
+  assert.equal(reviewed.status, 200)
+  assert.equal(reviewed.json.task.status, 'pending_final')
+
+  const other = (await api('POST', '/api/tasks', { token: ctx.emp.sessionToken, body: { title: '停用账号不能审' } })).json.task
+  await api('POST', `/api/tasks/${other.id}/deliverables`, { token: ctx.emp.sessionToken, body: { files: [{ name: 'b.txt', dataBase64: Buffer.from('y').toString('base64') }] } })
+  const disabled = await api('PATCH', `/api/personnel/users/${colleague.id}`, { token: ctx.boss.sessionToken, body: { disabled: true } })
+  assert.equal(disabled.json.user.disabled, true)
+  const blocked = await api('POST', `/api/tasks/${other.id}/submit`, { token: ctx.emp.sessionToken, body: { reviewerId: colleague.id } })
+  assert.equal(blocked.status, 400)
+  assert.match(blocked.json.error.message, /已停用/)
+})
+
 test('公司盘：个人记忆按人隔离，共享区员工只能追加 05-logs', async () => {
   const w = await api('PUT', '/api/drive/file?path=_office/emp-a/_memory/02-methods/详情页做法.md', { token: ctx.emp.sessionToken, body: '# 做法\n照销冠模块顺序', raw: true })
   assert.equal(w.status, 200)

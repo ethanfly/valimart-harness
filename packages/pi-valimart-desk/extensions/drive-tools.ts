@@ -187,7 +187,7 @@ export function registerDrive(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("desk-task-submit", {
-    description: "提交验收：选审核人（总监/管理员），任务进入待审。必须先有交付物",
+    description: "提交验收：选审核人（任意同事，不能是自己），任务进入待审。必须先有交付物",
     handler: async (_args, ctx) => {
       try {
         const task = await boundOrPick(ctx, ["draft", "rejected"]);
@@ -207,7 +207,7 @@ export function registerDrive(pi: ExtensionAPI) {
         const people = await listPeople();
         const options = reviewerOptions(people.users ?? [], me);
         if (!options.length) {
-          ctx.ui.notify("没有可选审核人（需要总监或管理员，且不能是自己）", "error");
+          ctx.ui.notify("没有可选审核人（不能是自己；停用账号不可选）", "error");
           return;
         }
         const picked = await ctx.ui.select("发给谁验收", options.map((o) => o.label));
@@ -479,14 +479,14 @@ export function registerDrive(pi: ExtensionAPI) {
     name: "company_task_submit",
     label: "提交验收",
     description:
-      "把任务卡提交验收，进入待审。必须先有交付物。审核人必须是总监或管理员且不能是自己。不传 reviewerId 时返回可选审核人列表，再带 reviewerId 调一次。不传 taskId 时用 /desk-task 绑定的任务。",
+      "把任务卡提交验收，进入待审。必须先有交付物。审核人可以是任意同事，不限总监或管理员，不能是自己。不传 reviewerId 时返回可选审核人列表，再带 reviewerId 调一次。不传 taskId 时用 /desk-task 绑定的任务。",
     promptSnippet: "Submit a task card for review",
     promptGuidelines: [
-      "After attaching deliverables and writing submission, use company_task_submit to send the card to a director/admin reviewer. Do not tell the user to click submit in the desktop UI.",
+      "After attaching deliverables and writing submission, use company_task_submit to send the card to any colleague except yourself. The reviewer does not have to be a director or admin. Do not tell the user to click submit in the desktop UI.",
       "If reviewerId is omitted, pick one id from the returned list and call again.",
     ],
     parameters: Type.Object({
-      reviewerId: Type.Optional(Type.String({ description: "审核人用户 id（总监或管理员）；省略则先列出候选人" })),
+      reviewerId: Type.Optional(Type.String({ description: "审核人用户 id（任意同事，不能是自己）；省略则先列出候选人" })),
       taskId: Type.Optional(Type.String()),
     }),
     async execute(_id, args) {
@@ -498,7 +498,7 @@ export function registerDrive(pi: ExtensionAPI) {
         if (!hasDeliverables(task)) throw new Error("口头完成不算完成：请先 company_task_attach 挂交付物再提交验收");
         const people = await listPeople();
         const options = reviewerOptions(people.users ?? [], me);
-        if (!options.length) throw new Error("没有可选审核人（需要总监或管理员，且不能是自己）");
+        if (!options.length) throw new Error("没有可选审核人（不能是自己；停用账号不可选）");
         if (!args.reviewerId) {
           const text = `请选择审核人后再次调用 company_task_submit，传入 reviewerId：\n${options.map((o) => `- ${o.id}  ${o.label}`).join("\n")}`;
           return ok(text, { taskId: id, reviewers: options });

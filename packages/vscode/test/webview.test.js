@@ -95,7 +95,8 @@ test('webview: pasted images, reviewer states, CSP and narrow/light layouts', as
   await page.locator('#tabTasks').click()
   await render(state)
   await page.locator('#reviewerSelect').selectOption('director')
-  assert.equal(await page.locator('#reviewerSelect option').count(), 2)
+  assert.equal(await page.locator('#reviewerSelect option').count(), 3)
+  assert.match(await page.locator('#reviewerSelect').textContent(), /员工/)
   assert.equal(await page.locator('#taskSubmitBtn').isEnabled(), true)
   await page.locator('#taskSubmitBtn').click()
   assert.equal(await page.evaluate(() => window.sent.find(m => m.type === 'taskSubmit').reviewerId), 'director')
@@ -111,7 +112,7 @@ test('webview: pasted images, reviewer states, CSP and narrow/light layouts', as
   }
   await render({ ...state, people: [], peopleStatus: 'ready' })
   await page.waitForFunction(() => document.querySelector('#reviewerSelect').disabled)
-  assert.match(await page.locator('#reviewerSelect').textContent(), /暂无其他总监或管理员/)
+  assert.match(await page.locator('#reviewerSelect').textContent(), /没有其他可选审核人/)
   assert.equal(await page.locator('#taskSubmitBtn').isEnabled(), false)
   await render({ ...state, people: [], peopleStatus: 'error', peopleError: '无法连接网关' })
   await page.waitForFunction(() => document.querySelector('#reviewerHint').textContent.includes('无法连接'))

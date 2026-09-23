@@ -12,9 +12,9 @@ export const TASK_STATUS = {
   rejected: '驳回',
 }
 
-/** 审核人：总监或管理员，且不能是自己。 */
+/** 审核人：任意未停用同事，不限总监/管理员，不能是自己。 */
 export function reviewerOptions(users, me) {
-  const list = Array.isArray(users) ? users.filter((u) => u && !u.disabled && u.role !== 'employee') : []
+  const list = Array.isArray(users) ? users.filter((u) => u && !u.disabled) : []
   const mineId = me?.id
   const mineName = me?.username
   const pool = list.filter((u) => u.id !== mineId && u.username !== mineName)
@@ -62,7 +62,7 @@ export function workflowHint(task) {
       if (!String(task.submission ?? '').trim()) {
         return `已有 ${n} 个交付物。把结论写入提交内容（company_task_update），再用 company_task_submit 提交验收。`
       }
-      return `可以提交验收：company_task_submit（审核人必须是总监或管理员，不能发给自己）。`
+      return `可以提交验收：company_task_submit（审核人可以是任意同事，不能发给自己）。`
     case 'pending_review':
       return `已在待审。指定审核人用 company_task_review（decision=pass 通过 / reject 驳回）。`
     case 'pending_final':

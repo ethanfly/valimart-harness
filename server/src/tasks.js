@@ -4,7 +4,7 @@
  * 口头完成不算：提交验收必须至少有一个交付物（公司盘 projects/inbox/<任务ID>/ 下的文件）。
  */
 import { HttpError } from './http.js'
-import { newId } from './db.js'
+import { newId, ROLE_LABELS } from './db.js'
 
 export const TASK_STATUS = {
   draft: '进行中',
@@ -232,13 +232,13 @@ export class Tasks {
       const reviewer = this.db.getUser(reviewerId)
       if (!reviewer) throw new HttpError(400, '请选择审核人')
       if (reviewer.id === user.id) throw new HttpError(400, '不能把任务发给自己审核')
-      if (reviewer.role === 'employee') throw new HttpError(400, '审核人必须是总监或管理员')
+      if (reviewer.disabled) throw new HttpError(400, '该账号已停用，不能作为审核人')
       task.reviewerId = reviewer.id
       task.status = 'pending_review'
       task.submittedAt = new Date().toISOString()
       task.review = null
       task.final = null
-      this.log(task, user, 'submit', `提交验收，发给 ${reviewer.displayName || reviewer.username}（${reviewer.role === 'admin' ? '管理员' : '总监'}）`)
+      this.log(task, user, 'submit', `提交验收，发给 ${reviewer.displayName || reviewer.username}（${ROLE_LABELS[reviewer.role] ?? reviewer.role}）`)
       return task
     })
   }
