@@ -495,7 +495,7 @@ export function pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log = noop }) {
   log({ step: 'kernel', status: 'start', detail: `同步技能根 → ${skillsDir}` })
   let counters
   try {
-    counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log: noop })
+    counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log: noop, expectVersion: kernel.version === PIN.version ? PIN.version : undefined })
   } catch (err) {
     if (err instanceof KernelPatchError) throw new Error(`PATCH_FAIL ${err.code}: ${err.detail}`)
     throw err

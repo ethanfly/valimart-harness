@@ -96,7 +96,7 @@ try {
 // ---------- 2. 打补丁 ----------
 let counters
 try {
-  counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log })
+  counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log, expectVersion: PIN.version })
 } catch (err) {
   if (err instanceof KernelPatchError) die(`PATCH_FAIL ${err.code}: ${err.detail}`)
   throw err

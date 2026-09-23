@@ -10,6 +10,7 @@ import {
   applyEdit,
   applyKernelPatches,
   CODE_PATCHES,
+  KernelPatchError,
   missingPatches,
   resolveKernelFile,
   resolveMarkFile,
@@ -336,6 +337,31 @@ function hoistedKernelFile(kernelRoot, rel) {
   if (parts[0] !== 'node_modules') return path.join(kernelRoot, rel)
   return path.join(kernelRoot, '..', '..', ...parts.slice(1))
 }
+
+test('npm 10：依赖嵌在兄弟包 node_modules 里也能找到', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-patch-sibling-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  const rel = path.join('node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js')
+  const nested = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-web-app', 'node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js')
+  fs.mkdirSync(path.dirname(nested), { recursive: true })
+  fs.writeFileSync(nested, 'sibling')
+  assert.equal(resolveKernelFile(kernelRoot, rel), nested)
+})
+
+test('补丁包版本飘走时拒绝打补丁', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-patch-drift-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  const pkgDir = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-client-ui-chat')
+  fs.mkdirSync(path.join(pkgDir, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-client-ui-chat', version: '0.1.5-rc.3' }))
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'client.js'), 'x')
+  assert.throws(
+    () => applyKernelPatches({ kernelRoot, skillsDir: dir, log: () => {}, expectVersion: '0.1.5-rc.2' }),
+    (err) => err instanceof KernelPatchError && err.code === 'version-drift' && /0\.1\.5-rc\.3/.test(err.detail),
+  )
+})
 
 test('npm 提升布局：补丁目标不在 dsh/node_modules 里也能找到并打上', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-patch-hoisted-'))

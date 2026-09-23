@@ -12,10 +12,23 @@ import {
   annotateDiscoverWithNpm, fetchNpmVersions, resolveNpmRegistry,
 } from '../lib/kernel-update.mjs'
 import { fetchKernelUpdate } from '../../plugins/desk-host/lib/kernel-update.js'
-import { packPatchedPrefix, formatNpmInstallError, prepareKernelTarball, removeUnpinnedProfilePlugins } from '../lib/kernel-prepare.mjs'
+import { packPatchedPrefix, formatNpmInstallError, prepareKernelTarball, removeUnpinnedProfilePlugins, kernelGlobalInstallArgs } from '../lib/kernel-prepare.mjs'
 import { ALL_MARKS, KernelPatchError } from '../kernel/patches.mjs'
 import { locateKernel, PIN, stampPath } from '../kernel/locate.mjs'
 import { applyPendingKernel, findTar, preparePackaged } from '../lib/bootstrap.mjs'
+
+test('kernel install args pin prerelease drift with --before', () => {
+  const args = kernelGlobalInstallArgs({
+    prefix: 'D:\\a\\kernel',
+    spec: '@deepseek-ai/dsh@0.1.5-rc.2',
+    windows: true,
+    installBefore: PIN.installBefore,
+  })
+  assert.equal(args.at(-2), '--before')
+  assert.equal(args.at(-1), '2026-09-22T05:00:00.000Z')
+  assert.ok(args.includes('--ignore-scripts'))
+  assert.equal(kernelGlobalInstallArgs({ prefix: 'p', spec: 'a@1' }).includes('--before'), false)
+})
 
 function writeBareKernel(prefix, version) {
   const root = path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh')

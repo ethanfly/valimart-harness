@@ -40,13 +40,22 @@ export function assertPublishedOnNpm(version, npmVersions) {
   }
 }
 
-export function installKernelPackage({ version, prefix, log = () => {}, registry }) {
+/** `npm install -g` 参数。installBefore 用来挡住 `^版本` 飘到同一补丁号的更新预发布。 */
+export function kernelGlobalInstallArgs({ prefix, spec, windows = false, installBefore } = {}) {
+  const args = ['install', '-g', spec, '--prefix', prefix, '--no-fund', '--no-audit']
+  if (windows) args.push('--ignore-scripts')
+  if (installBefore) args.push('--before', installBefore)
+  return args
+}
+
+export function installKernelPackage({ version, prefix, log = () => {}, registry, installBefore } = {}) {
   assertSafeVersion(version)
   const refused = refuseLivePrefix(prefix)
   if (refused) throw new Error(refused)
   fs.mkdirSync(prefix, { recursive: true })
   const spec = `${KERNEL_PACKAGE}@${version}`
-  log(`安装 ${spec} → ${prefix}`)
+  const before = installBefore ?? (version === PIN.version ? PIN.installBefore : undefined)
+  log(`安装 ${spec} → ${prefix}${before ? `（依赖只取 ${before} 之前发布的版本）` : ''}`)
   const npm = npmInvocation()
   const resolved = resolveNpmRegistry(registry)
   const windows = process.platform === 'win32'
@@ -70,7 +79,7 @@ export function installKernelPackage({ version, prefix, log = () => {}, registry
     err.code = 'npm_install_failed'
     throw err
   }
-  runNpm(['install', '-g', spec, '--prefix', prefix, '--no-fund', '--no-audit', ...(windows ? ['--ignore-scripts'] : [])])
+  runNpm(kernelGlobalInstallArgs({ prefix, spec, windows, installBefore: before }))
   if (windows) {
     const kernel = locateKernel(prefix)
     if (!kernel) throw new Error(`npm 报告成功，但 ${prefix} 下找不到内核目录`)
@@ -253,7 +262,7 @@ export function packPatchedPrefix({ prefix, version, outDir, skillsDir, log = ()
   if (!kernel) throw new Error(`前缀里没有内核：${prefix}`)
   if (kernel.version !== version) throw new Error(`装到的是 ${kernel.version}，不是 ${version}`)
 
-  const counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log })
+  const counters = applyKernelPatches({ kernelRoot: kernel.root, skillsDir, log, expectVersion: version === PIN.version ? PIN.version : undefined })
   const left = missingPatches(kernel.root)
   if (left.length) throw new Error(`打完补丁仍缺：${left.join(', ')}`)
 

@@ -2,6 +2,8 @@
   "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-17 从 0.1.5-rc.1 升到 npm latest/next 的 0.1.5-rc.2，并卸掉 dsh-better-sidebar（改走官方右侧边栏）。0.1.6-alpha.* 有会话多实例 / slot 变更，暂不跟。0.1.5 起 POSIX 会话锁改走 @deepseek-ai/node-addon-system/flock，不再打 fs-ext v2。0.1.5-alpha.1 仍因发布不完整（子包 ETARGET）勿试。",
   "package": "@deepseek-ai/dsh",
   "version": "0.1.5-rc.2",
+  "installBefore": "2026-09-22T05:00:00.000Z",
+  "$installBefore": "dsh 依赖写的是 ^0.1.5-rc.2。0.1.5-rc.3 于 2026-09-22T05:55Z 发布后，npm 10 会装到 rc.3，并把 dsh-client-ui-chat 嵌进 dsh-web-app，补丁目标丢失。只接受此时间之前发布的版本，钉住补丁审过的 rc.2 树。升内核时删掉或改到新版本发布之前。",
   "profilePlugins": [
     {
       "name": "@anweat/dsh-browser",

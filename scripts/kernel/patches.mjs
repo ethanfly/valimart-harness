@@ -580,13 +580,41 @@ export function presetCandidates(name) {
  * kernelRoot 是 `…/node_modules/@deepseek-ai/dsh`，所以提升位置是上两级再进包名。
  * 两边都有时优先嵌套：Node 解析也是先看包内 node_modules。
  */
-export function resolveKernelFile(kernelRoot, rel) {
-  const nested = path.join(kernelRoot, rel)
-  if (fs.existsSync(nested)) return nested
+function kernelFileCandidates(kernelRoot, rel) {
   const parts = String(rel).split(/[\\/]+/).filter(Boolean)
-  if (parts[0] === 'node_modules' && parts.length >= 2) {
-    const hoisted = path.join(kernelRoot, '..', '..', ...parts.slice(1))
-    if (fs.existsSync(hoisted)) return hoisted
+  const candidates = [path.join(kernelRoot, rel)]
+  if (parts[0] !== 'node_modules' || parts.length < 3) return candidates
+  const scope = parts[1]
+  const name = parts[2]
+  const rest = parts.slice(3)
+  candidates.push(path.join(kernelRoot, '..', '..', scope, name, ...rest))
+  const scopeDir = path.join(kernelRoot, 'node_modules', scope)
+  if (fs.existsSync(scopeDir)) {
+    for (const parent of fs.readdirSync(scopeDir)) {
+      candidates.push(path.join(scopeDir, parent, 'node_modules', scope, name, ...rest))
+    }
+  }
+  return candidates
+}
+
+export function resolveKernelFile(kernelRoot, rel) {
+  return kernelFileCandidates(kernelRoot, rel).find((p) => fs.existsSync(p)) ?? null
+}
+
+function packageVersionOf(file) {
+  let dir = path.dirname(file)
+  for (let i = 0; i < 6; i++) {
+    const pkgPath = path.join(dir, 'package.json')
+    if (fs.existsSync(pkgPath)) {
+      try {
+        return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version ?? null
+      } catch {
+        return null
+      }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
   }
   return null
 }
@@ -913,13 +941,19 @@ export function missingPatches(kernelRoot) {
  * @param {{ kernelRoot: string, skillsDir: string, log?: (line: string) => void }} opts
  * @returns {{ applied: number, skipped: number }}
  */
-export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log }) {
+export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log, expectVersion } = {}) {
   const counters = { applied: 0, skipped: 0 }
   log(`PATCH_KERNEL_ROOT=${kernelRoot}`)
 
   for (const patch of CODE_PATCHES) {
     const target = resolveKernelFile(kernelRoot, patch.file)
     if (!target) throw new KernelPatchError('target-missing', path.join(kernelRoot, patch.file))
+    if (expectVersion && /@deepseek-ai[\\/]dsh-/.test(patch.file)) {
+      const got = packageVersionOf(target)
+      if (got && got !== expectVersion) {
+        throw new KernelPatchError('version-drift', `${patch.file}|got=${got}|want=${expectVersion}|依赖被 ^ 版本飘走了，安装时要钉住 installBefore`)
+      }
+    }
     let text = fs.readFileSync(target, 'utf8')
 
     const already = [patch.mark].concat(patch.already ?? [])
