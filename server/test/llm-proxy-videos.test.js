@@ -24,7 +24,7 @@ before(async () => {
     })
     req.on('end', () => {
       last = { url: req.url, method: req.method, headers: req.headers, body: JSON.parse(raw || '{}') }
-      if (req.url === '/videos/generations') {
+      if (req.url === '/videos/generations' || req.url === '/v1/videos/generations') {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({
           created: 1,
@@ -91,7 +91,7 @@ test('POST /v1/videos/generations 转发上游并记账', async () => {
   assert.equal(r.status, 200)
   const json = await r.json()
   assert.equal(json.data[0].url, 'https://cdn.example/clip.mp4')
-  assert.equal(last.url, '/videos/generations')
+  assert.equal(last.url.replace(/^\/v1/, ''), '/videos/generations')
   assert.equal(last.body.model, 'grok-imagine-video-1.5')
   assert.equal(last.body.duration, 6)
   assert.equal(last.headers.authorization, 'Bearer xai-test')

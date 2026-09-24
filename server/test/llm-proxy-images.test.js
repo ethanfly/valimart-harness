@@ -27,7 +27,8 @@ before(async () => {
     })
     req.on('end', () => {
       last = { url: req.url, method: req.method, headers: req.headers, body: JSON.parse(raw || '{}') }
-      if (req.url === '/images/generations' || req.url === '/images/edits') {
+      const route = req.url.replace(/^\/v1/, '')
+      if (route === '/images/generations' || route === '/images/edits') {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({
           created: 1,
@@ -86,7 +87,7 @@ test('POST /v1/images/generations 转发上游并记账', async () => {
   assert.equal(r.status, 200)
   const json = await r.json()
   assert.equal(json.data[0].b64_json, PNG_B64)
-  assert.equal(last.url, '/images/generations')
+  assert.equal(last.url.replace(/^\/v1/, ''), '/images/generations')
   assert.equal(last.body.model, 'grok-imagine-image-2.0')
   assert.equal(last.body.prompt, 'a red square icon, flat, no text')
   assert.equal(last.body.response_format, 'b64_json')
@@ -106,7 +107,7 @@ test('POST /v1/images/edits 需要参考图并转发 /images/edits', async () =>
     body: JSON.stringify({ model: 'grok-imagine-image-2.0', prompt: 'make it blue', image: PNG_B64 }),
   })
   assert.equal(r.status, 200)
-  assert.equal(last.url, '/images/edits')
+  assert.equal(last.url.replace(/^\/v1/, ''), '/images/edits')
   assert.equal(last.body.image, PNG_B64)
 })
 

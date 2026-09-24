@@ -523,7 +523,7 @@ test('周额度：用满后 429', async () => {
   assert.equal(ok.status, 200)
 })
 
-test('周额度：并发两笔只放行一笔，第二笔 429', async () => {
+test('周额度：同一人同一上游并发两笔都放行（不串行排队）', async () => {
   const created = await api('POST', '/api/personnel/users', {
     token: ctx.boss.sessionToken,
     body: { username: 'quota-race', password: 'quota123', displayName: '额度竞态', role: 'employee', department: '测试' },
@@ -532,15 +532,29 @@ test('周额度：并发两笔只放行一笔，第二笔 429', async () => {
   await api('PATCH', `/api/personnel/users/${created.json.user.id}`, { token: ctx.boss.sessionToken, body: { weeklyQuotaCny: 0.0000005 } })
   const login = await api('POST', '/api/auth/login', { body: { username: 'quota-race', password: 'quota123', device: 'test' } })
   assert.equal(login.status, 200)
+
   const body = { model: 'mock-echo', messages: [{ role: 'user', content: 'race' }] }
-  const [a, b] = await Promise.all([
-    api('POST', '/v1/chat/completions', { token: login.json.gatewayToken, body }),
-    api('POST', '/v1/chat/completions', { token: login.json.gatewayToken, body }),
-  ])
-  const statuses = [a.status, b.status].sort()
-  assert.deepEqual(statuses, [200, 429])
-  const denied = a.status === 429 ? a : b
-  assert.equal(denied.json.error.code, 'quota_exceeded')
+  let arrived = 0
+  let release
+  const bothIn = new Promise((resolve) => {
+    release = resolve
+  })
+  gw.proxy.afterQuota = () => {
+    arrived += 1
+    if (arrived >= 2) release()
+    return bothIn
+  }
+  try {
+    const [a, b] = await Promise.all([
+      api('POST', '/v1/chat/completions', { token: login.json.gatewayToken, body }),
+      api('POST', '/v1/chat/completions', { token: login.json.gatewayToken, body }),
+    ])
+    assert.equal(arrived, 2)
+    assert.equal(a.status, 200)
+    assert.equal(b.status, 200)
+  } finally {
+    gw.proxy.afterQuota = null
+  }
 })
 
 test('客户端：未登录 401；无发布时 available=false；总监可读、员工不能管、管理员发布/回滚', async () => {
