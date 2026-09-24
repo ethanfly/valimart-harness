@@ -23,6 +23,7 @@
 - 验证：`npm test` **585 pass / 0 fail / 1 skip**；开发前缀 19 处补丁齐全、`--profile desk` 3471 启动 200 零报错；安装版前缀走 `fetchKernelUpdate` + `applyPendingKernel` 全链路（旧版留 `kernel-prev`），`desk-app` 3472 启动 200 零告警；新客户端首启模拟（`preparePackaged` 对新 payload 跑真实 appDir）把豁免写进真实 desk-app profile 后再启，零告警。
 - 已发布：内核 0.1.7-rc.1（gz）与客户端 `0.1.0+0.1.7-rc.1.20260924-0651.c07ffca8`（`dist/valimart-harness-Setup-0.1.0-20260924.0651.exe`，248.8MB）都上了网关，员工机器下次启动自动静默更新；旧版 kernel/client 都留了 previous 可回滚。发布用的是一次性脚本（`build/publish-kernel-once.mjs` / `publish-client-once.mjs`，复用 desk 会话 sessionToken；CLI 只收 user/password）。
 - 顺手修了既有坏断言：管理页 label 加了「、识图」但 `oauth-subscribe.test.js` 的正则没跟上。
+- **桌面端启动报错（用户报障，已修，提交 `11fba77`）**：升 0.1.7 后打开页面就是「web boot: 1 entry did not activate / @anweat/dsh-browser: pending (waiting for service: settings$Scope)」，内核进程 exit 1。根因：0.1.7 删除了 `settingsScope` 扁平客户端服务（设置页改用 `configForms.get(ns)` + `whileServed`，插件卡改挂 `plugins.item` 槽），而 dsh-browser 截至 0.1.15-alpha.2（9/21）仍按 0.1.5 API 注入 `settingsScope` + 注册 `settings.plugin.item`；0.1.7 的客户端 web boot 对任一未激活 entry 直接 throw。修法：`patches.mjs` 新增 optional 补丁 `company-desk-dsh-browser-017-settings-v1`（照官方 `dsh-client-ui-settings-web-search` 的 0.1.7 写法改 `@anweat/dsh-browser/lib/client.js`），上游发布适配版后锚点消失自动跳过；同时 `applyKernelPatches` 对 optional 补丁目标缺失改为跳过留痕（原会提前抛 target-missing 盖住「更新包缺插件」校验）。本机 dev/app 前缀已直接打好，`kernel:check` 20 处齐全、`npm test` 585 过、两前缀启动正常；同事机器随下一个客户端包首启 `pinSkillsRoot` 自动补打，不用重发内核。
 - 未跟踪文件 `docs/intro/extract-logo-points.mjs`、`out/`（介绍页截图）不属于本轮，未提交。
 
 ## 现在在哪（卸 better-sidebar + 内核 0.1.5-rc.2 + 标题栏空隙）
