@@ -63,6 +63,27 @@ html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.sessi
 html.dk-desk-electron .dk-frame[data-mode='chat'][data-rightbar-collapsed] [data-slot='conversation.session.header'] > header > :first-child {
   margin-right: var(--dk-caption-right);
 }
+/* 0.1.7：会话顶栏骨架重排——header 挂在 conversation.header 槽下，conversation.session.header
+   槽退到 header 内部（display:contents 包装），标题行前还插了个空的 headerLeading 列。
+   旧链里的 :first-child / > header 全部失配，展开按钮（corner 槽，在标题行里）就顶回右缘
+   被窗控三件套挡住。按「含 corner 的那一行」重写几何规则；旧 0.1.5 选择器链保留（回滚仍生效）。 */
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.header'] > header {
+  padding-top: 0;
+  padding-right: 12px;
+  min-height: 0;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.header'] > header [data-slot='conversation.session.header'] > :has(> [data-conversation-header-corner]) {
+  box-sizing: border-box;
+  min-height: var(--dk-titlebar-h);
+  height: var(--dk-titlebar-h);
+  align-items: center;
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'][data-rightbar-collapsed] [data-slot='conversation.header'] > header [data-slot='conversation.session.header'] > :has(> [data-conversation-header-corner]) {
+  margin-right: var(--dk-caption-right);
+}
+html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.header'] > header [role='tablist'] {
+  margin-top: 8px;
+}
 html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > [role='tablist'] {
   margin-top: 8px;
 }
