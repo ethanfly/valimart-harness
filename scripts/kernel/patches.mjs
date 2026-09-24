@@ -150,6 +150,55 @@ export const CODE_PATCHES = [
     ],
   },
   {
+    // @anweat/dsh-browser@0.1.11 的客户端按 0.1.5 时代的 API 写：注入 settingsScope 扁平服务、
+    // 注册 settings.plugin.item 槽。0.1.7 内核把两者都换了（settingsScope 服务删除，设置页改用
+    // configForms.get(ns) + whileServed 监听宿主命名空间，插件卡挂到 plugins.item 槽——官方
+    // dsh-client-ui-settings-web-search 即此写法）。插件截至 0.1.15-alpha.2（2026-09-21）仍无
+    // 0.1.7 适配版本，而 0.1.7-rc.1（2026-09-23）的客户端 web boot 对任一未激活 entry 直接
+    // throw，整页打不开。这里把客户端改成 0.1.7 写法；上游若发布适配版，锚点消失后 optional
+    // 跳过。服务端（browser_* 工具）不受影响。
+    file: path.join('..', '..', '@anweat', 'dsh-browser', 'lib', 'client.js'),
+    mark: 'company-desk-dsh-browser-017-settings-v1',
+    optional: true,
+    append: '\n// --- company-desk-dsh-browser-017-settings-v1 (' + SEE + ') ---\n',
+    edits: [
+      {
+        name: 'inject-configforms',
+        from: 'const inject = [\n\t\t\t"slots",\n\t\t\t"locale",\n\t\t\t"connection",\n\t\t\t"settingsScope"\n\t\t];',
+        to: 'const inject = [\n\t\t\t"slots",\n\t\t\t"locale",\n\t\t\t"connection",\n\t\t\t"configForms"\n\t\t]; // company-desk-dsh-browser-017-settings-v1: 0.1.7 删除 settingsScope 扁平服务',
+      },
+      {
+        name: 'scope-from-configforms',
+        from: '\t\t\tconst controller = new BrowserSettingsController(ctx.settingsScope.bind({ namespace: SETTINGS_NAMESPACE }));',
+        to: '\t\t\tconst controller = new BrowserSettingsController(ctx.configForms.get(SETTINGS_NAMESPACE)); // company-desk-dsh-browser-017-settings-v1',
+      },
+      {
+        name: 'slot-plugins-item',
+        from: '\t\t\tctx.slots.inject("settings.plugin.item", () => ctx.slots.register({\n\t\t\t\tname: "settings.plugin.item",\n\t\t\t\tkey: SETTINGS_NAMESPACE,\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => {\n\t\t\t\t\tconst settingsProps = controller.inject();\n\t\t\t\t\tconst assetProps = assets.inject();\n\t\t\t\t\treturn {\n\t\t\t\t\t\t...settingsProps,\n\t\t\t\t\t\t...assetProps,\n\t\t\t\t\t\thooks: {\n\t\t\t\t\t\t\t...settingsProps.hooks,\n\t\t\t\t\t\t\t...assetProps.hooks\n\t\t\t\t\t\t}\n\t\t\t\t\t};\n\t\t\t\t}\n\t\t\t}, SettingsCard));',
+        to: '\t\t\tconst t = ctx.locale.bind(NS);\n' +
+          '\t\t\tctx.effect(() => ctx.configForms.whileServed([SETTINGS_NAMESPACE], () => ctx.slots.inject("plugins.item", () => ctx.slots.register({\n' +
+          '\t\t\t\tname: "plugins.item",\n' +
+          '\t\t\t\tid: SETTINGS_NAMESPACE,\n' +
+          '\t\t\t\torder: 90,\n' +
+          '\t\t\t\tlabel: () => t("title"),\n' +
+          '\t\t\t\tlocale: NS,\n' +
+          '\t\t\t\tinject: () => {\n' +
+          '\t\t\t\t\tconst settingsProps = controller.inject();\n' +
+          '\t\t\t\t\tconst assetProps = assets.inject();\n' +
+          '\t\t\t\t\treturn {\n' +
+          '\t\t\t\t\t\t...settingsProps,\n' +
+          '\t\t\t\t\t\t...assetProps,\n' +
+          '\t\t\t\t\t\thooks: {\n' +
+          '\t\t\t\t\t\t\t...settingsProps.hooks,\n' +
+          '\t\t\t\t\t\t\t...assetProps.hooks\n' +
+          '\t\t\t\t\t\t}\n' +
+          '\t\t\t\t\t};\n' +
+          '\t\t\t\t}\n' +
+          '\t\t\t}, SettingsCard))), "dsh-browser: settings page"); // company-desk-dsh-browser-017-settings-v1',
+      },
+    ],
+  },
+  {
     file: path.join('node_modules', '@deepseek-ai', 'dsh-sandbox-local', 'lib', 'index.js'),
     mark: MARK,
     append: HELPERS,
@@ -1014,7 +1063,15 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log, e
 
   for (const patch of CODE_PATCHES) {
     const target = resolveKernelFile(kernelRoot, patch.file)
-    if (!target) throw new KernelPatchError('target-missing', path.join(kernelRoot, patch.file))
+    if (!target) {
+      // optional 补丁的目标可能整个不在（插件不随这个内核），跳过留痕，别把缺插件提前误报成补丁失败。
+      if (patch.optional) {
+        log(`PATCH_SKIP=${patch.file}|${patch.mark}|target-missing`)
+        counters.skipped++
+        continue
+      }
+      throw new KernelPatchError('target-missing', path.join(kernelRoot, patch.file))
+    }
     if (expectVersion && /@deepseek-ai[\\/]dsh-/.test(patch.file)) {
       const got = packageVersionOf(target)
       if (got && got !== expectVersion) {
