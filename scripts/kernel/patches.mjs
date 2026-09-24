@@ -105,18 +105,47 @@ export const CODE_PATCHES = [
       },
       {
         name: 'assistant-node-render-slot',
-        from: 'function AssistantNodeView({ node, useTurnData,',
-        to: 'function AssistantNodeView({ node, renderSlot, useTurnData,',
+        variants: [
+          {
+            from: 'function AssistantNodeView({ node, useTurnData,',
+            to: 'function AssistantNodeView({ node, renderSlot, useTurnData,',
+          },
+          {
+            // 0.1.7-rc.1：过程组把 groupPart 插到 node 后面，renderSlot 仍要在组件参数里。
+            from: 'function AssistantNodeView({ node, groupPart, useDisclosure, useTurnData,',
+            to: 'function AssistantNodeView({ node, renderSlot, groupPart, useDisclosure, useTurnData,',
+          },
+        ],
       },
       {
         name: 'assistant-node-markdown-fallback',
-        from: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,',
-        to: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\trenderMarkdown: (props) => renderSlot("conversation.assistant.markdown", props, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, props) }),\n\t\t\t\tblocks: data.blocks,',
+        variants: [
+          {
+            // 锚点含 streaming 行：0.1.7 在 blocks 后是 groupPart，不能只用公共前缀。
+            from: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tstreaming: data.status === "running",',
+            to: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\trenderMarkdown: (props) => renderSlot("conversation.assistant.markdown", props, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, props) }),\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tstreaming: data.status === "running",',
+          },
+          {
+            // 0.1.7-rc.1：AssistantMarkdown 先收 groupPart。锚点必须长过 0.1.5 那条，
+            // 否则 `blocks: data.blocks,` 是公共前缀，两条变体同时命中。
+            from: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,',
+            to: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\trenderMarkdown: (props) => renderSlot("conversation.assistant.markdown", props, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, props) }),\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,',
+          },
+        ],
       },
       {
         name: 'assistant-markdown-child-slot',
-        from: 'key: "assistant-step",\n\t\t\t\tlocale: NS\n\t\t\t}, AssistantNodeView)',
-        to: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tchildren: { "conversation.assistant.markdown": { kind: "single", scope: "session" } }\n\t\t\t}, AssistantNodeView)',
+        variants: [
+          {
+            from: 'key: "assistant-step",\n\t\t\t\tlocale: NS\n\t\t\t}, AssistantNodeView)',
+            to: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tchildren: { "conversation.assistant.markdown": { kind: "single", scope: "session" } }\n\t\t\t}, AssistantNodeView)',
+          },
+          {
+            // 0.1.7-rc.1：assistant-step 已有 inject（presentation hook），子槽跟在 inject 后面声明。
+            from: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView)',
+            to: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => ({ hooks: { presentation } }),\n\t\t\t\tchildren: { "conversation.assistant.markdown": { kind: "single", scope: "session" } }\n\t\t\t}, AssistantNodeView)',
+          },
+        ],
       },
     ],
   },
@@ -293,7 +322,10 @@ export const CODE_PATCHES = [
   {
     // Node 22 的 fs.symlinkSync(..., "junction") 在部分构建上仍走 CreateSymbolicLinkW，没开开发者模式就 EPERM。
     // cmd mklink /J 是真正的 NTFS junction，不需要这个特权。
+    // 0.1.7-rc.1 起 dsh-app-boot 不再调用 symlinkSync 建 junction（安装回退改走模块代理），
+    // 两条锚点都对不上时跳过：没有调用点就没有 EPERM。公司自己的 linkJunction 不在这个文件里。
     file: path.join('node_modules', '@deepseek-ai', 'dsh-app-boot', 'lib', 'index.js'),
+    optional: true,
     mark: 'company-win-junction-mklink-v3',
     already: ['company-win-junction-mklink-v2', 'company-win-junction-mklink-v3'],
     append: '\n// --- company-win-junction-mklink-v3 (' + SEE + ') ---\n',
@@ -424,7 +456,9 @@ export const CODE_PATCHES = [
   },
   {
     // cmd.exe 不接受 UNC 作为当前目录；桌面若从公司共享目录启动，mklink 会继承这个 cwd 而返回 1。
+    // 只在 v3 已经把 spawnSync("mklink") 写进文件之后才有锚点；0.1.7 跳过 v3 时这里同样跳过。
     file: path.join('node_modules', '@deepseek-ai', 'dsh-app-boot', 'lib', 'index.js'),
+    optional: true,
     mark: 'company-win-junction-mklink-v4',
     already: ['company-win-junction-mklink-v4'],
     append: '\n// --- company-win-junction-mklink-v4 (' + SEE + ') ---\n',
@@ -570,6 +604,17 @@ export function presetCandidates(name) {
   return [
     path.join('config', 'agent-presets', name, 'agent.cordis.yml'),
     path.join('node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets', name, 'agent.cordis.yml'),
+    // 0.1.7：预设不再随 dsh-agent-presets 发布，改由 web-app bundle 的 patch 插入。
+    path.join('node_modules', '@deepseek-ai', 'dsh-web-app', 'presets', `${name}.patch.yml`),
+  ]
+}
+
+/** 0.1.7 起官方会话预设都在 dsh-web-app/presets/*.patch.yml，不再有 standard/code 两个文件名。 */
+export function presetPatchCandidates() {
+  return [
+    path.join('node_modules', '@deepseek-ai', 'dsh-web-app', 'presets', 'standard.patch.yml'),
+    path.join('node_modules', '@deepseek-ai', 'dsh-web-app', 'presets', 'ptc.patch.yml'),
+    path.join('node_modules', '@deepseek-ai', 'dsh-web-app', 'presets', 'cordis.patch.yml'),
   ]
 }
 
@@ -641,22 +686,35 @@ const SKILLS_TAG = '# company-desk skills root'
 const yamlStr = (s) => `'${String(s).replace(/\\/g, '/').replace(/'/g, "''")}'`
 
 /**
- * 技能根：会话预设 standard 的 skill-filesystem 只看公司技能目录（公司盘 _shared/skills 的本机镜像），
- * 不看官方默认根。v1（上游版本）留下的是字面占位符 __DESK_SKILLS__；v2 写真实路径，并在路径变化时同步。
+ * 要打预设补丁的文件。0.1.2 及以前是 standard（code 可选）；
+ * 0.1.7 起 standard/ptc/cordis 都在 dsh-web-app/presets/*.patch.yml。
+ */
+function presetRels(kernelRoot, legacyName) {
+  const modern = presetPatchCandidates().filter((rel) => resolveKernelFile(kernelRoot, rel))
+  if (modern.length) return modern
+  const legacy = resolvePresetRel(kernelRoot, legacyName)
+  return legacy ? [legacy] : []
+}
+
+/**
+ * 技能根：会话预设的 skill-filesystem 指向公司盘 _shared/skills 的本机镜像。
+ * 没有 config 的行整段换上公司目录并关掉官方默认根；已有 customSkillDirs（cordis 预设的官方技能）
+ * 只追加公司目录。v2 mark 在路径变化时同步。
  */
 function pinPresetSkills(kernelRoot, skillsDir, log, counters) {
-  const rel = resolvePresetRel(kernelRoot, 'standard')
-  if (!rel) throw new KernelPatchError('preset-missing', 'standard')
+  const rels = presetRels(kernelRoot, 'standard')
+  if (!rels.length) throw new KernelPatchError('preset-missing', 'standard')
+  for (const rel of rels) pinPresetSkillsFile(kernelRoot, rel, skillsDir, log, counters)
+}
+
+function pinPresetSkillsFile(kernelRoot, rel, skillsDir, log, counters) {
   const file = resolveKernelFile(kernelRoot, rel)
   let text = fs.readFileSync(file, 'utf8')
-  const dirLine = (indent, key) => `${indent}${key}${yamlStr(skillsDir)}   ${SKILLS_TAG}`
-  const wantBundled = dirLine('    ', 'bundledSkillDir: ')
-  const wantCustom = dirLine('      ', '- ')
-
+  const quoted = yamlStr(skillsDir)
+  const tag = SKILLS_TAG.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   if (text.includes(SKILLS_MARK_V2)) {
-    // 已是 v2：路径若变了就同步
-    const re = new RegExp(`^(\\s*)(bundledSkillDir: |- ).*${SKILLS_TAG.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm')
-    const next = text.replace(re, (m, indent, key) => `${indent}${key}${yamlStr(skillsDir)}   ${SKILLS_TAG}`)
+    const re = new RegExp(`^(\\s*)(bundledSkillDir: |- ).*${tag}$`, 'gm')
+    const next = text.replace(re, (m, indent, key) => `${indent}${key}${quoted}   ${SKILLS_TAG}`)
     if (next === text) {
       log(`PATCH_ALREADY=${rel}|${SKILLS_MARK_V2}`)
       counters.skipped++
@@ -667,71 +725,73 @@ function pinPresetSkills(kernelRoot, skillsDir, log, counters) {
     counters.applied++
     return
   }
-  if (text.includes(SKILLS_MARK_V1)) {
-    // v1 → v2：把占位符换成真实路径
-    const next = text
-      .replace(/^[ \t]*bundledSkillDir: __DESK_SKILLS__[ \t]*$/m, wantBundled)
-      .replace(/^[ \t]*- __DESK_SKILLS__[ \t]*$/m, wantCustom)
-      .replace(`# --- ${SKILLS_MARK_V1} ---`, `# --- ${SKILLS_MARK_V1} ---\n# --- ${SKILLS_MARK_V2} ---`)
-    if (next.includes('__DESK_SKILLS__')) throw new KernelPatchError('preset-skills-v2-anchor', rel)
-    fs.writeFileSync(file, next, 'utf8')
-    log(`PATCHED=${rel}|skills-root-v2`)
-    counters.applied++
-    return
+
+  const row = /^([ \t]*)- id: skill-filesystem\n\1  name: '@deepseek-ai\/dsh-skill-filesystem'\n(?:\1  config:\n(?:\1    .*\n)*)?/m.exec(text)
+  if (!row) throw new KernelPatchError('preset-anchor', `${rel}|skill-filesystem`)
+  const pad = row[1]
+  const hasConfig = /\n[ \t]*config:\n/.test(row[0])
+  let body
+  if (!hasConfig) {
+    body =
+      `${pad}- id: skill-filesystem\n` +
+      `${pad}  name: '@deepseek-ai/dsh-skill-filesystem'\n` +
+      `${pad}  config:\n` +
+      `${pad}    includeDefaultRoots: false\n` +
+      `${pad}    watch: false\n` +
+      `${pad}    bundledSkillDir: ${quoted}   ${SKILLS_TAG}\n` +
+      `${pad}    customSkillDirs:\n` +
+      `${pad}      - ${quoted}   ${SKILLS_TAG}\n`
+  } else if (row[0].includes('customSkillDirs:')) {
+    body = row[0].replace(/^([ \t]*)customSkillDirs:[ \t]*$/m, (m, indent) => `${m}\n${indent}  - ${quoted}   ${SKILLS_TAG}`)
+    if (body === row[0]) throw new KernelPatchError('preset-skills-append', rel)
+  } else {
+    body = row[0].replace(/\s*$/, '') + `\n${pad}    customSkillDirs:\n${pad}      - ${quoted}   ${SKILLS_TAG}\n`
   }
-  const from = "- id: skill-filesystem\n  name: '@deepseek-ai/dsh-skill-filesystem'\n"
-  const to =
-    from +
-    '  config:\n' +
-    '    includeDefaultRoots: false\n' +
-    '    watch: false\n' +
-    `${wantBundled}\n` +
-    '    customSkillDirs:\n' +
-    `${wantCustom}\n` +
-    `# --- ${SKILLS_MARK_V1} ---\n# --- ${SKILLS_MARK_V2} ---\n`
-  const hits = text.split(from).length - 1
-  if (hits !== 1) throw new KernelPatchError('preset-anchor', `${rel}|expected=1|got=${hits}`)
-  fs.writeFileSync(file, text.replace(from, to), 'utf8')
+  const next = text.slice(0, row.index) + body + `# --- ${SKILLS_MARK_V1} ---\n# --- ${SKILLS_MARK_V2} ---\n` + text.slice(row.index + row[0].length)
+  fs.writeFileSync(file, next, 'utf8')
   log(`PATCHED=${rel}|preset-skills`)
   counters.applied++
 }
 
 /**
- * 宿主 overlay 里 `tool-web.fetch: true` 不会注册模型工具——web_fetch 归会话预设管，官方 standard/code 都是 fetch: false。
- * 直接把预设钉成 fetch: true，并放宽超时。
+ * 宿主 overlay 里 `tool-web.fetch: true` 不会注册模型工具——web_fetch 归会话预设管。
+ * 旧预设是 fetch: false，钉成 true 并放宽超时；0.1.7 官方已经是 fetch: true，只补 90s 超时。
+ * 没有 tool-web 的预设（minimal）跳过。
  */
 function pinPresetFetch(kernelRoot, name, log, counters) {
-  const rel = resolvePresetRel(kernelRoot, name)
-  if (!rel) {
+  const rels = presetRels(kernelRoot, name)
+  if (!rels.length) {
     log(`PRESET_FETCH_SKIP=${name}|missing`)
     return
   }
+  for (const rel of rels) pinPresetFetchFile(kernelRoot, rel, log, counters)
+}
+
+function pinPresetFetchFile(kernelRoot, rel, log, counters) {
   const file = resolveKernelFile(kernelRoot, rel)
   const mark = 'company-preset-web-fetch-v1'
   const mark2 = 'company-preset-web-fetch-v2'
   let text = fs.readFileSync(file, 'utf8')
-  const want = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: true\n    searchTimeoutMs: 60000\n    fetchTimeoutMs: 90000\n"
   if (text.includes(mark2) && text.includes('fetchTimeoutMs: 90000')) {
     log(`PATCH_ALREADY=${rel}|${mark2}`)
     counters.skipped++
     return
   }
-  if (text.includes(mark)) {
-    const fromV1 = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: true\n    searchTimeoutMs: 60000\n"
-    if (text.split(fromV1).length - 1 !== 1) throw new KernelPatchError('preset-fetch-v2-anchor', rel)
-    text = text.replace(fromV1, want)
-    if (!text.includes(mark2)) text = text.replace(`# --- ${mark} ---`, `# --- ${mark} ---\n# --- ${mark2} ---`)
-    fs.writeFileSync(file, text, 'utf8')
-    log(`PATCHED=${rel}|web-fetch-timeout`)
-    counters.applied++
+  const row = /^([ \t]*)- id: tool-web\n\1  name: '@deepseek-ai\/dsh-tool-web'\n(?:\1  config:\n(?:\1    .*\n)*)?/m.exec(text)
+  if (!row) {
+    log(`PRESET_FETCH_SKIP=${rel}|no-tool-web`)
     return
   }
-  const fromFalse = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: false\n    searchTimeoutMs: 60000\n"
-  const fromTrue = "- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n  config:\n    fetch: true\n    searchTimeoutMs: 60000\n"
-  const to = want + `# --- ${mark} ---\n# --- ${mark2} ---\n`
-  const from = text.split(fromFalse).length - 1 === 1 ? fromFalse : text.split(fromTrue).length - 1 === 1 && !text.includes('fetchTimeoutMs: 90000') ? fromTrue : null
-  if (!from) throw new KernelPatchError('preset-fetch-anchor', `${rel}|expected=1|got=0`)
-  fs.writeFileSync(file, text.replace(from, to), 'utf8')
+  const pad = row[1]
+  const body =
+    `${pad}- id: tool-web\n` +
+    `${pad}  name: '@deepseek-ai/dsh-tool-web'\n` +
+    `${pad}  config:\n` +
+    `${pad}    fetch: true\n` +
+    `${pad}    searchTimeoutMs: 60000\n` +
+    `${pad}    fetchTimeoutMs: 90000\n` +
+    `# --- ${mark} ---\n# --- ${mark2} ---\n`
+  fs.writeFileSync(file, text.slice(0, row.index) + body + text.slice(row.index + row[0].length), 'utf8')
   log(`PATCHED=${rel}|web-fetch`)
   counters.applied++
 }
@@ -898,11 +958,14 @@ function pinPresetInstrRoot(kernelRoot, rel, log, counters) {
     counters.applied++
     return
   }
-  const from = "- id: agent-instructions\n  name: '@deepseek-ai/dsh-agent-instructions'\n  config:\n    maxBytes: 65536\n"
-  const to = from + '    projectRootMarkers:\n      - .company-root\n' + `# --- ${mark} ---\n`
-  const hits = text.split(from).length - 1
-  if (hits !== 1) throw new KernelPatchError('preset-instr-anchor', `${rel}|expected=1|got=${hits}`)
-  fs.writeFileSync(file, text.replace(from, to), 'utf8')
+  const row = /^([ \t]*)- id: agent-instructions\n\1  name: '@deepseek-ai\/dsh-agent-instructions'\n\1  config:\n\1    maxBytes: 65536\n/m.exec(text)
+  if (!row) {
+    log(`PRESET_INSTR_SKIP=${rel}|no-agent-instructions`)
+    return
+  }
+  const pad = row[1]
+  const insert = `${pad}    projectRootMarkers:\n${pad}      - .company-root\n# --- ${mark} ---\n`
+  fs.writeFileSync(file, text.slice(0, row.index + row[0].length) + insert + text.slice(row.index + row[0].length), 'utf8')
   log(`PATCHED=${rel}|instr-root`)
   counters.applied++
 }
@@ -911,11 +974,11 @@ function pinPresetInstrRoot(kernelRoot, rel, log, counters) {
 
 /** 所有 mark（代码 + 预设），供 --check 判断「补丁齐了没」。 */
 export const ALL_MARKS = [
-  ...CODE_PATCHES.map((p) => ({ file: p.file, marks: [p.mark, ...(p.already ?? [])] })),
-  { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: [SKILLS_MARK_V2] },
-  { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: ['company-preset-web-fetch-v2'] },
+  ...CODE_PATCHES.map((p) => ({ file: p.file, marks: [p.mark, ...(p.already ?? [])], ...(p.optional ? { optional: true } : {}) })),
+  { file: PRESET_STANDARD, files: [...presetCandidates('standard'), ...presetPatchCandidates()], marks: [SKILLS_MARK_V2] },
+  { file: PRESET_STANDARD, files: [...presetCandidates('standard'), ...presetPatchCandidates()], marks: ['company-preset-web-fetch-v2'] },
   { file: PRESET_CODE, files: presetCandidates('code'), marks: ['company-preset-web-fetch-v2'], optional: true },
-  { file: PRESET_STANDARD, files: presetCandidates('standard'), marks: ['company-preset-instr-root-v1'] },
+  { file: PRESET_STANDARD, files: [...presetCandidates('standard'), ...presetPatchCandidates()], marks: ['company-preset-instr-root-v1'] },
   { file: PRESET_CODE, files: presetCandidates('code'), marks: ['company-preset-instr-root-v1'], optional: true },
   { file: ANYSEARCH_CLIENT, marks: [ANYSEARCH_FETCH_RETRY_MARK], optional: true },
 ]
@@ -924,14 +987,18 @@ export const ALL_MARKS = [
 export function missingPatches(kernelRoot) {
   const missing = []
   for (const entry of ALL_MARKS) {
-    const target = resolveMarkFile(kernelRoot, entry)
-    if (!target) {
+    const candidates = entry.files ?? [entry.file]
+    const present = candidates.map((rel) => resolveKernelFile(kernelRoot, rel)).filter(Boolean)
+    if (!present.length) {
       if (entry.optional) continue
       missing.push(`${entry.file}|missing`)
       continue
     }
-    const text = fs.readFileSync(target, 'utf8')
-    if (!entry.marks.some((m) => text.includes(m))) missing.push(`${entry.file}|${entry.marks[0]}`)
+    // 0.1.7 一个条目对应多个预设文件，每个在场的文件都要有 mark，不能一个命中就放过其余。
+    for (const target of present) {
+      const text = fs.readFileSync(target, 'utf8')
+      if (!entry.marks.some((m) => text.includes(m))) missing.push(`${path.relative(kernelRoot, target)}|${entry.marks[0]}`)
+    }
   }
   return missing
 }
@@ -963,6 +1030,15 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log, e
       counters.skipped++
       continue
     }
+    // optional 补丁的锚点在新内核上可能整段消失（调用点被上游删掉）。一条都对不上就跳过，
+    // 不要把「源码已不再需要这条补丁」当成升版失败。留下 mark，下次检查知道这条已经审过。
+    // 部分命中仍是硬失败：半套上去会改错语义。
+    if (patch.optional && patch.edits.every((edit) => editVariants(edit).every((variant) => text.split(variant.from).length - 1 === 0))) {
+      fs.writeFileSync(target, text.trimEnd() + '\n' + patch.append, 'utf8')
+      log(`PATCH_SKIP=${patch.file}|${patch.mark}|anchor-gone`)
+      counters.skipped++
+      continue
+    }
     for (const edit of patch.edits) {
       text = applyEdit(text, edit, patch.file)
     }
@@ -979,15 +1055,15 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log, e
 
   pinPresetSkills(kernelRoot, skillsDir, log, counters)
   pinPresetFetch(kernelRoot, 'standard', log, counters)
-  pinPresetFetch(kernelRoot, 'code', log, counters)
+  if (!presetPatchCandidates().some((rel) => resolveKernelFile(kernelRoot, rel))) pinPresetFetch(kernelRoot, 'code', log, counters)
   pinAnySearchFetchRetry(kernelRoot, log, counters)
-  for (const rel of [
-    resolvePresetRel(kernelRoot, 'standard'),
-    resolvePresetRel(kernelRoot, 'code'),
+  const instrRels = [
+    ...presetRels(kernelRoot, 'standard'),
+    ...(presetPatchCandidates().some((rel) => resolveKernelFile(kernelRoot, rel)) ? [] : [resolvePresetRel(kernelRoot, 'code')]),
     path.join('config', 'agent-presets', 'company-think', 'agent.cordis.yml'),
     path.join('config', 'agent-presets', 'company-think-eval', 'agent.cordis.yml'),
-  ].filter(Boolean))
-    pinPresetInstrRoot(kernelRoot, rel, log, counters)
+  ].filter(Boolean)
+  for (const rel of instrRels) pinPresetInstrRoot(kernelRoot, rel, log, counters)
 
   return counters
 }

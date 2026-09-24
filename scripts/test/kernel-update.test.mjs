@@ -22,7 +22,7 @@ test('kernel install args pin prerelease drift with --before', () => {
     prefix: 'D:\\a\\kernel',
     spec: '@deepseek-ai/dsh@0.1.5-rc.2',
     windows: true,
-    installBefore: PIN.installBefore,
+    installBefore: '2026-09-22T05:00:00.000Z',
   })
   assert.equal(args.at(-2), '--before')
   assert.equal(args.at(-1), '2026-09-22T05:00:00.000Z')

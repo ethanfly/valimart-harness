@@ -6,7 +6,7 @@
 
 | 组件 | 来源 | 许可证 | 说明 |
 |---|---|---|---|
-| `@deepseek-ai/dsh` 及子包（含 hoisted `zod`） | 内核前缀 / `scripts/kernel/pin.json` 锁定 0.1.5-rc.2 | 以内核发布物为准 | Mixed 存储契约通过 junction 解析内核自带的 `zod`，插件目录不自带 `node_modules` |
+| `@deepseek-ai/dsh` 及子包（含 hoisted `zod`） | 内核前缀 / `scripts/kernel/pin.json` 锁定 0.1.7-rc.1 | 以内核发布物为准 | Mixed 存储契约通过 junction 解析内核自带的 `zod`，插件目录不自带 `node_modules` |
 | `@anweat/dsh-browser@0.1.11` | 内核 profilePlugins | 上游包自带 | 与 Mixed 无关 |
 | `@anysearch/anysearch-dsh@0.1.4` | 内核 profilePlugins | 上游包自带 | 与 Mixed 无关 |
 

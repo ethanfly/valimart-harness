@@ -10,12 +10,12 @@
   <a href="https://github.com/ethanfly/valimart-harness/releases/latest"><img alt="下载" src="https://img.shields.io/badge/download-Releases-181717?logo=github"></a>
   <a href="https://github.com/ethanfly/valimart-harness"><img alt="GitHub" src="https://img.shields.io/badge/github-ethanfly%2Fvalimart--harness-181717?logo=github"></a>
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white">
-  <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.1.5--rc.2-1484fc">
+  <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.1.7--rc.1-1484fc">
 </p>
 
 本仓库是公司自己的桌面客户端 + 公司网关 + pi 包 + VS Code 插件。**介绍页**：[ethanfly.github.io/valimart-harness](https://ethanfly.github.io/valimart-harness/)（源码 [`docs/intro/`](docs/intro/)）。**安装包**：[Releases](https://github.com/ethanfly/valimart-harness/releases/latest)。
 
-内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.1.5-rc.2`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
+内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.1.7-rc.1`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
 
 > 接手看 [`docs/HANDOFF.md`](docs/HANDOFF.md)。过程记录在 [`docs/sessions/`](docs/sessions/)。
 

@@ -13,6 +13,18 @@
 - 公司盘：登录后镜像到 `~/.pi/agent/valimart-drive/`（pull/push 个人记忆、`/desk-sync`）；工具 `company_memory_*`、`company_task_read/log/update/attach`，`/desk-task` 绑定当前卡。
 - 单测：`packages/pi-valimart-desk/test/pi-desk.test.mjs`（已并进根 `npm test`）。
 
+## 现在在哪（内核 0.1.7-rc.1，2026-09-24 已发布）
+
+- pin `0.1.5-rc.2` → **`@deepseek-ai/dsh@0.1.7-rc.1`**（npm `next` / GitHub 最新 release；`latest` 仍是 0.1.5-rc.3）。删掉 `installBefore`（0.1.7 依赖是精确版本）。
+- 补丁重审：assistant markdown 槽三处按 0.1.7 过程组签名（`groupPart` / `useDisclosure` / `inject`）加变体；预设改打 `dsh-web-app/presets/{standard,ptc,cordis}.patch.yml`（技能根 / web-fetch / instr-root 三文件全中）；junction mklink 两条改 optional，锚点消失跳过并留 mark（上游不再建 junction）；预设技能根对已有官方 `customSkillDirs` 的（cordis）只追加。
+- 0.1.7 内核按 peer 范围跳过不兼容 bundle：`bootstrap.mjs` 加 `pluginVersionExemptions`，写 profile 本地 `compatibility.json`（不改插件清单）。**`preparePackaged` 每次启动无条件刷一遍**——只挂在 ensureProfile 里会丢：内核更新后老客户端先消费 pending（旧 bootstrap 写不了豁免），新客户端下次启动 `update.applied=false` 且 profile 无需重建，ensureProfile 被跳过，豁免永远落不了盘。
+- anysearch 0.1.4 的 peer 范围停在 0.1.1（`dsh-credentials/system-prompt/tool-web/tools/web` 五个），必须豁免；它在 0.1.7 上用的 ctx 仍在，`build/anysearch-smoke.mjs` 真实闭包验证通过。
+- 裸 tar **526MiB**（0.1.7 起 dsh 自带 `libreoffice-kit-win32-x64` 325MB，office-to-pdf / skill-office 用），超网关 `readBody` 512MiB 上传限额 → 网关分发件改 **gzip 169MiB**（`build/kernel-update/0.1.7-rc.1-pub/`；客户端 `tar -xf` 自动识别压缩，sha 对应压缩后文件）。要改限额动 `server/src/api.js` 的 kernel publish `readBody`。
+- 验证：`npm test` **585 pass / 0 fail / 1 skip**；开发前缀 19 处补丁齐全、`--profile desk` 3471 启动 200 零报错；安装版前缀走 `fetchKernelUpdate` + `applyPendingKernel` 全链路（旧版留 `kernel-prev`），`desk-app` 3472 启动 200 零告警；新客户端首启模拟（`preparePackaged` 对新 payload 跑真实 appDir）把豁免写进真实 desk-app profile 后再启，零告警。
+- 已发布：内核 0.1.7-rc.1（gz）与客户端 `0.1.0+0.1.7-rc.1.20260924-0651.c07ffca8`（`dist/valimart-harness-Setup-0.1.0-20260924.0651.exe`，248.8MB）都上了网关，员工机器下次启动自动静默更新；旧版 kernel/client 都留了 previous 可回滚。发布用的是一次性脚本（`build/publish-kernel-once.mjs` / `publish-client-once.mjs`，复用 desk 会话 sessionToken；CLI 只收 user/password）。
+- 顺手修了既有坏断言：管理页 label 加了「、识图」但 `oauth-subscribe.test.js` 的正则没跟上。
+- 未跟踪文件 `docs/intro/extract-logo-points.mjs`、`out/`（介绍页截图）不属于本轮，未提交。
+
 ## 现在在哪（卸 better-sidebar + 内核 0.1.5-rc.2 + 标题栏空隙）
 
 - 已从 `scripts/kernel/pin.json` 卸掉 `dsh-better-sidebar@0.18.0`，改走官方右侧边栏开关。`@anweat/dsh-browser` / `@anysearch/anysearch-dsh` 仍随内核前缀分发。

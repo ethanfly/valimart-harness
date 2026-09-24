@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, preparePackaged, profileNeedsSetup, profilePluginBundles, readGatewayUrl } from '../lib/bootstrap.mjs'
+import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, pluginVersionExemptions, preparePackaged, profileNeedsSetup, profilePluginBundles, readGatewayUrl, writePluginVersionExemptions } from '../lib/bootstrap.mjs'
 import { ALL_MARKS, resolvePresetRel } from '../kernel/patches.mjs'
 import { PIN } from '../kernel/locate.mjs'
 
@@ -128,6 +128,31 @@ test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bun
   assert.equal(fs.existsSync(path.join(dshHome, 'profiles', 'node_modules', 'dsh-better-sidebar')), false)
   // 内核嵌套的 @deepseek-ai/* peer 链接到顶层 scope（插件真实路径的 import 才找得到）
   assert.ok(fs.lstatSync(path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh-tools')).isSymbolicLink())
+})
+
+test('pluginVersionExemptions：peer 范围不含当前内核时写 compatibility.json', () => {
+  const dir = tmp()
+  const kernelRoot = path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(path.join(kernelRoot, 'node_modules', 'semver'), { recursive: true })
+  fs.writeFileSync(path.join(kernelRoot, 'node_modules', 'semver', 'package.json'), '{"name":"semver","version":"7.7.2","main":"index.js"}\n')
+  fs.writeFileSync(path.join(kernelRoot, 'node_modules', 'semver', 'index.js'), 'module.exports = { satisfies: (v, range) => range.includes(v) }\n')
+  const plugin = path.join(dir, 'kernel', 'node_modules', '@anysearch', 'anysearch-dsh')
+  fs.mkdirSync(plugin, { recursive: true })
+  fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({
+    name: '@anysearch/anysearch-dsh',
+    version: '0.1.4',
+    peerDependencies: { '@deepseek-ai/dsh-web': '0.1.5-rc.2' },
+  }))
+  const kernel = { root: kernelRoot, version: '0.1.7-rc.1' }
+  const exemptions = pluginVersionExemptions({ kernel, plugins: [{ name: '@anysearch/anysearch-dsh', version: '0.1.4' }] })
+  assert.deepEqual(exemptions, { '@anysearch/anysearch-dsh@0.1.4': ['0.1.7-rc.1'] })
+  const profileDir = path.join(dir, 'profiles', 'desk')
+  fs.mkdirSync(profileDir, { recursive: true })
+  fs.writeFileSync(path.join(profileDir, 'compatibility.json'), JSON.stringify({ '@anweat/dsh-browser@0.1.11': ['0.1.5-rc.2'] }) + '\n')
+  writePluginVersionExemptions({ profileDir, kernel, log: () => {} })
+  const saved = JSON.parse(fs.readFileSync(path.join(profileDir, 'compatibility.json'), 'utf8'))
+  assert.deepEqual(saved['@anysearch/anysearch-dsh@0.1.4'], ['0.1.7-rc.1'])
+  assert.deepEqual(saved['@anweat/dsh-browser@0.1.11'], ['0.1.5-rc.2'])
 })
 
 test('ensureProfile：全新 DSH_HOME 没有扁平回退目录时，从内核物化，不要求先跑过 dsh', () => {
@@ -381,6 +406,12 @@ test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写
   assert.equal(yaml.split(`'${stamp.skillsDir.replace(/\\/g, '/')}'`).length - 1, 2, '预设里两处技能根都指向本机 dshHome')
   assert.ok(events.some((e) => e.step === 'kernel' && e.status === 'ok'), '技能根被重新同步')
   assert.ok(fs.existsSync(path.join(dshHome, 'profiles', 'desk-app', 'cordis.patch.yml')))
+  // 0.1.7 起内核按 peer 范围跳过不兼容 bundle：profile 本地 compatibility.json 必须带上应得的豁免
+  const exempted = pluginVersionExemptions({ kernel: { root: res.kernelRoot, version: res.kernelVersion } })
+  if (Object.keys(exempted).length) {
+    const saved = JSON.parse(fs.readFileSync(path.join(dshHome, 'profiles', 'desk-app', 'compatibility.json'), 'utf8'))
+    for (const [k, v] of Object.entries(exempted)) assert.deepEqual(saved[k], v, `compatibility.json 缺 ${k}`)
+  }
   assert.ok(fs.lstatSync(path.join(appDir, 'node_modules', '@deepseek-ai')).isSymbolicLink())
   assert.ok(events.some((e) => e.step === 'extract' && e.status === 'ok'))
   // 第二次：全部 skip

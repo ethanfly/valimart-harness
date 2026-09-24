@@ -27,6 +27,24 @@ const MARKDOWN_RC13 =
 const MARKDOWN_RC15 =
   '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions,\n\t\t\t\t\t\t\tpathImages\n\t\t\t\t\t\t}, i));'
 
+const ASSISTANT_017_SIG = 'function AssistantNodeView({ node, groupPart, useDisclosure, useTurnData,'
+const ASSISTANT_017_RETURN =
+  'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,'
+const ASSISTANT_017_REGISTER =
+  'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView)'
+
+test('assistant markdown：0.1.7 的过程组签名仍把正文交给 renderMarkdown 槽', () => {
+  const patch = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1')
+  const slot = applyEdit(ASSISTANT_017_SIG, patch.edits.find((e) => e.name === 'assistant-node-render-slot'), 'dsh-client-ui-chat')
+  const ret = applyEdit(ASSISTANT_017_RETURN, patch.edits.find((e) => e.name === 'assistant-node-markdown-fallback'), 'dsh-client-ui-chat')
+  const reg = applyEdit(ASSISTANT_017_REGISTER, patch.edits.find((e) => e.name === 'assistant-markdown-child-slot'), 'dsh-client-ui-chat')
+  assert.match(slot, /function AssistantNodeView\(\{ node, renderSlot, groupPart/)
+  assert.match(ret, /renderMarkdown: \(props\) => renderSlot\("conversation\.assistant\.markdown"/)
+  assert.match(ret, /groupPart,/)
+  assert.match(reg, /children: \{ "conversation\.assistant\.markdown": \{ kind: "single", scope: "session" \} \}/)
+  assert.match(reg, /inject: \(\) => \(\{ hooks: \{ presentation \} \}\)/)
+})
+
 test('assistant markdown：0.1.3 与 0.1.5 的 MarkdownText 都能切到 renderMarkdown 槽', () => {
   const edit = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1').edits.find((e) => e.name === 'assistant-markdown-slot-render')
   const old = applyEdit(MARKDOWN_RC13, edit, 'dsh-client-ui-chat')

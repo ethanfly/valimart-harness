@@ -388,7 +388,7 @@ test('管理页源码：订阅弹窗有登录账号，且无官方 OAuth 的通�
   assert.match(html, /about:blank/)
   assert.match(html, /如果浏览器拦截了弹窗/)
   assert.match(html, /oauth\/commit/)
-  assert.match(html, /每行可改上下文，点 × 去掉/)
+  assert.match(html, /每行可改上下文、识图，点 × 去掉/)
   assert.match(html, /默认上下文（未单独填的模型）/)
   assert.match(html, /class="model-ctx"/)
   assert.match(html, /id="discover"/)

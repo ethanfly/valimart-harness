@@ -15,6 +15,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { PIN, locateKernel, stampPath, missingProfilePlugins } from '../kernel/locate.mjs'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
@@ -177,6 +178,66 @@ export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
  * @param kernel - locateKernel 的结果（用 root 定位内核前缀的 node_modules）
  * @returns {string[]} 可直接放进 dsh.profile.bundles 的包名
  */
+/**
+ * 0.1.7 的 compatibility.json：`包名@精确版本` → 允许的 dsh 运行时版本列表。
+ * 只给 pin 里声明、且 peer 范围不含当前内核版本的插件写豁免。
+ */
+export function pluginVersionExemptions({ kernel, plugins = PIN.profilePlugins ?? [] } = {}) {
+  const runtime = kernel?.version
+  if (!runtime || !kernel?.root) return {}
+  const modules = path.resolve(kernel.root, '..', '..')
+  const out = {}
+  for (const plugin of plugins) {
+    let manifest
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(modules, plugin.name, 'package.json'), 'utf8'))
+    } catch {
+      continue
+    }
+    const peers = manifest.peerDependencies ?? {}
+    const mismatched = Object.entries(peers).some(([name, range]) => {
+      if (name !== '@deepseek-ai/dsh' && !String(name).startsWith('@deepseek-ai/dsh-')) return false
+      if (typeof range !== 'string' || range.trim() === '') return true
+      return !semverSatisfies(runtime, range, kernel.root)
+    })
+    if (!mismatched || !manifest.version) continue
+    out[`${plugin.name}@${manifest.version}`] = [runtime]
+  }
+  return out
+}
+
+/** 用内核自带的 semver 判断 peer 范围。includePrerelease 与 dsh-app-boot 的检查一致。 */
+export function semverSatisfies(version, range, kernelRoot) {
+  const semverPath = kernelRoot && path.join(kernelRoot, 'node_modules', 'semver', 'index.js')
+  if (!semverPath || !fs.existsSync(semverPath)) return false
+  const semver = createRequire(semverPath)(semverPath)
+  return semver.satisfies(version, range, { includePrerelease: true })
+}
+
+export function writePluginVersionExemptions({ profileDir, kernel, log = noop }) {
+  const exemptions = pluginVersionExemptions({ kernel })
+  const file = path.join(profileDir, 'compatibility.json')
+  if (Object.keys(exemptions).length === 0) return null
+  let current = {}
+  try {
+    current = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch {
+    current = {}
+  }
+  const next = { ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}), ...exemptions }
+  const serialized = JSON.stringify(next, null, 2) + '\n'
+  let existing = null
+  try {
+    existing = fs.readFileSync(file, 'utf8')
+  } catch {
+    /* 还没有这个文件 */
+  }
+  if (existing === serialized) return file // 内容未变不重写（preparePackaged 每次启动都会刷，不能每次都打日志）
+  fs.writeFileSync(file, serialized)
+  log(`插件版本豁免 ${Object.keys(exemptions).join(', ')} → ${file}`)
+  return file
+}
+
 export function profilePluginBundles(kernel, plugins = PIN.profilePlugins ?? []) {
   if (!kernel?.root || !plugins.length) return []
   const modules = path.resolve(kernel.root, '..', '..')
@@ -261,6 +322,9 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
   }
   fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
   fs.writeFileSync(path.join(profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
+  // 0.1.7 起 dsh 按 peer 范围跳过不兼容 bundle。AnySearch 0.1.4/0.1.6 的范围都停在 0.1.6-alpha，
+  // 但 0.1.7 上它用的 ctx.web / credentials / tools 仍在。豁免是 profile 本地文件，不是改插件清单。
+  writePluginVersionExemptions({ profileDir, kernel, log })
   fs.copyFileSync(patchFile, path.join(profileDir, 'cordis.patch.yml'))
   log(`profile: ${profileDir}`)
   for (const name of COMPANY_PLUGINS) {
@@ -605,6 +669,11 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
     ensureProfile({ profileName, dshHome, root: appDir, pluginsDir: path.join(appDir, 'plugins'), patchFile, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
     log({ step: 'profile', status: 'ok' })
   } else log({ step: 'profile', status: 'skip' })
+  // 0.1.7 起内核按 peer 范围跳过不兼容 bundle，豁免必须写在 profile 本地 compatibility.json。
+  // 不能只挂在 ensureProfile 里：内核更新后老客户端先消费 pending（旧 bootstrap 写不了豁免），
+  // 新客户端下次启动 update.applied=false、profile 无需重建，ensureProfile 会被跳过——
+  // 那样豁免永远落不了盘。每次启动无条件刷一遍（无豁免时是空操作）。
+  writePluginVersionExemptions({ profileDir, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
 
   return { kernelBin: kernel.bin, kernelRoot: kernel.root, kernelVersion: kernel.version, profileName, appDir, buildId: payload.buildId, nodeExe: process.execPath }
 }
