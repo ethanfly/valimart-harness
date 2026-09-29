@@ -8,12 +8,7 @@ import { HttpError, readJson, readBody, sendJson, bearer, parseUrl } from './htt
 import { ROLES, ROLE_LABELS, publicUser, verifyPassword, hashPassword } from './db.js'
 import { TASK_STATUS } from './tasks.js'
 import { MEMORY_LAYERS } from './drive.js'
-import { openKernelCatalog } from './kernel-catalog.js'
 import { openClientCatalog } from './client-catalog.js'
-import { KernelPatchError } from '../../scripts/kernel/patches.mjs'
-import { assertPublishedOnNpm, prepareKernelTarball } from '../../scripts/lib/kernel-prepare.mjs'
-import { hasNpm } from '../../scripts/lib/npm-cli.mjs'
-import { fetchNpmVersions, resolveNpmRegistry } from '../../scripts/lib/kernel-update.mjs'
 import { registerOAuthSubscribe, decorateChannels, resolveProviderConfig } from './oauth-subscribe.js'
 import { setupGeminiProject } from './upstream-gemini.js'
 import { normalizeModels } from './channels.js'
@@ -42,18 +37,8 @@ function throwCatalog(err) {
 
 export function registerApi(router, ctx) {
   const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, mixedAttribution } = ctx
-  const kernels =
-    ctx.kernels ??
-    openKernelCatalog(cfg.dataDir, {
-      pinVersion: KERNEL_PIN?.version,
-      fetchReleases: ctx.fetchReleases,
-      fetchNpmVersions: ctx.fetchNpmVersions,
-      npmRegistry: cfg.kernel?.npmRegistry,
-    })
   const clients = ctx.clients ?? openClientCatalog(cfg.dataDir)
   const org = ctx.org ?? openOrg(db)
-  const fetchNpm = ctx.fetchNpmVersions ?? fetchNpmVersions
-  const npmRegistry = resolveNpmRegistry(cfg.kernel?.npmRegistry)
 
   const auth = (req, { allowDisabled = false } = {}) => {
     const token = bearer(req)
@@ -874,122 +859,6 @@ export function registerApi(router, ctx) {
       /* 安装包缺文件时仍返回核心目录 */
     }
     sendJson(res, 200, { ...workspacePluginCatalog(patch), compatible: true, format: 'dsh-plugin-inventory' })
-  })
-
-  // ---------- 内核目录 ----------
-  router.get('/api/kernel/current', async (req, res) => {
-    auth(req)
-    sendJson(res, 200, kernels.employeeView())
-  })
-  router.get('/api/kernel/tarball', async (req, res) => {
-    auth(req)
-    const file = kernels.tarballPath()
-    if (!file) throw new HttpError(404, '没有已发布的内核包', 'not_found')
-    const st = fs.statSync(file)
-    res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': st.size })
-    await new Promise((resolve, reject) => {
-      const stream = fs.createReadStream(file)
-      stream.on('error', reject)
-      res.on('error', reject)
-      res.on('finish', resolve)
-      stream.pipe(res)
-    })
-  })
-  router.get('/api/admin/kernel', async (req, res) => {
-    const { user } = auth(req)
-    if (user.role === 'employee') throw new HttpError(403, '内核管理仅总监/管理员可见', 'forbidden')
-    sendJson(res, 200, await kernels.adminView())
-  })
-  router.post('/api/admin/kernel/publish', async (req, res) => {
-    const { user } = auth(req)
-    requireAdmin(user)
-    const ct = String(req.headers['content-type'] ?? '')
-    try {
-      if (ct.includes('application/octet-stream')) {
-        const version = String(req.headers['x-kernel-version'] ?? '').trim()
-        if (!version) throw new HttpError(400, '缺少 x-kernel-version', 'bad_request')
-        const expectedSha = String(req.headers['x-kernel-sha256'] ?? '').trim()
-        const sourceTag = String(req.headers['x-kernel-source-tag'] ?? '').trim()
-        const buf = await readBody(req, 512 * 1024 * 1024)
-        if (!buf.length) throw new HttpError(400, '空的内核包', 'bad_request')
-        const tmpTar = path.join(os.tmpdir(), `diva-kernel-upload-${process.pid}-${Date.now()}.tar`)
-        fs.writeFileSync(tmpTar, buf)
-        try {
-          kernels.saveArtifact({
-            version,
-            tarPath: tmpTar,
-            manifest: { sha256: expectedSha || undefined, sourceTag: sourceTag || undefined, bytes: buf.length },
-          })
-        } finally {
-          fs.rmSync(tmpTar, { force: true })
-        }
-        sendJson(res, 200, kernels.publish(version))
-        return
-      }
-      const body = await readJson(req)
-      const version = String(body.version ?? '').trim()
-      if (!version) throw new HttpError(400, '缺少 version', 'bad_request')
-      sendJson(res, 200, kernels.publish(version))
-    } catch (err) {
-      throwCatalog(err)
-    }
-  })
-  router.post('/api/admin/kernel/rollback', async (req, res) => {
-    const { user } = auth(req)
-    requireAdmin(user)
-    try {
-      sendJson(res, 200, kernels.rollback())
-    } catch (err) {
-      throwCatalog(err)
-    }
-  })
-  router.post('/api/admin/kernel/prepare', async (req, res) => {
-    const { user } = auth(req)
-    requireAdmin(user)
-    const body = await readJson(req)
-    const version = String(body.version ?? '').trim()
-    if (!version) throw new HttpError(400, '缺少 version', 'bad_request')
-    if (version.includes('/') || version.includes('\\') || version.includes('..') || version === 'current.json') {
-      throw new HttpError(400, '非法版本号', 'bad_version')
-    }
-    let npmVersions
-    try {
-      npmVersions = await fetchNpm({ registry: npmRegistry })
-    } catch {
-      npmVersions = undefined
-    }
-    try {
-      assertPublishedOnNpm(version, npmVersions)
-    } catch (err) {
-      throw new HttpError(400, err.message, err.code ?? 'not_on_npm')
-    }
-    if (!hasNpm()) throw new HttpError(501, '本机没有可用的 npm，无法试打内核', 'npm_missing')
-    const stage = path.join(cfg.dataDir, 'kernels', `.stage-${version}`)
-    fs.rmSync(stage, { recursive: true, force: true })
-    const prefix = path.join(stage, 'prefix')
-    const outDir = path.join(stage, 'out')
-    const skillsDir = path.join(stage, 'skills')
-    try {
-      const { tarPath, manifest } = prepareKernelTarball({
-        version,
-        prefix,
-        outDir,
-        skillsDir,
-        registry: npmRegistry,
-        npmVersions,
-        installer: ctx.prepareInstaller,
-        log: (m) => console.log(`[kernel:prepare] ${m}`),
-      })
-      const saved = kernels.saveArtifact({ version, tarPath, manifest })
-      sendJson(res, 200, saved)
-    } catch (err) {
-      if (err instanceof HttpError) throw err
-      if (err.code === 'not_on_npm') throw new HttpError(400, err.message, err.code)
-      if (err instanceof KernelPatchError) throw new HttpError(400, `补丁失败 ${err.code}: ${err.detail}`, err.code)
-      throw new HttpError(500, err.message, err.code ?? 'prepare_failed')
-    } finally {
-      fs.rmSync(stage, { recursive: true, force: true })
-    }
   })
 
   // ---------- 客户端安装包目录 ----------

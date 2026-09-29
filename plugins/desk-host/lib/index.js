@@ -20,8 +20,8 @@ import { GatewayClient, GatewayError } from './gateway-client.js'
 import { DriveMirror } from './drive-mirror.js'
 import { ProducedIndex } from './produced.js'
 import { serveSessionImage } from './session-image.js'
-import { fetchKernelUpdate, readLocalKernelVersion, resolvePendingDir } from './kernel-update.js'
 import { fetchClientUpdate, resolveClientPendingDir, resolvePayloadDir } from './client-update.js'
+import { readLocalKernelVersion } from './kernel-version.js'
 import { syncSearchCredentials } from './search-key.js'
 import { clientPublicInfo, readLocalPayload } from '../../../scripts/lib/client-update.mjs'
 import { discoverGateways } from './lan-discover.js'
@@ -250,23 +250,9 @@ export function apply(ctx, config) {
 
   /**
    * 自更新只在 Windows 客户端上做：网关下发的是 Windows NSIS 安装器（/api/client/download），
-   * 内核 tar 也是网关构建机（Linux/Windows）平台的产物——在 macOS 上套用会把客户端搞坏。
-   * mac 客户端整包替换更新（重新打包 → 覆盖 /Applications 里的 .app）。
+   * 客户端整包内含内核。mac 客户端整包替换更新（重新打包 → 覆盖 /Applications 里的 .app）。
    */
   const SELF_UPDATE_PLATFORM = process.platform === 'win32'
-
-  function scheduleKernelUpdate() {
-    if (!SELF_UPDATE_PLATFORM) {
-      log('内核更新: skip 平台不支持（macOS 客户端随整包更新）')
-      return
-    }
-    fetchKernelUpdate({
-      gateway,
-      pendingDir: resolvePendingDir(),
-      localVersion: readLocalKernelVersion(),
-      log: (msg) => log(`内核更新: ${msg}`),
-    }).catch((err) => log(`内核更新失败: ${err.message}`))
-  }
 
   function scheduleClientUpdate() {
     if (!SELF_UPDATE_PLATFORM) {
@@ -325,7 +311,6 @@ export function apply(ctx, config) {
     }
     mixedCatalogRefresh() // 后台：Mixed 模型目录 + owner 身份
     log(`已登录 ${result.user.username}（${result.user.roleLabel} · ${result.user.department}）`)
-    scheduleKernelUpdate()
     scheduleClientUpdate()
     scheduleSearchKey()
     return publicDesk()
@@ -346,7 +331,6 @@ export function apply(ctx, config) {
       log(`公司盘同步失败: ${err.message}`)
     }
     log(`初始设置完成，已登录 ${result.user.username}`)
-    scheduleKernelUpdate()
     scheduleClientUpdate()
     scheduleSearchKey()
     return publicDesk()
@@ -432,7 +416,6 @@ export function apply(ctx, config) {
         }
         state.save()
         syncAll().catch((err) => log(`公司盘同步失败: ${err.message}`))
-        scheduleKernelUpdate()
         scheduleClientUpdate()
         scheduleSearchKey()
       } catch (err) {

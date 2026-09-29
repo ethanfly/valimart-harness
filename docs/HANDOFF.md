@@ -2,6 +2,15 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-09-29：移除内核自动更新，内核随客户端整包分发
+
+- 背景：内核大部分不兼容，升级需人工重审补丁；客户端包里本来就带内核。故去掉「网关分发内核 tar + 客户端下次启动切换」这条链，只保留客户端整包更新。
+- 服务端：删 `server/src/kernel-catalog.js`；`api.js` 去掉 `/api/kernel/*`、`/api/admin/kernel/*` 与相关导入；`admin-page.js`「更新」页去掉内核分区与按钮（保留客户端分区、`/api/status` 的内核版本展示）。`index.js` 不再注入内核目录。
+- 客户端：删 `plugins/desk-host/lib/kernel-update.js`（拉 tar/写 pending）；`readLocalKernelVersion` 拆到新 `plugins/desk-host/lib/kernel-version.js` 只用于界面展示；`index.js` 去掉 `scheduleKernelUpdate`；`desktop/main.js` 打开前检查去掉内核段；`bootstrap.mjs` 去掉 `applyPendingKernel` 与 pending 消费。
+- 脚本：删 `scripts/kernel/update.mjs`（discover/prepare/publish）与 `scripts/lib/kernel-update.mjs`；`hashFile` 移入 `scripts/lib/client-update.mjs`，`resolveNpmRegistry` 移入 `scripts/lib/npm-cli.mjs`；`kernel-prepare.mjs` 只留安装/插件函数（删 pack/prepare/assertPublishedOnNpm）；`package.json` 去掉 `kernel:discover|prepare|publish`（`kernel` / `kernel:check` 保留）。`gateway-stage.mjs` / `build-payload.mjs` 的随包清单同步去掉 `kernel-update.mjs`。
+- 测试：删 `scripts/test/kernel-update.test.mjs`、`server/test/kernel-catalog.test.js`；新增 `scripts/test/kernel-install.test.mjs` 保留安装参数 / 错误格式 / registry / 卸插件用例；`gateway.test.js` 去掉内核接口用例。
+- 验证：`npm test` **557 pass / 0 fail / 1 skip**（skip 仍是缺 `build/payload/kernel.tar` 的 preparePackaged）；`npm --prefix packages/vscode test` 82/82。升级内核的新流程：改 `scripts/kernel/pin.json` → `npm run setup` → `npm run dist:client`。
+
 ## 2026-09-29：单账号上游流式被整段缓冲（会话统计 TPS 被放大）
 
 - 现象：Grok 会话统计「输出速度（TPS）」显示 112174 tok/s（底部同样）。实测投影缓存 `sessionStats.decodeMs=95ms / decodeTokens=11038`，TPS 就是两者之商被放大——不是模型异常，是解码时间塌成 0。

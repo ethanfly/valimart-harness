@@ -3,7 +3,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { hashFile } from '../../scripts/lib/kernel-update.mjs'
+import { hashFile } from '../../scripts/lib/client-update.mjs'
 import { assertSafeBuildId } from '../../scripts/lib/client-update.mjs'
 
 function catalogError(message, code) {

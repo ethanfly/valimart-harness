@@ -367,9 +367,9 @@ export function renderAdminHtml({ companyName }) {
   }
 
   async function renderMain() {
-    let status, channels, collections, kernel, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
+    let status, channels, collections, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
     try {
-      [status, channels, collections, kernel, client, search] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/kernel'), api('GET', '/api/admin/client'), api('GET', '/api/admin/search')]);
+      [status, channels, collections, client, search] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/client'), api('GET', '/api/admin/search')]);
       try { plugins = await api('GET', '/api/plugins'); } catch (e) { /* 旧网关 */ }
       try { personnel = await api('GET', '/api/personnel'); } catch (e) { /* 总监/管理员才有 */ }
       if (!me) me = (await api('GET', '/api/auth/me')).user;
@@ -421,33 +421,6 @@ export function renderAdminHtml({ companyName }) {
       </div>
 
       <div data-page="updates">
-      <section id="kernel">
-        <h2>内核</h2>
-        <p class="desc">GitHub Release 发现 → 试打公司补丁 → 通过才入库 / 发布。员工机登录后后台下载，下次启动再切换。锁定 \${esc(kernel.pinVersion || '—')}。\${isAdmin ? '' : '（总监只读）'}</p>
-        <div class="kv">
-          <div><span>当前</span>\${kernel.current && kernel.current.version ? esc(kernel.current.version) + (kernel.current.sourceTag ? ' · ' + esc(kernel.current.sourceTag) : '') : '随包保底 ' + esc(kernel.pinVersion || '—')}</div>
-        </div>
-        \${kernel.discoverError ? '<p class="bad" style="margin:10px 0 0">' + esc(kernel.discoverError) + '</p>' : ''}
-        \${isAdmin ? '<div class="row" style="margin:14px 0 10px"><button id="kRollback">回滚到上一版</button></div>' : ''}
-        <p class="desc" style="margin-top:8px">已存版本</p>
-        \${(kernel.stored && kernel.stored.length) ? \`<table><thead><tr><th>版本</th><th>SHA256</th><th>大小</th><th></th></tr></thead><tbody>
-          \${kernel.stored.map((v) => \`<tr>
-            <td class="mono">\${esc(v.version)}</td>
-            <td class="mono muted">\${esc((v.sha256 || '').slice(0, 12))}</td>
-            <td>\${fmtBytes(v.bytes || 0)}</td>
-            <td style="text-align:right">\${isAdmin ? '<button data-kpub="' + esc(v.version) + '">发布</button>' : ''}</td>
-          </tr>\`).join('')}
-        </tbody></table>\` : '<div class="empty">还没有入库的内核包</div>'}
-        <p class="desc" style="margin-top:14px">发现（比当前新的 GitHub Release；试打补丁需要 npm 已上架同一版本）</p>
-        \${(kernel.discover && kernel.discover.length) ? \`<table><thead><tr><th>版本</th><th>tag</th><th></th></tr></thead><tbody>
-          \${kernel.discover.map((d) => \`<tr>
-            <td class="mono">\${esc(d.version)}\${d.onNpm === false ? '<div class="muted">未上架 npm</div>' : ''}</td>
-            <td class="mono">\${esc(d.tag)}</td>
-            <td style="text-align:right">\${isAdmin ? (d.onNpm === false ? '<span class="muted">未上架 npm</span>' : '<button data-kprep="' + esc(d.version) + '">试打补丁</button>') : ''}</td>
-          </tr>\`).join('')}
-        </tbody></table>\` : '<div class="empty">没有比当前更新的版本</div>'}
-      </section>
-
       <section id="client">
         <h2>客户端</h2>
         <p class="desc">上传 npm run dist:client 打出的 Setup.exe，发布后员工机登录会后台下载，下次启动静默覆盖安装。安装包文件名带构建时间；buildId 从安装包自动读取，不必手填。\${isAdmin ? '' : '（总监只读）'}</p>
@@ -624,7 +597,6 @@ export function renderAdminHtml({ companyName }) {
       </div>\`;
     applyPage();
 
-    const kBusy = (on) => { document.querySelectorAll('#kernel button').forEach((b) => { b.disabled = on; }); };
     const searchKeyForm = $('#searchKeyForm');
     if (searchKeyForm) searchKeyForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -639,21 +611,6 @@ export function renderAdminHtml({ companyName }) {
     if (searchKeyClear) searchKeyClear.addEventListener('click', async () => {
       if (!confirm('清除搜索密钥？员工将回到 AnySearch 匿名额度。')) return;
       try { await api('PUT', '/api/admin/search/anysearch', { apiKey: '' }); toast('已清除'); renderMain(); } catch (err) { toast(err.message, true); }
-    });
-    document.querySelectorAll('[data-kpub]').forEach((b) => b.addEventListener('click', async () => {
-      if (!confirm('发布 ' + b.dataset.kpub + ' 为当前内核？员工下次启动后切换。')) return;
-      try { await api('POST', '/api/admin/kernel/publish', { version: b.dataset.kpub }); toast('已发布 ' + b.dataset.kpub); renderMain(); } catch (err) { toast(err.message, true); }
-    }));
-    document.querySelectorAll('[data-kprep]').forEach((b) => b.addEventListener('click', async () => {
-      kBusy(true);
-      toast('可能需要几分钟');
-      try { await api('POST', '/api/admin/kernel/prepare', { version: b.dataset.kprep }); toast('试打完成：' + b.dataset.kprep); renderMain(); }
-      catch (err) { toast(err.message, true); kBusy(false); }
-    }));
-    const kRollback = $('#kRollback');
-    if (kRollback) kRollback.addEventListener('click', async () => {
-      if (!confirm('回滚到上一版？')) return;
-      try { const r = await api('POST', '/api/admin/kernel/rollback'); toast('已回滚到 ' + (r.version || '上一版')); renderMain(); } catch (err) { toast(err.message, true); }
     });
     document.querySelectorAll('[data-cpub]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('发布 ' + b.dataset.cpub + ' 为当前客户端？员工下次启动后覆盖安装。')) return;

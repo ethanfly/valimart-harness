@@ -73,7 +73,7 @@ company-harness/                 # npm 包名仍是 company-desk
 ├─ installer/                    # Windows 网关 NSIS + WinSW 服务定义
 ├─ deploy/raspberry-pi/          # 树莓派 / 飞牛 OS ARM64 Docker 部署
 ├─ scripts/
-│  ├─ kernel/                    # 内核 pin、补丁、发现/试打/发布
+│  ├─ kernel/                    # 内核 pin、补丁
 │  ├─ lib/bootstrap.mjs          # 开发启动与安装版首次解压共用
 │  ├─ launch.mjs                 # npm run dev / client / desktop
 │  └─ build-*.mjs                # 安装包流水线
@@ -302,7 +302,7 @@ F5（`packages/vscode` 为工作区）打开扩展开发宿主。说明见 [`pac
 | 开发全套 | `npm run dev` |
 | 只改 UI | `npm run build` 后重启客户端 |
 | 检查内核补丁 | `npm run kernel:check` |
-| 换内核版本 | 改 `scripts/kernel/pin.json` → `npm run kernel:prepare -- --version <ver>` |
+| 换内核版本 | 改 `scripts/kernel/pin.json` → `npm run setup`（重装并打补丁）→ 重新 `npm run dist:client`（内核随整包分发） |
 | 打两个 Windows 安装包 | `npm run dist` |
 | 打 VS Code 插件 | `npm run dist:vscode` → `packages/vscode/*.vsix` |
 | 打 macOS Intel 客户端 | `npm run dist:client:mac` → `dist/valimart-harness-<ver>-mac-x64.zip` |
@@ -354,7 +354,7 @@ npm run probe:channels   # 有真实 key 才打公网
 
 对外 HTTPS：网关本身仍是 HTTP，前面加 Caddy / Nginx，把 `publicUrl` 和客户端网关地址改成 `https://…`，不要把 8790 暴露到公网。流式对话要求反代不缓冲（Nginx `proxy_buffering off`）。
 
-内核更新走公司门禁：员工机不直连 npm。管理员 `kernel:discover` → `kernel:prepare` → 管理页发布；已登录员工**下次启动**才切换。客户端整包更新是另一条通道（Setup.exe + buildId）。
+内核更新已取消自动通道：内核不再经网关分发。升级内核 = 改 `scripts/kernel/pin.json` → `npm run setup` 重装打补丁 → `npm run dist:client` 重新打包客户端（内核随整包走），走客户端整包通道（Setup.exe + buildId）分发。员工机不直连 npm。
 
 补丁表、安装目录、静默参数、计划任务备份等细节仍以旧章节为准，见 git 历史或：
 

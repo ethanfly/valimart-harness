@@ -20,7 +20,6 @@ import { fileURLToPath } from 'node:url'
 import { PIN, locateKernel, stampPath, missingProfilePlugins } from '../kernel/locate.mjs'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
 import { findTar } from './find-tar.mjs'
-import { pendingPaths, readPending, clearPending, hashFile, defaultPendingDir } from './kernel-update.mjs'
 
 export { findTar }
 
@@ -459,65 +458,8 @@ export function chmodKernelExecutables(kernelPrefix, log = noop) {
   return fixed
 }
 
-/**
- * 下次启动切换：校验 kernel-next 的 tar sha256 与补丁后再原子替换 targetPrefix。
- * 失败清 pending、删 staging，保留旧内核。
- */
-export function applyPendingKernel({ pendingDir, targetPrefix, skillsDir, log = noop }) {
-  const pending = readPending(pendingDir)
-  const paths = pendingPaths(pendingDir)
-  if (!pending) return { applied: false, detail: 'no-pending' }
-  if (!fs.existsSync(paths.tar)) {
-    // pending 记录在但 tar 丢了（清理/杀软/中断残留）：清记录，别让“已下载”假象卡死升级
-    clearPending(pendingDir)
-    log('kernel-next 记录在但 tar 缺失，已清除记录（等待重新下载）')
-    return { applied: false, detail: 'pending-tar-missing' }
-  }
-  if (hashFile(paths.tar) !== pending.sha256) {
-    clearPending(pendingDir)
-    log('内核更新未生效，校验失败，仍用旧内核')
-    return { applied: false, detail: 'hash-mismatch' }
-  }
-  const staging = targetPrefix + '-staging'
-  const prev = targetPrefix + '-prev'
-  let movedOld = false
-  let activated = false
-  try {
-    fs.rmSync(staging, { recursive: true, force: true })
-    fs.mkdirSync(staging, { recursive: true })
-    const r = spawnSync(findTar(), ['-xf', paths.tar, '-C', staging], { encoding: 'utf8', windowsHide: true })
-    if (r.status !== 0) throw new Error(r.stderr || r.error?.message || 'tar')
-    chmodKernelExecutables(staging, log)
-    const kernel = locateKernel(staging)
-    if (!kernel?.bin || !fs.existsSync(kernel.bin)) throw new Error('no-bin')
-    pinSkillsRoot({ kernelPrefix: staging, kernel, skillsDir, log })
-    if (missingPatches(kernel.root).length) throw new Error('patches')
-    if (kernel.version !== pending.version) throw new Error('version-mismatch')
-    const missing = missingProfilePlugins(kernel)
-    if (missing.length) throw new Error(`更新包缺少必需插件：${missing.join(', ')}`)
-    fs.rmSync(prev, { recursive: true, force: true })
-    if (fs.existsSync(targetPrefix)) {
-      fs.renameSync(targetPrefix, prev)
-      movedOld = true
-    }
-    fs.renameSync(staging, targetPrefix)
-    activated = true
-    clearPending(pendingDir)
-    log(`内核已更新到 ${pending.version}`)
-    return { applied: true, version: pending.version, detail: 'ok' }
-  } catch (err) {
-    if (movedOld && !activated) fs.renameSync(prev, targetPrefix)
-    fs.rmSync(staging, { recursive: true, force: true })
-    clearPending(pendingDir)
-    const old = locateKernel(targetPrefix)
-    log(`内核更新未生效，仍用 ${old?.version ?? '旧版本'}：${err.message}`)
-    return { applied: false, detail: String(err.message) }
-  }
-}
-
 /** 开发模式内核：缺了就跑 install-kernel.mjs（要网络）；verify=true 时即使装好了也跑一遍（幂等校验 + 补缺的补丁）。 */
 export function ensureKernelDev({ prefix, dshHome, verify = false, log = noop }) {
-  applyPendingKernel({ pendingDir: defaultPendingDir(), targetPrefix: prefix, skillsDir: path.join(dshHome, 'desk', 'drive', '_shared', 'skills'), log })
   let kernel = locateKernel(prefix)
   if (!kernel || verify || missingPatches(kernel.root).length > 0) {
     if (!kernel) log(`${prefix} 里还没有 dsh 内核，先安装（需要网络）…`)
@@ -597,7 +539,6 @@ export function pinSkillsRoot({ kernelPrefix, kernel, skillsDir, log = noop }) {
  * preparePackaged 在 appDir 里创建的全部条目：kernel（tar）、plugins/profile/scripts（复制自 payload）、
  * node_modules（ensureProfile 放的 @deepseek-ai junction）、state.json。重新解压时只删这些，不删整个 appDir ——
  * --app-dir 被误配到有用目录（如 ~/.company-desk 而不是 ~/.company-desk/app）时，开发内核、日志等不受影响。
- * kernel-next 故意不在此列：升级解压 bundled 后仍保留 pending，下一步 apply 才能覆盖 bundled。
  */
 const APP_DIR_ENTRIES = ['kernel', 'plugins', 'profile', 'scripts', 'node_modules', 'state.json']
 
@@ -644,10 +585,9 @@ export function needsExtract({ stateFile, kernelPrefix, buildId }) {
  * 安装版首次启动 / 升级后的准备：
  *   1) assertSafeAppDir：项目目录直接抛错，apply / 解压之前什么都不动；
  *   2) needsExtract 说要解压（首次 / buildId 变了 / 内核目录不完整）→ 清掉 appDir 里本模块创建的条目（APP_DIR_ENTRIES）重建：
- *      tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts，写 state.json（不碰 kernel-next）；
- *   3) applyPendingKernel：pending 覆盖刚解出的 bundled，下次启动 pending 优先；
- *   4) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
- *   5) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
+ *      tar 解 kernel.tar 到 appDir/kernel，复制 plugins/profile/scripts，写 state.json；
+ *   3) 技能根同步到 <dshHome>/desk/drive/_shared/skills；
+ *   4) profile desk-app（插件链接到 appDir/plugins，appDir/node_modules/@deepseek-ai → dsh 回退目录）。
  * 只做准备，不长驻；内核由调用方（Electron 主进程）用 nodeExe 启动。log 收到的是 { step, status, detail } 对象。
  */
 export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
@@ -672,8 +612,6 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
     log({ step: 'extract', status: 'ok', detail: `内核 ${payload.kernel.version}` })
   } else log({ step: 'extract', status: 'skip', detail: reason })
 
-  const update = applyPendingKernel({ pendingDir: path.join(appDir, 'kernel-next'), targetPrefix: kernelPrefix, skillsDir, log })
-
   const kernel = locateKernel(kernelPrefix)
   if (!kernel) throw new Error(`解压后找不到内核：${kernelPrefix}`)
   const missing = missingProfilePlugins(kernel)
@@ -683,14 +621,13 @@ export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
   const profileName = 'desk-app'
   const profileDir = path.join(dshHome, 'profiles', profileName)
   const patchFile = path.join(appDir, 'profile', 'cordis.patch.yml')
-  if (fresh || update.applied || profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir: path.join(appDir, 'plugins') }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai')) || !fs.existsSync(path.join(appDir, 'node_modules', 'zod', 'package.json'))) {
+  if (fresh || profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir: path.join(appDir, 'plugins') }) || !fs.existsSync(path.join(appDir, 'node_modules', '@deepseek-ai')) || !fs.existsSync(path.join(appDir, 'node_modules', 'zod', 'package.json'))) {
     log({ step: 'profile', status: 'start', detail: '安装工作台配置（desk-app）' })
     ensureProfile({ profileName, dshHome, root: appDir, pluginsDir: path.join(appDir, 'plugins'), patchFile, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
     log({ step: 'profile', status: 'ok' })
   } else log({ step: 'profile', status: 'skip' })
   // 0.1.7 起内核按 peer 范围跳过不兼容 bundle，豁免必须写在 profile 本地 compatibility.json。
-  // 不能只挂在 ensureProfile 里：内核更新后老客户端先消费 pending（旧 bootstrap 写不了豁免），
-  // 新客户端下次启动 update.applied=false、profile 无需重建，ensureProfile 会被跳过——
+  // 不能只挂在 ensureProfile 里：新客户端首启 profile 无需重建时 ensureProfile 会被跳过，
   // 那样豁免永远落不了盘。每次启动无条件刷一遍（无豁免时是空操作）。
   writePluginVersionExemptions({ profileDir, kernel, log: (m) => log({ step: 'profile', status: 'info', detail: m }) })
 

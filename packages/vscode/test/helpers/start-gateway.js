@@ -65,8 +65,6 @@ export async function startCompanyDeskGateway() {
       { username: 'emp-a', password: 'emp123456', displayName: '员工A', role: 'employee', department: '内容部' },
       { username: 'director', password: 'director123', displayName: '总监', role: 'director', department: '内容部' },
     ],
-    fetchReleases: async () => [],
-    fetchNpmVersions: async () => [],
     fetchModels: async () => new Response(JSON.stringify({ error: 'no' }), { status: 404 }),
   })
   const baseUrl = await gw.listen()

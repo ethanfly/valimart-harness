@@ -7,9 +7,6 @@
   "scripts": {
     "kernel": "node scripts/install-kernel.mjs",
     "kernel:check": "node scripts/install-kernel.mjs --check",
-    "kernel:discover": "node scripts/kernel/update.mjs discover",
-    "kernel:prepare": "node scripts/kernel/update.mjs prepare",
-    "kernel:publish": "node scripts/kernel/update.mjs publish",
     "client:publish": "node scripts/client/publish.mjs",
     "setup": "node scripts/setup-profile.mjs",
     "build": "node scripts/build-client.mjs",

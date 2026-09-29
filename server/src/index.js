@@ -30,6 +30,8 @@ import { createRouter, parseUrl, sendError, sendJson, HttpError } from './http.j
 const startedAt = Date.now()
 
 export function createGateway(overrides = {}) {
+  // fetchReleases / kernels / fetchNpmVersions / prepareInstaller 是旧内核更新链的测试注入位，
+  // 现已移除：内核随客户端整包分发，不再经网关更新。仍吸收这些键，避免漏进 loadConfig。
   const { fetchReleases, kernels, fetchNpmVersions, prepareInstaller, fetchModels, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
@@ -79,10 +81,6 @@ export function createGateway(overrides = {}) {
     searchSettings,
     knowledge,
     startedAt,
-    fetchReleases,
-    kernels,
-    fetchNpmVersions,
-    prepareInstaller,
     oauth,
     fetchModels,
     mixedAttribution,

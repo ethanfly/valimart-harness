@@ -22,7 +22,7 @@ import {
   silentInstallArgs,
 } from '../lib/client-update.mjs'
 import { openClientCatalog } from '../../server/src/client-catalog.js'
-import { hashFile } from '../lib/kernel-update.mjs'
+import { hashFile } from '../lib/client-update.mjs'
 import { fetchClientUpdate } from '../../plugins/desk-host/lib/client-update.js'
 import { fileURLToPath } from 'node:url'
 

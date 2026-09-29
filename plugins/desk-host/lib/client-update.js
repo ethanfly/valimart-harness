@@ -29,12 +29,6 @@ async function loadHelpers() {
   return import(new URL('../../../scripts/lib/client-update.mjs', import.meta.url).href)
 }
 
-async function loadHash() {
-  const packaged = path.join(resolveAppDir(), 'scripts', 'lib', 'kernel-update.mjs')
-  if (fs.existsSync(packaged)) return import(pathToFileURL(packaged).href)
-  return import(new URL('../../../scripts/lib/kernel-update.mjs', import.meta.url).href)
-}
-
 /**
  * @param {{ gateway: { get: Function, request: Function }, pendingDir: string, localBuildId?: string, localInstallerVersion?: string, payloadDir?: string, log?: (msg: string) => void }} opts
  */
@@ -48,7 +42,7 @@ export async function fetchClientUpdate({
 } = {}) {
   try {
     const helpers = await loadHelpers()
-    const { hashFile } = await loadHash()
+    const { hashFile } = helpers
     const current = await gateway.get('/api/client/current')
     let pending = helpers.readClientPending(pendingDir)
     const paths = helpers.clientPendingPaths(pendingDir)

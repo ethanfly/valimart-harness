@@ -1,8 +1,13 @@
 /**
  * 客户端整包更新共用：buildId 校验、本机 payload、pending、是否拉取/应用。
  */
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+
+export function hashFile(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+}
 
 export function assertSafeBuildId(buildId) {
   const id = String(buildId ?? '').trim()

@@ -48,19 +48,20 @@ test('任务正文 textarea 绑定 onBlur 静默保存', () => {
   assert.match(tasks, /<textarea[\s\S]*onBlur=\{onBlur\}/)
 })
 
-test('安装版主进程会在启动时尝试应用已下载的客户端更新，并在起内核前自动检查内核/客户端更新', () => {
+test('安装版主进程会在启动时尝试应用已下载的客户端更新，并在起内核前自动检查客户端更新', () => {
   const main = fs.readFileSync(path.join(repo, 'desktop/main.js'), 'utf8')
   assert.match(main, /maybeApplyPendingClient/)
   assert.match(main, /applyPendingClientUpdate/)
   assert.match(main, /DESK_PAYLOAD_DIR/)
-  // 打开前检查：登录会话在手 → 客户端新包下载后立即套用（本进程退出，安装器拉起新版）；内核下载后本次 bootstrap 直接生效
+  // 打开前检查：登录会话在手 → 客户端新包下载后立即套用（本进程退出，安装器拉起新版）；内核随整包分发，不再单独更新
   assert.match(main, /preOpenUpdateCheck/)
   assert.match(main, /fetchClientUpdate/)
-  assert.match(main, /fetchKernelUpdate/)
+  assert.doesNotMatch(main, /fetchKernelUpdate/)
   assert.match(main, /readDeskState/)
   assert.match(main, /relaunching \|\| quitting/)
   const host = fs.readFileSync(path.join(repo, 'plugins/desk-host/lib/index.js'), 'utf8')
   assert.match(host, /scheduleClientUpdate/)
+  assert.doesNotMatch(host, /scheduleKernelUpdate/)
 })
 
 test('登录下拉按网关实例列出，不把每个 IP 当成一台', () => {

@@ -5,7 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { hashFile } from '../lib/kernel-update.mjs'
+import { hashFile } from '../lib/client-update.mjs'
 import { extractClientMetaFromInstaller, readLocalBuildId, resolvePublishedBuildId } from '../lib/client-update.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')

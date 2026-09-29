@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { makeBuildId, makeInstallerVersion } from '../lib/payload.mjs'
 import { clientPublicInfo, readLocalBuildId, readLocalPayload } from '../lib/client-update.mjs'
 import { clientVersionDetail, clientVersionLabel, kernelVersionLabel, searchKeyLabel } from '../../plugins/desk-ui/src/client/version.js'
-import { readLocalKernelVersion } from '../../plugins/desk-host/lib/kernel-update.js'
+import { readLocalKernelVersion } from '../../plugins/desk-host/lib/kernel-version.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 

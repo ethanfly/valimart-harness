@@ -450,7 +450,7 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.equal(page.status, 200)
   assert.match(page.headers.get('content-type'), /text\/html/)
   const html = await page.text()
-  for (const s of ['valimart harness', 'harness', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '客户端', '试打补丁', '回滚到上一版', '初始设置', '上传并发布']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
+  for (const s of ['valimart harness', 'harness', '模型通道', '加入订阅', '加入模型', '知识库查询', '公司盘', '内核', '客户端', '回滚到上一版', '初始设置', '上传并发布']) assert.ok(html.includes(s), `管理页应包含「${s}」`)
   assert.ok(html.includes('/api/admin/client'), '管理页应拉客户端目录')
   assert.ok(html.includes('data-page="org"') || html.includes('#org'), '管理页应有组织分页')
   assert.ok(html.includes('data-page="knowledge"') || html.includes('#knowledge'), '管理页应有知识分页')
@@ -479,8 +479,8 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   assert.ok(html.includes('class="word"'), '管理页 logo 用完整字标蒙版（图里已含花标）')
   assert.ok(!html.includes('class="mark"'), '字标图已含花标，不要再并一枚 mark')
   assert.ok(!html.includes('<small>harness</small>'), '管理页不应把 harness 当 logo 文字')
-  assert.match(html, /let status, channels, collections, kernel, client,[^\n]*plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
-  assert.match(html, /let status, channels, collections, kernel, client,[^\n]*search = \{/, 'search 也必须和外层变量一起声明')
+  assert.match(html, /let status, channels, collections, client,[^\n]*plugins = \{ entries: \[\] \}/, 'plugins 必须和外层变量一起声明，否则 renderMain 会 ReferenceError')
+  assert.match(html, /let status, channels, collections, client,[^\n]*search = \{/, 'search 也必须和外层变量一起声明')
   for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
     try {
       new Function(m[1])
@@ -710,129 +710,4 @@ test('组织：岗位额度 token/金额；导入导出；员工不能管', asyn
   assert.equal(knImp.status, 200)
   const del = await api('DELETE', `/api/org/positions/${created.json.position.id}`, { token: ctx.boss.sessionToken })
   assert.equal(del.status, 200)
-})
-
-test('内核：总监可 GET 管理视图；员工 GET 403；总监不能 publish', async () => {
-  const empGet = await api('GET', '/api/admin/kernel', { token: ctx.emp.sessionToken })
-  assert.equal(empGet.status, 403)
-
-  const dirGet = await api('GET', '/api/admin/kernel', { token: ctx.dir.sessionToken })
-  assert.equal(dirGet.status, 200)
-  assert.ok('current' in dirGet.json)
-  assert.ok(Array.isArray(dirGet.json.stored))
-  assert.ok(Array.isArray(dirGet.json.discover))
-  assert.ok('pinVersion' in dirGet.json)
-
-  const dirPub = await api('POST', '/api/admin/kernel/publish', { token: ctx.dir.sessionToken, body: { version: '9.9.9' } })
-  assert.equal(dirPub.status, 403)
-})
-
-test('内核：未登录读 current 是 401；登录后无 current 则 bundled', async () => {
-  const no = await api('GET', '/api/kernel/current')
-  assert.equal(no.status, 401)
-  const ok = await api('GET', '/api/kernel/current', { token: ctx.boss.sessionToken })
-  assert.equal(ok.status, 200)
-  assert.equal(ok.json.bundled, true)
-  assert.equal(ok.json.tarball, false)
-  const tar = await api('GET', '/api/kernel/tarball', { token: ctx.boss.sessionToken })
-  assert.equal(tar.status, 404)
-})
-
-test('内核：员工不能 publish；管理员 publish / rollback', async () => {
-  const forbidden = await api('POST', '/api/admin/kernel/publish', { token: ctx.emp.sessionToken, body: { version: '9.9.9' } })
-  assert.equal(forbidden.status, 403)
-
-  const dir = path.join(tmp, 'kernels', '0.1.9-test')
-  fs.mkdirSync(dir, { recursive: true })
-  const tar = path.join(dir, 'kernel.tar')
-  fs.writeFileSync(tar, 'FAKE-TAR')
-  const sha = crypto.createHash('sha256').update('FAKE-TAR').digest('hex')
-  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-    package: '@deepseek-ai/dsh', version: '0.1.9-test', sha256: sha, bytes: 8,
-    sourceTag: 'dsh-v0.1.9-test', sourceRepo: 'https://github.com/deepseek-ai/deepseek-harness',
-    patched: 'test', builtAt: new Date().toISOString(),
-  }))
-
-  const pub = await api('POST', '/api/admin/kernel/publish', { token: ctx.boss.sessionToken, body: { version: '0.1.9-test' } })
-  assert.equal(pub.status, 200)
-  assert.equal(pub.json.version, '0.1.9-test')
-  assert.equal(pub.json.previous, null)
-
-  const cur = await api('GET', '/api/kernel/current', { token: ctx.boss.sessionToken })
-  assert.equal(cur.json.bundled, false)
-  assert.equal(cur.json.version, '0.1.9-test')
-  assert.equal(cur.json.sha256, sha)
-
-  const bin = await fetch(base + '/api/kernel/tarball', { headers: { authorization: 'Bearer ' + ctx.boss.sessionToken } })
-  assert.equal(bin.status, 200)
-  assert.equal(Buffer.from(await bin.arrayBuffer()).toString(), 'FAKE-TAR')
-
-  const rb0 = await api('POST', '/api/admin/kernel/rollback', { token: ctx.boss.sessionToken })
-  assert.equal(rb0.status, 400)
-
-  fs.mkdirSync(path.join(tmp, 'kernels', '0.1.8-test'), { recursive: true })
-  fs.writeFileSync(path.join(tmp, 'kernels', '0.1.8-test', 'kernel.tar'), 'OLD')
-  const sha8 = crypto.createHash('sha256').update('OLD').digest('hex')
-  fs.writeFileSync(path.join(tmp, 'kernels', '0.1.8-test', 'manifest.json'), JSON.stringify({
-    package: '@deepseek-ai/dsh', version: '0.1.8-test', sha256: sha8, bytes: 3,
-    sourceTag: 'dsh-v0.1.8-test', sourceRepo: 'https://github.com/deepseek-ai/deepseek-harness',
-    patched: 'test', builtAt: new Date().toISOString(),
-  }))
-  await api('POST', '/api/admin/kernel/publish', { token: ctx.boss.sessionToken, body: { version: '0.1.8-test' } })
-  const after = await api('GET', '/api/kernel/current', { token: ctx.boss.sessionToken })
-  assert.equal(after.json.version, '0.1.8-test')
-  assert.equal(after.json.sha256, sha8)
-
-  const rb = await api('POST', '/api/admin/kernel/rollback', { token: ctx.boss.sessionToken })
-  assert.equal(rb.status, 200)
-  assert.equal(rb.json.version, '0.1.9-test')
-})
-
-test('内核：prepare 缺 version 为 400；员工 403（不跑 npm）', async () => {
-  const denied = await api('POST', '/api/admin/kernel/prepare', { token: ctx.emp.sessionToken, body: { version: '9.0.0' } })
-  assert.equal(denied.status, 403)
-  const r = await api('POST', '/api/admin/kernel/prepare', { token: ctx.boss.sessionToken, body: {} })
-  assert.equal(r.status, 400)
-  assert.equal(r.json.error.code, 'bad_request')
-})
-
-test('内核：prepare 对不在 npm 的 version 返回 400 且不跑 npm', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-gw-npm-'))
-  let installs = 0
-  const extra = createGateway({
-    host: '127.0.0.1',
-    port: 0,
-    dataDir: dir,
-    upstreams: { mock: { kind: 'mock', label: 'Mock', models: [{ id: 'mock-echo', name: 'Mock Echo', priceCnyPerM: { input: 1, output: 2, cachedInput: 0.1 } }] } },
-    channels: [],
-    defaultModel: 'mock-echo',
-    fetchReleases: async () => [],
-    fetchNpmVersions: async () => ['0.1.2-rc.1'],
-    prepareInstaller: () => {
-      installs++
-    },
-  })
-  const url = await extra.listen()
-  try {
-    const login = await fetch(url + '/api/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username: 'boss', password: 'boss123456', device: 'test' }),
-    })
-    const { sessionToken } = await login.json()
-    const r = await fetch(url + '/api/admin/kernel/prepare', {
-      method: 'POST',
-      headers: { authorization: 'Bearer ' + sessionToken, 'content-type': 'application/json' },
-      body: JSON.stringify({ version: '0.1.3-alpha.1' }),
-    })
-    const json = await r.json()
-    assert.equal(r.status, 400)
-    assert.equal(json.error.code, 'not_on_npm')
-    assert.match(json.error.message, /GitHub 有 tag/)
-    assert.match(json.error.message, /@deepseek-ai\/dsh@0\.1\.3-alpha\.1/)
-    assert.equal(installs, 0)
-  } finally {
-    await extra.close()
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
 })

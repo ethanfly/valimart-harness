@@ -537,19 +537,12 @@ async function loadClientUpdateMod() {
   return import(pathToFileURL(file).href)
 }
 
-async function loadHashMod() {
-  const packaged = path.join(payloadDir, 'scripts', 'lib', 'kernel-update.mjs')
-  const fallback = path.join(__dirname, '..', 'scripts', 'lib', 'kernel-update.mjs')
-  const file = fs.existsSync(packaged) ? packaged : fallback
-  return import(pathToFileURL(file).href)
-}
-
 async function maybeApplyPendingClient() {
   // 自更新是 Windows 专属：网关下发的是 NSIS 安装器；macOS 客户端整包替换。
   if (!app.isPackaged || process.platform !== 'win32') return false
   try {
     const mod = await loadClientUpdateMod()
-    const { hashFile } = await loadHashMod()
+    const { hashFile } = mod
     const result = mod.applyPendingClientUpdate({
       pendingDir: path.join(appDir, 'client-next'),
       payloadDir,
@@ -625,14 +618,13 @@ async function loadDeskHostUpdateMod(rel) {
 }
 
 /**
- * 打开前自动检查并下载更新：
- *   1) 客户端整包：有新版就下载并立刻静默安装，安装器收尾后拉起新版（本次不再起内核）；
- *   2) 内核 tar：客户端已是最新才检查内核，下载到 kernel-next 后由本次 runBootstrap 直接套用。
- * 任何失败都只记日志、不挡启动；未登录（无会话令牌）跳过，登录后 desk-host 的 schedule*Update 兜底。
+ * 打开前自动检查并下载客户端整包更新：有新版就下载并立刻静默安装，安装器收尾后拉起新版
+ * （本次不再起内核）。内核随客户端整包分发，不单独更新。
+ * 任何失败都只记日志、不挡启动；未登录（无会话令牌）跳过，登录后 desk-host 的 scheduleClientUpdate 兜底。
  * @returns {Promise<boolean>} true = 客户端更新已应用、进程即将退出，不要再起内核。
  */
 async function preOpenUpdateCheck() {
-  // 同 maybeApplyPendingClient：客户端整包与内核 tar 都只对 Windows 客户端有意义。
+  // 客户端整包更新只对 Windows 客户端有意义。
   if (!app.isPackaged || process.platform !== 'win32') {
     if (app.isPackaged) log.write('update', `跳过打开前更新检查（${process.platform} 客户端随整包更新）`)
     return false
@@ -662,20 +654,6 @@ async function preOpenUpdateCheck() {
     }
   } catch (err) {
     log.write('update', `客户端更新检查失败（不影响启动）：${err && err.message ? err.message : err}`)
-  }
-  try {
-    setStatus('正在检查内核更新…')
-    const kernelMod = await loadDeskHostUpdateMod('kernel-update.js')
-    const r = await kernelMod.fetchKernelUpdate({
-      gateway,
-      pendingDir: path.join(appDir, 'kernel-next'),
-      localVersion: kernelMod.readLocalKernelVersion(appDir),
-      log: (m) => log.write('update', `内核 ${m}`),
-    })
-    if (r.action === 'downloaded') setStatus(`已下载内核 ${r.detail}，本次启动即套用…`)
-    else log.write('update', `内核检查：${r.action}（${r.detail}）`)
-  } catch (err) {
-    log.write('update', `内核更新检查失败（不影响启动）：${err && err.message ? err.message : err}`)
   }
   return false
 }

@@ -86,7 +86,7 @@ ls -l /vol1/docker/valimart-gateway/data      # 宿主机上应看到 gateway.sq
 1. **`config.local.json` 一定要关播种。** 仓库里的 `server/config.json` 是**开发配置**，带 `boss/boss123456` 等 7 个演示账号和示例公司盘；只有在打官方包时才会被收成生产模板。直接挂源码跑如果不写 `config.local.json`，**等于带着演示账号上线**。本目录的模板已经把 `seedAdmin/seedUsers/seedDriveSamples` 全部关掉。
 2. **数据目录固定绑 `/data`。** 网关优先读 `DESK_GATEWAY_DATA` 环境变量（`server/src/config.js`），compose 里已经指到挂载卷。**别只依赖 `config.local.json` 的 `dataDir`**——两个都指到 `/data` 最稳，换存储路径时改 `.env` 里的 `GATEWAY_DATA` 即可。
 3. **客户端「自动发现网关」在 Docker 里大概率不生效。** 网关开局域网发现信标（UDP 18790 + 组播 `239.255.87.90`），Docker bridge 网络下广播/组播基本出不来。→ **用 `http://<IP>:8790` 手动填**；不想要这个功能就在 `config.local.json` 里保留 `"lanDiscover": false`（模板已有）。
-4. **别在这台 Pi 上点管理页的「内核试打补丁 / 发布」。** 那条链要用 npm 装 `@deepseek-ai/dsh` 及其原生依赖（`server/src/api.js` → `scripts/lib/kernel-prepare.mjs`），ARM64 上能否凑齐原生产物**没验证**，而且 Pi 上很慢。→ **内核构建继续在 Windows/x64 机器上做，再从那边发布到这台网关。**
+4. **内核已不再经网关更新。** 网关没有内核目录 / 试打补丁入口了（内核随客户端整包分发，升级走重打客户端）。这台 Pi 只跑网关业务，不再涉及内核构建。
 
 ## 5. 升级 / 备份 / 迁移
 

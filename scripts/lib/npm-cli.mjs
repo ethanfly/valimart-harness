@@ -6,6 +6,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
+export const DEFAULT_NPM_REGISTRY = 'https://registry.npmmirror.com'
+
+/** npm registry：显式参数 > npm_config_registry > 国内镜像（构建机常打不开 registry.npmjs.org）。 */
+export function resolveNpmRegistry(explicit) {
+  const fromArg = typeof explicit === 'string' ? explicit.trim().replace(/\/+$/, '') : ''
+  if (fromArg) return fromArg
+  const fromEnv = typeof process.env.npm_config_registry === 'string' ? process.env.npm_config_registry.trim().replace(/\/+$/, '') : ''
+  if (fromEnv) return fromEnv
+  return DEFAULT_NPM_REGISTRY
+}
+
 /** npm 的依赖安装脚本仍通过 PATH 执行 node；服务进程可能只有捆绑 runtime。 */
 export function npmEnvironment({ env = process.env, execPath = process.execPath, platform = process.platform } = {}) {
   const result = { ...env }
