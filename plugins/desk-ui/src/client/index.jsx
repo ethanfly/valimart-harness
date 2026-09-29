@@ -101,12 +101,7 @@ export function apply(ctx) {
     // 0.1.5 的 WorkspaceBrowser / SessionTree 依赖根级 usePanelInfo；官方由 ui-layout provideRoot，
     // 公司关掉了 ui-layout，这里按同一契约补上，否则 sidebar.workspaces 渲染即崩、会话列表空白。
     const disposePanelInfo = ctx.slots.provideRoot({
-      hooks: {
-        panelInfo: {
-          getSnapshot: () => ({ activePanelId: layoutStore.get().activePanelId }),
-          subscribe: (listener) => layoutStore.subscribe(listener),
-        },
-      },
+      hooks: { panelInfo: layout.panelInfo },
     })
     const disposeRoot = ctx.slots.register(
       {

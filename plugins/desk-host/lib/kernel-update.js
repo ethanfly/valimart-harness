@@ -17,8 +17,16 @@ export function resolvePendingDir() {
   return path.join(resolveAppDir(), 'kernel-next')
 }
 
-/** 读本机内核 package.json 的 version；安装版优先 appDir/kernel，开发版再看 ~/.company-desk/kernel。 */
-export function readLocalKernelVersion(appDir = resolveAppDir()) {
+/** 优先读当前 dsh 启动入口所属包，避免开发版显示/比较安装版的内核版本。 */
+export function readLocalKernelVersion(appDir = resolveAppDir(), { entryFile = process.argv[1] } = {}) {
+  if (entryFile) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.resolve(path.dirname(entryFile), '..', 'package.json'), 'utf8'))
+      if (manifest.name === '@deepseek-ai/dsh' && manifest.version) return manifest.version
+    } catch {
+      /* 非 dsh 入口（测试、管理脚本）仍按安装目录查找。 */
+    }
+  }
   const pkgs = [
     path.join(appDir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
     path.join(appDir, 'kernel', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),

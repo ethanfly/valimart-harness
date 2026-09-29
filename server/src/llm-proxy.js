@@ -497,7 +497,10 @@ export class LlmProxy {
         current = bind(await this.prepareUpstream(current, { force: true, accountId: acc?.id }), acc)
         res = await this.sendUpstream(current, body, model, opts)
       }
-      if (acc?.id && isUpstreamQuotaExhausted(res.status, await res.clone().text().catch(() => ''))) {
+      // 成功响应直接原样返回，不要 clone().text()：clone 会 tee 出第二条流，而在读原流之前
+      // 先 await 克隆流读完，会把整段 SSE 缓存在 tee 里 —— 客户端因此只在生成结束时一次性收到
+      // 全部 chunk（会话统计的解码时间塌成 0，TPS 被放大到不可能的值）。失败响应才值得窥探配额。
+      if (!res.ok && acc?.id && isUpstreamQuotaExhausted(res.status, await res.clone().text().catch(() => ''))) {
         this.channels?.markAccountExhausted?.(upstream.channel, acc.id, { error: 'quota exhausted' })
       }
       return res

@@ -3,7 +3,8 @@
  *  - 会话模式：侧栏 | main（对话或全局面板） | rightbar
  *  - 任务模式：侧栏 | 任务卡 | 任务进程（对话）
  * 0.1.5 起官方根槽从 conversation/details 改成 keyed `main` + `rightbar`；
- * ctx.layout 对齐 toggleSidebar / selectPanel / beginNavigation / openRightbar / closeRightbar。
+ * ctx.layout 对齐 toggleSidebar / selectPanel / beginNavigation / openRightbar / closeRightbar，
+ * 并带 panelInfo（0.2 插件管理页启动时会订阅，缺了会把 web boot 打成 failed）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -67,6 +68,10 @@ export class DeskLayoutController {
   navigation = new AbortController()
   constructor({ hasMainPanel } = {}) {
     this.hasMainPanel = hasMainPanel ?? (() => true)
+    this.panelInfo = {
+      getSnapshot: () => ({ activePanelId: layoutStore.get().activePanelId }),
+      subscribe: (listener) => layoutStore.subscribe(listener),
+    }
   }
   selectPanel(panelId) {
     if (panelId !== null && !this.hasMainPanel(panelId)) throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)

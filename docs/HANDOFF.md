@@ -2,6 +2,24 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-09-29：单账号上游流式被整段缓冲（会话统计 TPS 被放大）
+
+- 现象：Grok 会话统计「输出速度（TPS）」显示 112174 tok/s（底部同样）。实测投影缓存 `sessionStats.decodeMs=95ms / decodeTokens=11038`，TPS 就是两者之商被放大——不是模型异常，是解码时间塌成 0。
+- 根因：`server/src/llm-proxy.js` 的 `fetchUpstream` 单账号分支在成功响应上执行 `await res.clone().text()` 来判定配额耗尽。`Response.clone()` 会 tee 出第二条流，在读原流之前先等克隆读完整段 SSE，会把整段响应缓存在 tee 里；客户端因此只在生成结束时一次性收到全部 chunk。多账号分支在 `res.ok` 时提前 return，所以只有单账号通道（如 Grok 订阅）中招。
+- 复现与验证：本地起假上游（每 80ms 一个 SSE chunk），经网关 `/v1/chat/completions?stream=true` 读，单账号时 6+ 个 read 全在同一毫秒、span≈0；多账号时逐个到达。修复后单账号 span≈600ms。新增回归 `server/test/llm-proxy-stream.test.js`（去掉修复即失败）。
+- 修复：单账号分支只在 `!res.ok` 时才 clone 窥探配额，与多账号分支一致；成功响应原样返回，保持增量流式。
+- 影响与后续：已改源码，`server/test/*.test.js` **172 pass / 0 fail**。**安装版网关仍是旧代码**，需 `npm run dist:gateway` 后重装/升级；已产生的历史会话统计不会回改，只影响之后的新轮次。
+
+## 2026-09-29：修复不同内核并存时的插件加载
+
+- 开发内核为 `0.2.0-rc.1`，本机桌面安装版为 `0.1.7-rc.1`。保留各自版本与现有 browser / AnySearch 适配补丁。
+- `bootstrap.mjs` 原先只检查 profile 配置和 bundle 文件是否存在，原地升级后会漏掉旧版或丢失的 `compatibility.json`。现在按当前内核检查精确版本记录，缺失则刷新，并保留已经验证过的历史版本记录。
+- 两个 profile 原先共用 `profiles/node_modules`，后启动者会把前者的依赖改指向另一套内核。现在 profile 本地的官方包、第三方插件、zod，以及公司插件所在根目录，都直接绑定各自的内核；共享目录仅作旧版回退。新增回归测试已确认修复前发生串版、修复后各自解析正确。
+- `readLocalKernelVersion` 优先读取正在运行的 dsh 入口所属包，修复开发版运行 0.2.0 却显示安装版 0.1.7 的问题。
+- 本机 `desk` / `desk-app` 已修复；误以用户主目录为 DSH_HOME 的 3473 测试进程已停止，开发 profile 与技能根恢复为 `~/.dsh`。本机 app 和安装目录 payload 的 bootstrap / kernel-update 已同步；备份位于 `build/dsh-repair-20260929/`。未重发安装包或网关版本。
+- 验证：`npm test` **587 pass / 0 fail / 1 skip**。两个真实内核各自使用对应插件闭包启动，Edge headless 页面 HTTP 200，stderr 与 pageerror 均为空，精确版本兼容记录生效。探针 `build/dsh-compat-probe.mjs`。全量测试的 TEMP/TMP 应设在仓库外（本次用 `E:/orcaWorkspace/dsh-test-temp`），否则“非 Git 工作区”测试会误探测到仓库父级 `.git`。
+- 后续已本地打包 Windows x64 客户端：`dist/valimart-harness-Setup-0.1.0-20260929.0430.exe`（221.7 MiB），buildId `0.1.0+0.2.0-rc.1.20260929-0430.2ea67908`，含本轮修复。SHA-256：`a70e121830874b9059af2ca79403b13b3865ab790022e9050a1d960d62b2e4cf`（旁有 `.sha256` 文件）。使用 `dist/win-unpacked/resources/payload` 的完整离线资源与随包 Node 在隔离目录解压启动，HTTP 200、登录页及 0.2.0 版本显示正常、stderr/pageerror 为空，结果 `build/client-artifact-check-Rst7Rl/verification.json`。未发布到网关。
+
 ## 现在在哪（pi CLI 包 pi-valimart-desk）
 
 - 桌面客户端才有的公司网关登录 / 模型路由 / 知识检索 / 任务卡，收成可安装的 pi 包：`packages/pi-valimart-desk`（`pi install <仓库>/packages/pi-valimart-desk`）。

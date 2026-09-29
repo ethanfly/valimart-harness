@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, pluginVersionExemptions, preparePackaged, profileNeedsSetup, profilePluginBundles, readGatewayUrl, writePluginVersionExemptions } from '../lib/bootstrap.mjs'
 import { ALL_MARKS, resolvePresetRel } from '../kernel/patches.mjs'
 import { PIN } from '../kernel/locate.mjs'
@@ -153,6 +154,72 @@ test('pluginVersionExemptions：peer 范围不含当前内核时写 compatibilit
   const saved = JSON.parse(fs.readFileSync(path.join(profileDir, 'compatibility.json'), 'utf8'))
   assert.deepEqual(saved['@anysearch/anysearch-dsh@0.1.4'], ['0.1.7-rc.1'])
   assert.deepEqual(saved['@anweat/dsh-browser@0.1.11'], ['0.1.5-rc.2'])
+})
+
+function compatibilityFixture(dir, name, version) {
+  const root = path.join(dir, name)
+  const kernelRoot = path.join(root, 'kernel', 'node_modules', '@deepseek-ai', 'dsh')
+  const put = (base, pkg, data) => {
+    const folder = path.join(base, pkg)
+    fs.mkdirSync(folder, { recursive: true })
+    fs.writeFileSync(path.join(folder, 'package.json'), JSON.stringify({ name: pkg, version, ...data }))
+    return folder
+  }
+  put(path.dirname(kernelRoot), 'dsh', { name: '@deepseek-ai/dsh' })
+  for (const pkg of ['dsh-base', 'dsh-web-app', 'dsh-tools']) {
+    put(path.join(kernelRoot, 'node_modules', '@deepseek-ai'), pkg, { name: `@deepseek-ai/${pkg}` })
+  }
+  const semver = put(path.join(kernelRoot, 'node_modules'), 'semver', { main: 'index.js' })
+  fs.writeFileSync(path.join(semver, 'index.js'), 'module.exports = { satisfies: (v, range) => range.includes(v) }\n')
+  put(path.join(kernelRoot, 'node_modules'), 'zod', {})
+  put(path.resolve(kernelRoot, '../..'), '@anysearch/anysearch-dsh', {
+    version: '0.1.4', peerDependencies: { '@deepseek-ai/dsh-tools': '0.1.1-rc.2' },
+  })
+  const pluginsDir = path.join(root, 'plugins')
+  for (const pkg of ['desk-host', 'desk-ui', 'desk-image']) put(pluginsDir, pkg, {})
+  const patchFile = path.join(root, 'cordis.patch.yml')
+  fs.writeFileSync(patchFile, '[]\n')
+  return { root, pluginsDir, patchFile, kernel: { root: kernelRoot, version }, selfHeal: false }
+}
+
+test('profileNeedsSetup：原地升级内核后刷新旧版兼容记录，丢失记录也能恢复', (t) => {
+  const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const options = compatibilityFixture(dir, 'app', '0.1.7-rc.1')
+  const dshHome = path.join(dir, 'data')
+  const { profileDir } = ensureProfile({ ...options, dshHome, profileName: 'desk' })
+  assert.equal(profileNeedsSetup({ ...options, profileDir }), false)
+  options.kernel.version = '0.2.0-rc.1'
+  assert.equal(profileNeedsSetup({ ...options, profileDir }), true)
+  ensureProfile({ ...options, dshHome, profileName: 'desk' })
+  assert.equal(profileNeedsSetup({ ...options, profileDir }), false)
+  const compatibilityFile = path.join(profileDir, 'compatibility.json')
+  const saved = JSON.parse(fs.readFileSync(compatibilityFile, 'utf8'))
+  assert.deepEqual(saved['@anysearch/anysearch-dsh@0.1.4'], ['0.1.7-rc.1', '0.2.0-rc.1'])
+  fs.unlinkSync(compatibilityFile)
+  assert.equal(profileNeedsSetup({ ...options, profileDir }), true)
+})
+
+test('ensureProfile：不同内核共享 DSH_HOME 时，每个 profile 和公司插件仍解析自己的内核', (t) => {
+  const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const dshHome = path.join(dir, 'data')
+  const dev = compatibilityFixture(dir, 'dev', '0.2.0-rc.1')
+  const app = compatibilityFixture(dir, 'app', '0.1.7-rc.1')
+  const devProfile = ensureProfile({ ...dev, dshHome, profileName: 'desk' }).profileDir
+  const appProfile = ensureProfile({ ...app, dshHome, profileName: 'desk-app' }).profileDir
+  for (const [options, profileDir] of [[dev, devProfile], [app, appProfile]]) {
+    assert.equal(profileNeedsSetup({ ...options, profileDir }), false)
+    for (const anchor of [path.join(profileDir, 'package.json'), path.join(options.pluginsDir, 'desk-host', 'package.json')]) {
+      const require = createRequire(anchor)
+      assert.equal(require('@deepseek-ai/dsh-tools/package.json').version, options.kernel.version)
+      assert.equal(require('zod/package.json').version, options.kernel.version)
+      if (anchor.startsWith(profileDir)) {
+        assert.equal(fs.realpathSync(path.dirname(require.resolve('@anysearch/anysearch-dsh/package.json'))),
+          fs.realpathSync(path.resolve(options.kernel.root, '../../@anysearch/anysearch-dsh')))
+      }
+    }
+  }
 })
 
 test('ensureProfile：全新 DSH_HOME 没有扁平回退目录时，从内核物化，不要求先跑过 dsh', () => {

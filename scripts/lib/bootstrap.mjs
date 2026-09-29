@@ -123,9 +123,18 @@ export function profileNeedsSetup({ profileDir, patchFile, kernel, pluginsDir })
       const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'))
       const bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...profilePluginBundles(kernel)]
       if (JSON.stringify(manifest.dsh?.profile?.bundles) !== JSON.stringify(bundles)) return true
-      const modules = path.resolve(profileDir, '..', 'node_modules')
+      const modules = path.join(profileDir, 'node_modules')
+      // 开发版和安装版可能共用 DSH_HOME，但不能共用另一版本的内核依赖。
+      if (kernel.root && fs.realpathSync(path.join(modules, '@deepseek-ai', 'dsh')) !== fs.realpathSync(kernel.root)) return true
       for (const name of bundles) {
         if (!fs.existsSync(path.join(modules, name, 'package.json'))) return true
+      }
+      const exemptions = pluginVersionExemptions({ kernel })
+      if (Object.keys(exemptions).length) {
+        const saved = JSON.parse(fs.readFileSync(path.join(profileDir, 'compatibility.json'), 'utf8'))
+        for (const [name, versions] of Object.entries(exemptions)) {
+          if (!Array.isArray(saved?.[name]) || versions.some((version) => !saved[name].includes(version))) return true
+        }
       }
     } catch { return true }
   }
@@ -169,7 +178,7 @@ export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
 /**
  * 安装 / 刷新一个 dsh profile：
  *   <dshHome>/profiles/<profileName>/{package.json, pnpm-workspace.yaml, cordis.patch.yml, node_modules/@company-desk/*}
- * 并让 <root>/node_modules/@deepseek-ai 指向 dsh 的扁平回退目录（插件靠它解析 dsh 内置包）。
+ * profile 与 <root>/node_modules/@deepseek-ai 绑定各自内核的 scope（插件靠它解析 dsh 内置包）。
  * 扁平回退目录优先从内核物化；selfHeal=true 时再跑一次 `dsh --dump-default-config`（0.1.2 起不会创建该目录）。
  */
 /**
@@ -224,7 +233,10 @@ export function writePluginVersionExemptions({ profileDir, kernel, log = noop })
   } catch {
     current = {}
   }
-  const next = { ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}), ...exemptions }
+  const next = { ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}) }
+  for (const [name, versions] of Object.entries(exemptions)) {
+    next[name] = [...new Set([...(Array.isArray(next[name]) ? next[name] : []), ...versions])]
+  }
   const serialized = JSON.stringify(next, null, 2) + '\n'
   let existing = null
   try {
@@ -249,7 +261,7 @@ export function profilePluginBundles(kernel, plugins = PIN.profilePlugins ?? [])
 /**
  * 把内核前缀里的第三方插件链接到 <dshHome>/profiles/node_modules（与 @deepseek-ai 同一层）。
  * DSH 的 bundle patch 能从安装锚点解析，但运行时 import() 只沿 profile 目录向上找，
- * 插件必须出现在这个共享闭包目录里才能在员工机器上加载。
+ * 保留共享回退，同时写 profile 本地链接，保证不同版本的 profile 可以并存。
  */
 function unlinkUnpinnedProfilePlugins({ dshHome, plugins = PIN.profilePlugins ?? [], log = noop }) {
   const targetModules = path.join(dshHome, 'profiles', 'node_modules')
@@ -267,7 +279,7 @@ function unlinkUnpinnedProfilePlugins({ dshHome, plugins = PIN.profilePlugins ??
   return removed
 }
 
-export function linkProfilePlugins({ kernel, dshHome, plugins = PIN.profilePlugins ?? [], log = noop }) {
+export function linkProfilePlugins({ kernel, dshHome, profileDir, plugins = PIN.profilePlugins ?? [], log = noop }) {
   unlinkUnpinnedProfilePlugins({ dshHome, plugins, log })
   if (!kernel?.root || !plugins.length) return []
   const sourceModules = path.resolve(kernel.root, '..', '..')
@@ -278,6 +290,7 @@ export function linkProfilePlugins({ kernel, dshHome, plugins = PIN.profilePlugi
     if (!fs.existsSync(path.join(source, 'package.json'))) continue
     const target = path.join(targetModules, plugin.name)
     const r = linkJunction(target, source)
+    if (profileDir) linkJunction(path.join(profileDir, 'node_modules', plugin.name), source)
     log(`profile 插件 ${plugin.name} ${r}`)
     linked.push(plugin.name)
   }
@@ -339,7 +352,12 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
 
   const flatDir = ensureFlatFallback({ kernel, dshHome, log })
   linkKernelPeers({ kernel, log })
-  linkProfilePlugins({ kernel, dshHome, log })
+  // profiles/node_modules 是旧版的共享回退。每个 profile 与公司插件直接绑定自己的
+  // 内核 scope，避免另一个 profile 启动时重写共享 junction 导致跨版本加载。
+  const kernelScope = kernel?.root && fs.existsSync(path.join(kernel.root, 'node_modules', '@deepseek-ai'))
+    ? path.dirname(kernel.root) : flatDir
+  linkJunction(path.join(profileDir, 'node_modules', '@deepseek-ai'), kernelScope)
+  linkProfilePlugins({ kernel, dshHome, profileDir, log })
   if (selfHeal && kernel?.bin && fs.existsSync(kernel.bin)) {
     try {
       execFileSync(nodeExe, [kernel.bin, '--profile', profileName, '--dump-default-config'], { stdio: 'ignore', env: { ...process.env, DSH_HOME: dshHome } })
@@ -347,9 +365,9 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
       log(`dsh 自检未通过（继续）：${err.message}`)
     }
   }
-  const r = linkJunction(path.join(root, 'node_modules', '@deepseek-ai'), flatDir)
-  log(`node_modules/@deepseek-ai → ${flatDir} (${r})`)
-  linkZodForPlugins({ kernel, dshHome, root, log })
+  const r = linkJunction(path.join(root, 'node_modules', '@deepseek-ai'), kernelScope)
+  log(`node_modules/@deepseek-ai → ${kernelScope} (${r})`)
+  linkZodForPlugins({ kernel, dshHome, root, profileDir, log })
   fs.mkdirSync(path.join(dshHome, 'desk'), { recursive: true })
   return { profileDir, flatDir }
 }
@@ -363,15 +381,15 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
  */
 export function locateZod({ kernel, dshHome, root } = {}) {
   const candidates = [
-    dshHome && path.join(dshHome, 'profiles', 'node_modules', 'zod'),
     kernel?.root && path.join(kernel.root, 'node_modules', 'zod'),
     kernel?.root && path.join(path.dirname(kernel.root), 'zod'),
+    dshHome && path.join(dshHome, 'profiles', 'node_modules', 'zod'),
     root && path.join(root, 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', 'zod'),
   ].filter(Boolean)
   return candidates.find((p) => fs.existsSync(path.join(p, 'package.json'))) || null
 }
 
-export function linkZodForPlugins({ kernel, dshHome, root, log = noop }) {
+export function linkZodForPlugins({ kernel, dshHome, root, profileDir, log = noop }) {
   const src = locateZod({ kernel, dshHome, root })
   const mixedPresent = Boolean(root && fs.existsSync(path.join(root, 'plugins', 'desk-host', 'lib', 'mixed', 'contracts.js')))
   if (!src) {
@@ -381,6 +399,7 @@ export function linkZodForPlugins({ kernel, dshHome, root, log = noop }) {
     return 'skipped'
   }
   const rz = linkJunction(path.join(root, 'node_modules', 'zod'), src)
+  if (profileDir) linkJunction(path.join(profileDir, 'node_modules', 'zod'), src)
   log(`node_modules/zod → ${src} (${rz})`)
   if (dshHome) {
     const profileZod = path.join(dshHome, 'profiles', 'node_modules', 'zod')

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { makeBuildId, makeInstallerVersion } from '../lib/payload.mjs'
 import { clientPublicInfo, readLocalBuildId, readLocalPayload } from '../lib/client-update.mjs'
 import { clientVersionDetail, clientVersionLabel, kernelVersionLabel, searchKeyLabel } from '../../plugins/desk-ui/src/client/version.js'
+import { readLocalKernelVersion } from '../../plugins/desk-host/lib/kernel-update.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -89,6 +90,19 @@ test('kernelVersionLabel：/state 的运行内核优先，退回 payload 构建�
   assert.equal(kernelVersionLabel(null), 'dev')
   assert.equal(kernelVersionLabel({ client: { kernelVersion: '0.1.2-rc.1' } }), '0.1.2-rc.1')
   assert.equal(kernelVersionLabel({ kernel: { version: '0.1.3-alpha.2' }, client: { kernelVersion: '0.1.2-rc.1' } }), '0.1.3-alpha.2')
+})
+
+test('readLocalKernelVersion：开发内核与安装版并存时以实际启动的内核为准', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-runtime-version-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const packaged = path.join(dir, 'app', 'kernel', 'node_modules', '@deepseek-ai', 'dsh')
+  const active = path.join(dir, 'dev', 'dsh')
+  for (const [root, version] of [[packaged, '0.1.7-rc.1'], [active, '0.2.0-rc.1']]) {
+    fs.mkdirSync(path.join(root, 'lib'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version }))
+  }
+  assert.equal(readLocalKernelVersion(path.join(dir, 'app'), { entryFile: path.join(active, 'lib/bin.js') }), '0.2.0-rc.1')
+  assert.equal(readLocalKernelVersion(path.join(dir, 'app'), { entryFile: path.join(dir, 'missing.js') }), '0.1.7-rc.1')
 })
 
 test('searchKeyLabel：已由公司配置 / 匿名额度 / 未同步', () => {
