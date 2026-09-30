@@ -54,5 +54,11 @@
 ## 未做 / 风险
 
 - 没走 `titleBarOverlay` 原生窗控：仍是 frameless + 自绘（避免原生色带 + 主题同步 IPC），外观与截图里 Windows 11 窗控一致但不完全等同原生。
-- 未重新打 `dist:client` 安装包（本轮只改源码 + 内核 pin）；安装版要生效需 `npm run dist:client` 并发布。
-- 本机安装版前缀 `~/.company-desk/app/kernel` 仍是 0.1.7-rc.1；开发前缀已是 0.2.0-rc.2。
+- 本机安装版前缀 `~/.company-desk/app/kernel` 仍是 0.1.7-rc.1；装上新客户端包后才变。
+
+## 打包与发布（用户拍板“打包 + 发布到网关”）
+
+- `node scripts/build-payload.mjs`：内核 0.2.0-rc.2（20 处补丁）、`kernel.tar` 393.6 MB、buildId `0.1.0+0.2.0-rc.2.20260930-0643.5e6f0872`（内核源＝默认前缀 `~/.company-desk/kernel`）。
+- `node scripts/build-client-installer.mjs` → `dist/valimart-harness-Setup-0.1.0-20260930.0643.exe`（221.8 MiB）；SHA-256 `8bc81de39f6a16a470f59e9d115e6e7debdf4c016aebfe35d75532855052cfa5`（写了 `.sha256` 旁文件）。
+- `build/verify-client-artifact.mjs`（上轮留下的一次性脚本，本轮把已删除的 `kernel-update.js` 哈希检查换成 `desk-host/lib/index.js` + `desk-ui/lib/client.js` + `profile/cordis.patch.yml`）：隔离 appDir/dshHome + 随包 node + payload 真启动 → `{"httpStatus":200,"versionVisible":true,"loginVisible":true,"pageErrors":[],"stderr":""}`。
+- `build/publish-client-once.mjs`（改成接收 exe 参数 + 发布前后各读一次 `/api/admin/client`）：网关从 `0.1.0+0.2.0-rc.1.20260929-0631.6494c95d` 切到新 buildId，旧版留 `previous` 可回滚。
