@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, it } from 'node:test'
 import { gatewayOptions, gatewayUrlFromChoice, MANUAL_GATEWAY_LABEL, suggestedGatewayUrl } from '../lib/gateway-choice.mjs'
 import { parseDeskLoginArgs } from '../lib/login-args.mjs'
-import { GATEWAY_COMPAT, inferModelInput, isChatModel, normalizeReasoningEfforts, thinkingLevelMap, toPiModels, v1BaseUrl } from '../lib/models.mjs'
+import { GATEWAY_COMPAT, gatewayDefaultModelId, inferModelInput, isChatModel, normalizeReasoningEfforts, orderByDefault, preferredModel, thinkingLevelMap, toPiModels, v1BaseUrl } from '../lib/models.mjs'
 import { normalizeGatewayUrl } from '../lib/gateway.mjs'
 import { assertInside, zoneRoot } from '../lib/drive-paths.mjs'
 import { peopleOptions, personIdFromChoice } from '../lib/people-options.mjs'
@@ -104,6 +104,33 @@ describe('models', () => {
   it('mock and gen-only models are text-only', () => {
     assert.deepEqual(inferModelInput('mock-echo'), ['text'])
     assert.deepEqual(inferModelInput('qwen-image'), ['text'])
+  })
+
+  it('公司默认模型排第一：pi 没设 defaultModel 时启动模型就是第一可用模型', () => {
+    const models = toPiModels([
+      { id: 'deepseek-flash' },
+      { id: 'grok-4.7-build-fast' },
+      { id: 'glm-5.3' },
+    ])
+    assert.deepEqual(
+      orderByDefault(models, 'grok-4.7-build-fast').map((m) => m.id),
+      ['grok-4.7-build-fast', 'deepseek-flash', 'glm-5.3'],
+    )
+    // 已经是第一个 / 目录里没有 / 没配默认 → 原样返回
+    assert.equal(orderByDefault(models, 'deepseek-flash')[0].id, 'deepseek-flash')
+    assert.deepEqual(orderByDefault(models, 'gpt-image-2.5').map((m) => m.id), models.map((m) => m.id))
+    assert.deepEqual(orderByDefault(models, undefined).map((m) => m.id), models.map((m) => m.id))
+  })
+
+  it('gatewayDefaultModelId / preferredModel 取公司设置里的默认模型', () => {
+    assert.equal(gatewayDefaultModelId({ company: { defaultModel: 'grok-4.7-build-fast' }, defaultModel: 'x' }), 'grok-4.7-build-fast')
+    assert.equal(gatewayDefaultModelId({ defaultModel: 'x' }), 'x')
+    assert.equal(gatewayDefaultModelId({}), '')
+    const models = toPiModels([{ id: 'deepseek-flash' }, { id: 'grok-4.7-build-fast' }])
+    assert.equal(preferredModel(models, { company: { defaultModel: 'grok-4.7-build-fast' } }).id, 'grok-4.7-build-fast')
+    // 默认只配了生图模型（已被目录过滤掉）时退回第一个
+    assert.equal(preferredModel(models, { company: { defaultModel: 'grok-imagine-image-2.0' } }).id, 'deepseek-flash')
+    assert.equal(preferredModel([], { company: { defaultModel: 'grok-4.7-build-fast' } }), undefined)
   })
 
   it('builds /v1 base url', () => {

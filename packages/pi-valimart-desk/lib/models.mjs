@@ -100,3 +100,29 @@ export function toPiModels(catalog = [], { baseUrl } = {}) {
 export function v1BaseUrl(gatewayUrl) {
   return `${String(gatewayUrl ?? '').replace(/\/+$/, '')}/v1`
 }
+
+/** 公司网关里的默认模型 id（公司设置优先，兼容旧的顶层字段）。 */
+export function gatewayDefaultModelId(state = {}) {
+  return String(state?.company?.defaultModel ?? state?.defaultModel ?? '').trim()
+}
+
+/**
+ * 把公司默认模型提到目录第一位。
+ * pi 在没设 settings.defaultModel（也没 --model / enabledModels）时，启动模型就是
+ * 可用模型里的第一个（core/model-resolver.js: availableModels[0]）。网关目录是按通道
+ * 顺序给的（DeepSeek 通道在最前），所以不排序的话 pi 打开就是 deepseek-flash，
+ * 而不是公司在管理页设的默认模型。
+ */
+export function orderByDefault(models, defaultId) {
+  const id = String(defaultId ?? '').trim()
+  if (!id) return models
+  const at = models.findIndex((m) => m?.id === id)
+  if (at <= 0) return models
+  return [models[at], ...models.slice(0, at), ...models.slice(at + 1)]
+}
+
+/** 登录后 / 开局要用的模型：默认模型不在目录里（或只配了生图）就退回目录第一个。 */
+export function preferredModel(models, state = {}) {
+  const id = gatewayDefaultModelId(state)
+  return models.find((m) => m?.id === id) ?? models[0]
+}

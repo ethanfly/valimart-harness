@@ -2,6 +2,14 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-09-30：pi CLI 默认模型改成跟公司设置一致
+
+- 现象：网关默认模型是 `grok-4.7-build-fast`（桌面端也显示 Grok），但 pi 打开用的是 `valimart/deepseek-flash`。
+- 根因：pi 没设 `settings.defaultModel`（也没 `--model` / `enabledModels`）时，启动模型＝**可用模型里的第一个**（`pi-coding-agent/dist/core/model-resolver.js` 的 `availableModels[0]`；scoped 路径同义），而 pi 包把网关目录按通道顺序注册 → DeepSeek 通道在最前。`company.defaultModel` 从来没被 pi 侧使用（只被 `/desk-status` 打印），`/desk-login` 还会主动切到 `catalogModels()[0]`。VS Code 插件没这个问题（一直读 `company.defaultModel`）。
+- 修法：`packages/pi-valimart-desk` 新增 `gatewayDefaultModelId` / `orderByDefault` / `preferredModel`（`lib/models.mjs`）；注册目录时把公司默认模型**提到第一位**，`/desk-login` 结束后切到它（默认不在目录里就退回第一个）。不写用户的 `settings.json`——pi 扩展 API 只有 `getSettings()` 读、没写，靠目录顺序这条 pi 自己的语义就够。
+- 验证：单测 24 pass（+2）；`pi --print "ok" --mode json` 的会话里起始模型 `deepseek-flash` → `grok-4.7-build-fast`（先用 `-e <仓库扩展>` 验，发布后再用真实安装验）。
+- 已发布 npm **0.1.11**（`pi-valimart-desk`），本机 `pi install npm:pi-valimart-desk` 已升级；同事机器同样跑一次即可。细节 `docs/sessions/2026-09-30-pi-default-model.md`。
+
 ## 2026-09-30：标题栏改参考上游桌面端（caption 40px）+ 内核升 0.2.0-rc.2
 
 - 参考源：`deepseek-ai/deepseek-harness` GitHub `master`（`git clone --depth 1 --filter=blob:none --sparse` 到本机 `E:\orcaWorkspace\dsh-ref`，只取 `apps/desktop` + 相关 `packages/client/*`）。桌面壳契约：`WINDOWS_TITLEBAR_HEIGHT = 40`、`html[data-windows-titlebar]`、`preload-menu.ts`（shadow DOM 菜单条，左 48px，28px 高按钮，点击 → 主进程 `Menu.popup`）、`AppFrame.module.css`（frame 下移 40px + 底色＝侧栏色、`::before` 整条拖区、主列 `border-radius: 16px 0 0 0`、侧栏无边框）。

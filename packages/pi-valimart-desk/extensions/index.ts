@@ -24,7 +24,7 @@ import {
 } from "../lib/gateway.mjs";
 import { setDriveLogSink } from "../lib/drive-runtime.mjs";
 import { DEFAULT_GATEWAY_URL, parseDeskLoginArgs } from "../lib/login-args.mjs";
-import { toPiModels, v1BaseUrl } from "../lib/models.mjs";
+import { gatewayDefaultModelId, orderByDefault, preferredModel, toPiModels, v1BaseUrl } from "../lib/models.mjs";
 import { publicView, saveState } from "../lib/state.mjs";
 import { createValimartHeader, PRODUCT_NAME } from "./header.ts";
 import { companyDrivePrompt, registerDrive, syncDriveQuiet } from "./drive-tools.ts";
@@ -88,7 +88,8 @@ async function promptGatewayUrl(ctx: { ui: { notify: Function; select: Function;
 
 function catalogModels(state = loadState()) {
   const baseUrl = v1BaseUrl(state.gatewayUrl || DEFAULT_GATEWAY_URL);
-  return toPiModels(state.models ?? [], { baseUrl });
+  // 公司默认模型排第一：pi 没设 defaultModel 时启动模型就是第一个可用模型。
+  return orderByDefault(toPiModels(state.models ?? [], { baseUrl }), gatewayDefaultModelId(state));
 }
 
 function registerGatewayProvider(pi: ExtensionAPI) {
@@ -294,7 +295,7 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
         const next = await login({ gatewayUrl: url, username, password, device: `pi-agent (${os.hostname()})` });
         registerGatewayProvider(pi);
         ctx.ui.setStatus("valimart", formatStatus(next));
-        const first = catalogModels(next)[0];
+        const first = preferredModel(catalogModels(next), next);
         if (first) {
           const model = ctx.modelRegistry.find(PROVIDER_ID, first.id);
           if (model) await pi.setModel(model);
