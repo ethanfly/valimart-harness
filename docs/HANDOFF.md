@@ -11,8 +11,13 @@
 - `desktop/preload.js`：兜底条 36 → 40px，图标改 `textContent`（消 innerHTML 告警），新增 `openMenu`。
 - **其他坑**：`.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset) }` 是短写，会把 `padding-top` 清零——已改成只重写 `padding-top`。
 - 顺带：`e2e/session-images.spec.js` 的 web boot 锚点随内核升级换掉（0.2.0-rc.2 是 `globalThis.__ModuleLoader__.create(...)` + `n.run(handler)`，静态模块表 `staticModules: <fn>()`；用正则取函数名再替换 run 调用）；`e2e/admin.{setup,smoke}.spec.js` 还在断言上一轮已从管理页删掉的 `#kernel h2`，改断言 `#client h2`。
+- **第二轮（同日，按用户圈注补齐）**：
+  - 主列左上圆角被会议根节点盖成直角（`.wSkVaW_root` 自带不透明白底，范围 0 圆角）——学上游 `.centerCol` 给 `.dk-col-main` 加 `overflow: hidden`，像素采样确认圆角处透出 band 色 `#f7f7f8`；同时确认输入行下拉（完全权限菜单）没被裁。
+  - 会话顶栏 `conversation.session.header.utilities` 槽不再隐藏（上一轮为了把基础文件夹挪到侧栏菜单而藏掉）——恢复后右上角就是上游同款的「文件夹 + ⌄」胶囊 + ⋯ + 右侧栏开关（实测可点击）。
+  - 「应用」菜单照截图改成 **关于 valimart harness / 检查更新… / ─ / 退出**（不再放重新加载 / 开发者工具，F5 / F12 键盘快捷键仍在）。`desktop/main.js` 把启动前的更新检查抽成 `checkClientUpdate({apply})`，菜单项复用并向 `dialog` 报结果（已是最新 / 已下载下次启动装 / 已下载并立即重启安装 / 未登录 / 失败原因）；随包删除已失效的“跳过打开前更新检查”分支。
+- 验证（第二轮）：`npm test` **558 pass / 0 fail / 1 skip**；全量 e2e **17 passed / 7 skipped / 0 failed**（新增主列 `overflow: hidden` 与 utilities 不隐藏的回归断言）；真机探针：`build/round2-session.png`（圆角 + 文件夹胶囊）、`build/round2-dropdown.png`（下拉未被裁）、`build/menu-real-shell.png`（真实 `desktop/main.js` attach 模式下点「应用」原生菜单弹出、aria-expanded=true）。
 - 验证：`npm test` **557 pass / 0 fail / 1 skip**；全量 `npx playwright test` **17 passed / 7 skipped / 0 failed**；真机（仓库自带 Electron 载入 dev 客户端页，1280×820）截图 `build/caption-new.png` / `build/caption-session.png` / `build/caption-rail.png`：caption 40px、菜单 x=48 起、窗控 138px（3×46）在 x=1142、侧栏 280 与 band 同色 `rgb(247,247,248)`、主列 `left 280 / radius 16px`、品牌行 46..86、caption 折叠钮切 280↔56（rail 内不再重复折叠钮）、会话顶栏右侧按钮 y=51 可点。
-- **已打客户端包并发布到网关**：`dist/valimart-harness-Setup-0.1.0-20260930.0643.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20260930-0643.5e6f0872`，SHA-256 `8bc81de39f6a16a470f59e9d115e6e7debdf4c016aebfe35d75532855052cfa5`，旁有 `.sha256`）。payload 内核 0.2.0-rc.2 / 20 处补丁齐全；网关从 `0.1.0+0.2.0-rc.1.20260929-0631.6494c95d` 切到新版，旧版留 previous 可回滚。隔离目录用随包 node + payload 真实启动：HTTP 200、版本可见、登录页可见、pageerror 与 stderr 均空（`build/client-artifact-check-n37yI1/verification.json`）。**员工机器下次启动静默覆盖安装**。
+- **已打客户端包并发布到网关（两轮）**：第一轮 `dist/valimart-harness-Setup-0.1.0-20260930.0643.exe`（buildId `...-0643.5e6f0872`，sha256 `8bc81de3…`）；**当前发布的是第二轮** `dist/valimart-harness-Setup-0.1.0-20260930.0700.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20260930-0700.4ad363e9`，SHA-256 `a351756e71b6e2e398d2d5f46c29e34d25e67ed4a66964def6ea2dc13e1beb26`，旁有 `.sha256`）。payload 内核 0.2.0-rc.2 / 20 处补丁齐全；旧包留 previous 可回滚。隔离目录用随包 node + payload 真实启动：HTTP 200、版本可见、登录页可见、pageerror 与 stderr 均空（`build/client-artifact-check-A0KK26/verification.json`）。**员工机器下次启动静默覆盖安装**。
 - 未做：未重发网关安装包（本轮未改 `server/**`）；本机安装版前缀 `~/.company-desk/app/kernel` 仍是 0.1.7-rc.1，装上新客户端包后才变。过程记录 `docs/sessions/2026-09-30-titlebar-caption.md`。
 
 ## 2026-09-29：移除内核自动更新，内核随客户端整包分发

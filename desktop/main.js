@@ -145,6 +145,19 @@ ipcMain.on('desk:open-external', (_event, u) => {
   if (typeof u === 'string') openExternal(u)
 })
 // caption 上的「应用 / 编辑」：菜单在页面里画，弹层用主进程原生菜单（与上游桌面端同一做法）。
+/** 「应用 → 检查更新…」：跑一遍检查（有新版直接下载并套用），把结果说清楚。 */
+async function checkUpdateFromCaption(window) {
+  const r = await checkClientUpdate({ apply: true })
+  const box = {
+    applied: { type: 'info', message: '已下载新版本，正在重启安装…', detail: `版本 ${r.buildId}。客户端会退出，装好后自动重开。` },
+    downloaded: { type: 'info', message: '新版本已下载', detail: `版本 ${r.buildId}，下次启动客户端时自动安装。` },
+    current: { type: 'info', message: '已是最新版本', detail: r.detail ?? '' },
+    skip: { type: 'info', message: '这次没有检查更新', detail: r.detail },
+    error: { type: 'error', message: '检查更新失败', detail: r.detail },
+  }[r.action] ?? { type: 'info', message: '检查更新', detail: JSON.stringify(r) }
+  await dialog.showMessageBox(window, { type: box.type, title: '检查更新', message: box.message, detail: box.detail, buttons: ['确定'] })
+}
+
 function captionMenu(window, name) {
   if (name === 'application') {
     return [
@@ -160,9 +173,7 @@ function captionMenu(window, name) {
           })
         },
       },
-      { type: 'separator' },
-      { label: '重新加载页面', accelerator: 'F5', click: () => window.webContents.reload() },
-      { label: '开发者工具', accelerator: 'F12', click: () => window.webContents.toggleDevTools() },
+      { label: '检查更新…', click: () => { void checkUpdateFromCaption(window) } },
       { type: 'separator' },
       { label: '退出', click: () => quitApp() },
     ]
@@ -664,43 +675,60 @@ async function loadDeskHostUpdateMod(rel) {
 }
 
 /**
- * 打开前自动检查并下载客户端整包更新：有新版就下载并立刻静默安装，安装器收尾后拉起新版
- * （本次不再起内核）。内核随客户端整包分发，不单独更新。
- * 任何失败都只记日志、不挡启动；未登录（无会话令牌）跳过，登录后 desk-host 的 scheduleClientUpdate 兜底。
- * @returns {Promise<boolean>} true = 客户端更新已应用、进程即将退出，不要再起内核。
+ * 检查并（可选）套用客户端整包更新。内核随客户端整包分发，不单独更新。
+ * 两处调用者：启动前的自动检查（apply=true）与 caption「应用 → 检查更新…」（apply=true，带结果弹窗）。
+ * @returns {Promise<{action: 'applied'|'downloaded'|'current'|'skip'|'error', detail?: string, buildId?: string}>}
  */
-async function preOpenUpdateCheck() {
-  // 客户端整包更新只对 Windows 客户端有意义。
+async function checkClientUpdate({ apply = false } = {}) {
+  // 客户端整包更新只对 Windows 安装版有意义。
   if (!app.isPackaged || process.platform !== 'win32') {
-    if (app.isPackaged) log.write('update', `跳过打开前更新检查（${process.platform} 客户端随整包更新）`)
-    return false
+    return { action: 'skip', detail: app.isPackaged ? `这台系统（${process.platform}）上客户端随整包更新` : '开发模式（非安装版）不做整包更新' }
   }
   const desk = readDeskState()
-  if (!desk) {
-    log.write('update', '没有已登录会话，跳过打开前更新检查')
-    return false
-  }
-  const gateway = makeGateway(desk)
+  if (!desk) return { action: 'skip', detail: '尚未登录公司网关，登录后会自动检查' }
   try {
-    setStatus('正在检查客户端更新…')
     const clientMod = await loadDeskHostUpdateMod('client-update.js')
     const helpers = await loadClientUpdateMod()
     const local = helpers.readLocalPayload(payloadDir)
     const r = await clientMod.fetchClientUpdate({
-      gateway,
+      gateway: makeGateway(desk),
       pendingDir: path.join(appDir, 'client-next'),
       localBuildId: local?.buildId,
       localInstallerVersion: local?.installerVersion,
       payloadDir,
       log: (m) => log.write('update', `客户端 ${m}`),
     })
-    if (r.action === 'downloaded') {
-      log.write('update', `客户端已下载 ${r.detail}，立即套用`)
-      if (await maybeApplyPendingClient()) return true
-    }
+    if (r.action === 'error') return { action: 'error', detail: r.detail }
+    if (r.action !== 'downloaded') return { action: 'current', detail: UPDATE_REASON[r.detail] ?? r.detail }
+    log.write('update', `客户端已下载 ${r.detail}`)
+    if (apply && (await maybeApplyPendingClient())) return { action: 'applied', buildId: r.detail }
+    return { action: 'downloaded', buildId: r.detail }
   } catch (err) {
-    log.write('update', `客户端更新检查失败（不影响启动）：${err && err.message ? err.message : err}`)
+    return { action: 'error', detail: err && err.message ? err.message : String(err) }
   }
+}
+
+/** 网关侧状态 → 能直接给人看的一句话。 */
+const UPDATE_REASON = {
+  unavailable: '公司网关还没有发布客户端安装包',
+  'same-build': '当前已是最新版本',
+  'older-build': '本机版本比网关上的还新，未回退',
+  'already-pending': '新版本已下载，下次启动客户端时自动安装',
+  newer: '发现新版本',
+}
+
+/**
+ * 启动前的自动检查：有新版就下载并立刻静默安装，安装器收尾后拉起新版（本次不再起内核）。
+ * 任何失败都只记日志、不挡启动。
+ * @returns {Promise<boolean>} true = 客户端更新已应用、进程即将退出，不要再起内核。
+ */
+async function preOpenUpdateCheck() {
+  setStatus('正在检查客户端更新…')
+  const r = await checkClientUpdate({ apply: true })
+  if (r.action === 'applied') return true
+  if (r.action === 'downloaded') log.write('update', `客户端已下载 ${r.buildId}，下次启动套用`)
+  else if (r.action === 'error') log.write('update', `客户端更新检查失败（不影响启动）：${r.detail}`)
+  else log.write('update', `客户端更新检查：${r.detail}`)
   return false
 }
 

@@ -158,10 +158,11 @@ test('applyGitBranchBadges：把工作区路径打到 treeitem 上', () => {
   assert.equal(row.dataset.dkWorkspacePath, 'E:/orca/company-harness')
 })
 
-test('顶栏 utilities 隐藏，侧栏绑定打开文件夹菜单', () => {
+test('会话顶栏 utilities 恢复官方布局，侧栏绑定打开文件夹菜单', () => {
   const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8')
+  // 2026-09-30：按 DSH 桌面端把 utilities 槽（打开位置 / 打开方式）放回会话顶栏，不再隐藏。
   assert.match(css, /\[data-slot='conversation\.session\.header\.utilities'\]/)
-  assert.match(css, /display:\s*none\s*!important/)
+  assert.doesNotMatch(css, /\[data-slot='conversation\.session\.header\.utilities'\]\s*\{[^}]*display:\s*none/)
   const sidebar = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/sidebar.jsx'), 'utf8')
   assert.match(sidebar, /bindWorkspaceFolderMenu/)
   assert.match(sidebar, /打开工作区文件夹|openPath/)

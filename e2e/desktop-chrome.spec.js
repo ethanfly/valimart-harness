@@ -63,6 +63,7 @@ test('Electron：caption 40px 独占一行，菜单/折叠/窗控可点，内容
         frameBg: getComputedStyle(document.querySelector('.dk-frame')).backgroundColor,
         sidebarBg: getComputedStyle(document.querySelector('.dk-col-sidebar')).backgroundColor,
         mainRadius: getComputedStyle(document.querySelector('.dk-col-main')).borderTopLeftRadius,
+        mainOverflow: getComputedStyle(document.querySelector('.dk-col-main')).overflow,
         header: box('.session-header'),
         row: box('.session-header > div'),
         sidebar: box('.dk-col-sidebar'),
@@ -86,6 +87,8 @@ test('Electron：caption 40px 独占一行，菜单/折叠/窗控可点，内容
       // 圆角里要透出 caption 的底色，两者必须同色。
       expect(g.frameBg).toBe(g.sidebarBg)
       expect(g.mainRadius).toBe('16px')
+      // 主列里的会话根节点自带不透明底色，不裁剪就会把圆角盖成直角。
+      expect(g.mainOverflow).toBe('hidden')
     }
     await verify()
     const title = await page.locator('.test_titleCluster nav').boundingBox()

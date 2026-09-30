@@ -90,3 +90,9 @@ test('表单控件默认高度与按钮对齐', () => {
   assert.match(css, /\.dk-btn \{[^}]*height: 30px/)
   assert.match(css, /\.dk-input\.sm, \.dk-select\.sm \{[^}]*height: 26px/)
 })
+
+test('会话顶栏 utilities 槽不被藏起来（与 DSH 桌面端一致：打开位置 / 打开方式）', () => {
+  const css = fs.readFileSync(path.join(repo, 'plugins/desk-ui/src/client/styles.css'), 'utf8').replace(/\s+/g, ' ')
+  assert.doesNotMatch(css, /conversation\.session\.header\.utilities[^}]*display: none/)
+  assert.match(css, /conversation\.session\.header\.utilities'\] \{[^}]*display: flex/)
+})

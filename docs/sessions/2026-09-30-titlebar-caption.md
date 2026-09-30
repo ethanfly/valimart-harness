@@ -51,6 +51,35 @@
   - 会话页实测 `[data-conversation-header-corner]`（打开右侧边栏）在 y=51 且可点（`elementFromPoint` 命中「打开右侧边栏」），窗控命中「关闭」未受影响。
 - 探针脚本（`build/desk-*-probe.cjs`、`e2e/zz-*-probe.spec.js`）验证完已删。
 
+## 第二轮：按用户圈注补齐（同日）
+
+用户又发两张带红框的截图，圈的是：① 主列左上角（圆角效果）② 「应用」菜单内容 ③ 会话顶栏右上角的文件夹胶囊。
+
+### ① 主列左上角圆角
+
+- 现象：CSS 里 `.dk-col-main` 已经是 `border-radius: 16px 0 0 0`（e2e / 探针都能量到 16px），但渲染出来是直角。
+- 根因（用 `document.elementsFromPoint(281,41)` 逐层看）：会议根节点 `div.wSkVaW_root` 自己画了不透明 `rgb(255,255,255)` 背景且 `border-radius: 0`，把父层的圆角盖成直角。上游 `.centerCol` 除了半径还带 `overflow: hidden`，内层白底被裁到圆角里，所以它看起来是圆的。
+- 修：`html.dk-desk-electron .dk-col-main { overflow: hidden }`。截图像素采样验证：`(281,41) → #f7f7f8`（band 色）、`(295,41) → #ffffff`（圆内），完全符合 16px 半径的几何；同时实测输入行「完全权限」下拉仍在主列内、未被裁剪（`insideMain: true`）。
+- 回归：`e2e/desktop-chrome.spec.js` 新增 `mainOverflow === 'hidden'` 断言。
+
+### ② 会话顶栏右上角：文件夹胶囊
+
+- 上游那一栏是 `conversation.session.header.utilities`（list 槽）：`dsh-client-ui-open-in-app` 往里面注入「打开位置 / 更多打开方式」（文件夹 + ⌄ 的胶囊），`dsh-session-log-export`、`dsh-client-ui-schedule` 也往同一槽注册（有任务/反馈时才出）。
+- 我们上一轮为了把“打开工作区文件夹”挪到侧栏菜单，直接把这个槽 `display: none !important` 藏了（当时会话顶栏还挤在 caption 里，怕和窗控撞）。现在 caption 是独立一行，已经没有冲突。
+- 修：改成 `display: flex`（不再隐藏）。真机探针：槽内就是「用 文件资源管理器 打开 / 更多打开方式 / 更多操作」，位置 1138/1161/1188、高 28，`elementFromPoint` 命中胶囊；截图 `build/round2-session.png` 与参考图右上角一致（胶囊 + ⋯ + 右栏开关）。
+- 回归：`scripts/test/workspace-folder-menu.test.mjs` 原来断言“utilities 隐藏”，改成断言“不再隐藏”；`scripts/test/desk-empty-state.test.mjs` 新增一条同义断言。
+
+### ③ 「应用」菜单内容
+
+- 参考截图：关于 DeepSeek Harness / 检查更新… / 管理 dsh 命令… / ─ / 退出。用户拍板：不做命令管理器，菜单也不放重载/开发者工具（F5 / F12 键盘快捷键保留）。
+- `desktop/main.js`：把启动前的更新检查抽成 `checkClientUpdate({ apply })`（返回 `applied/downloaded/current/skip/error` + 人话 detail，`UPDATE_REASON` 把网关侧 reason 翻成中文）；`preOpenUpdateCheck()` 变成它的薄封装；新增 `checkUpdateFromCaption(window)` 跑检查并 `dialog.showMessageBox` 报结果。`captionMenu('application')` → **关于 valimart harness / 检查更新… / ─ / 退出**。
+- 验证：真实 `desktop/main.js` 以 attach 模式（`--url <dev 客户端页>`）跑起来，点「应用」→ `aria-expanded=true`（原生菜单弹出）、无报错（`build/menu-real-shell.png`）。Playwright 关不掉原生弹出菜单，所以“菜单关闭后按钮复位”由 `e2e/desktop-chrome.spec.js` 的固定装置覆盖。
+
+### 第二轮验证与发布
+
+- `npm test` **558 pass / 0 fail / 1 skip**；全量 e2e **17 passed / 7 skipped / 0 failed**。
+- 重新打包并发布：payload buildId `0.1.0+0.2.0-rc.2.20260930-0700.4ad363e9` → `dist/valimart-harness-Setup-0.1.0-20260930.0700.exe`（221.8 MiB，SHA-256 `a351756e71b6e2e398d2d5f46c29e34d25e67ed4a66964def6ea2dc13e1beb26`）；隔离验证 `build/client-artifact-check-A0KK26/verification.json`；网关从 `...-0643.5e6f0872` 切到新版（0643 包留 previous 可回滚）。
+
 ## 未做 / 风险
 
 - 没走 `titleBarOverlay` 原生窗控：仍是 frameless + 自绘（避免原生色带 + 主题同步 IPC），外观与截图里 Windows 11 窗控一致但不完全等同原生。

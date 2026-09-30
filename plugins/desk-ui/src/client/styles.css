@@ -51,14 +51,16 @@ html.dk-desk-electron .dk-frame {
 html.dk-desk-electron .dk-col-main {
   background: var(--dk-bg);
   border-radius: var(--dk-content-radius) 0 0 0;
+  /* 会话根节点自己画不透明底色（.wSkVaW_root），不裁剪圆角会被它盖成直角；
+     上游 .centerCol 同样用 overflow: hidden 把子内容裁到圆角里。 */
+  overflow: hidden;
 }
 html.dk-desk-electron .dk-col-sidebar {
   border-right: none;
 }
-/* Folder / session-log used to sit in the caption row. Open-folder moved to
-   the workspace row menu; hide the official utilities slot entirely. */
+/* 会话顶栏的 utilities 槽（打开位置 / 打开方式菜单）保持官方布局：与 DSH 桌面端一致地出现在 ⋯ 左侧。 */
 [data-slot='conversation.session.header.utilities'] {
-  display: none !important;
+  display: flex;
 }
 html.dk-desk-electron [data-conversation-header-corner] {
   margin-right: 0;
