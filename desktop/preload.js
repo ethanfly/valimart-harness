@@ -21,15 +21,21 @@ contextBridge.exposeInMainWorld('deskShell', {
   },
   setBackground: (color) => ipcRenderer.send('desk:window-bg', color),
   openExternal: (u) => ipcRenderer.send('desk:open-external', u),
+  // caption 上的「应用 / 编辑」：渲染进程只报位置，菜单由主进程原生弹出。
+  openMenu: (name, x, y) => ipcRenderer.invoke('desk:menu-popup', name, x, y),
 })
 
 const FALLBACK_ID = 'dk-shell-fallback'
+const TITLEBAR_H = 40
 const btnCss =
-  'width:46px;height:36px;border:0;border-radius:0;background:transparent;color:#56565c;cursor:pointer;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;padding:0;'
+  'width:46px;height:40px;border:0;border-radius:0;background:transparent;color:#56565c;cursor:pointer;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;padding:0;font-size:10px;line-height:1;'
 
-function glyph(inner) {
-  return `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1">${inner}</svg>`
-}
+// 这张栏只在插件 UI 还没挂上时兜底，不需要和自绘窗控逐像素一致：用文本字形即可。
+const FALLBACK_BUTTONS = [
+  { act: 'min', label: '最小化', glyph: '❘' },
+  { act: 'max', label: '最大化', glyph: '❐' },
+  { act: 'close', label: '关闭', glyph: '✕' },
+]
 
 function installFallback() {
   if (document.getElementById(FALLBACK_ID) || document.querySelector('.dk-titlebar')) return
@@ -37,15 +43,17 @@ function installFallback() {
   bar.id = FALLBACK_ID
   bar.setAttribute('role', 'banner')
   bar.style.cssText =
-    'position:fixed;top:0;left:0;right:0;height:36px;z-index:2147483000;display:flex;justify-content:flex-end;align-items:stretch;-webkit-app-region:drag;user-select:none;'
-  bar.innerHTML = [
-    `<button type="button" data-act="min" aria-label="最小化" style="${btnCss}">${glyph('<path d="M1 5h8"/>')}</button>`,
-    `<button type="button" data-act="max" aria-label="最大化" style="${btnCss}">${glyph('<rect x="1.5" y="1.5" width="7" height="7"/>')}</button>`,
-    `<button type="button" data-act="close" aria-label="关闭" style="${btnCss}">${glyph('<path d="M2 2l6 6M8 2L2 8"/>')}</button>`,
-  ].join('')
-  for (const btn of bar.querySelectorAll('button')) {
+    `position:fixed;top:0;left:0;right:0;height:${TITLEBAR_H}px;z-index:2147483000;display:flex;justify-content:flex-end;align-items:stretch;-webkit-app-region:drag;user-select:none;`
+  for (const { act, label, glyph } of FALLBACK_BUTTONS) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.dataset.act = act
+    btn.setAttribute('aria-label', label)
+    btn.setAttribute('title', label)
+    btn.style.cssText = btnCss
+    btn.textContent = glyph
     btn.addEventListener('mouseenter', () => {
-      const close = btn.dataset.act === 'close'
+      const close = act === 'close'
       btn.style.background = close ? '#c42b1c' : 'rgba(0,0,0,.06)'
       btn.style.color = close ? '#fff' : '#1b1b1f'
     })
@@ -54,10 +62,11 @@ function installFallback() {
       btn.style.color = '#56565c'
     })
     btn.addEventListener('click', () => {
-      if (btn.dataset.act === 'min') ipcRenderer.send('desk:window-minimize')
-      else if (btn.dataset.act === 'max') ipcRenderer.send('desk:window-maximize')
+      if (act === 'min') ipcRenderer.send('desk:window-minimize')
+      else if (act === 'max') ipcRenderer.send('desk:window-maximize')
       else ipcRenderer.send('desk:window-close')
     })
+    bar.append(btn)
   }
   document.documentElement.append(bar)
 }

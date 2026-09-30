@@ -144,6 +144,52 @@ ipcMain.on('desk:window-bg', (event, color) => {
 ipcMain.on('desk:open-external', (_event, u) => {
   if (typeof u === 'string') openExternal(u)
 })
+// caption 上的「应用 / 编辑」：菜单在页面里画，弹层用主进程原生菜单（与上游桌面端同一做法）。
+function captionMenu(window, name) {
+  if (name === 'application') {
+    return [
+      {
+        label: '关于 valimart harness',
+        click: () => {
+          dialog.showMessageBox(window, {
+            type: 'info',
+            title: '关于 valimart harness',
+            message: `valimart harness ${app.getVersion()}`,
+            detail: `${app.isPackaged ? '安装版' : '开发版（源码运行）'}\n工作台数据目录：${dshHome}`,
+            buttons: ['确定'],
+          })
+        },
+      },
+      { type: 'separator' },
+      { label: '重新加载页面', accelerator: 'F5', click: () => window.webContents.reload() },
+      { label: '开发者工具', accelerator: 'F12', click: () => window.webContents.toggleDevTools() },
+      { type: 'separator' },
+      { label: '退出', click: () => quitApp() },
+    ]
+  }
+  return [
+    { role: 'undo', label: '撤销' },
+    { role: 'redo', label: '重做' },
+    { type: 'separator' },
+    { role: 'cut', label: '剪切' },
+    { role: 'copy', label: '复制' },
+    { role: 'paste', label: '粘贴' },
+    { role: 'selectAll', label: '全选' },
+  ]
+}
+ipcMain.handle('desk:menu-popup', (event, name, x, y) => {
+  const win = windowFrom(event)
+  if (!win || (name !== 'application' && name !== 'edit')) return
+  const menu = Menu.buildFromTemplate(captionMenu(win, name))
+  return new Promise((resolve) => {
+    menu.popup({
+      window: win,
+      x: Number.isFinite(x) ? Math.round(x) : undefined,
+      y: Number.isFinite(y) ? Math.round(y) : undefined,
+      callback: () => resolve(),
+    })
+  })
+})
 function attachWindowChrome(win) {
   const relay = () => sendWindowState(win)
   for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'focus', 'blur']) win.on(ev, relay)

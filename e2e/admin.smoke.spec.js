@@ -31,13 +31,14 @@ test.afterAll(async () => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-test('管理页：登录后可见内核与公司技能', async ({ page }) => {
+test('管理页：登录后可见客户端更新与公司技能', async ({ page }) => {
   await page.goto(base + '/admin')
   await expect(page.locator('input[name="username"]')).toBeVisible()
   await page.locator('input[name="username"]').fill('boss')
   await page.locator('input[name="password"]').fill('boss123456')
   await page.locator('form#loginForm button[type="submit"]').click()
-  await expect(page.locator('#kernel h2')).toHaveText('内核', { timeout: 10_000 })
+  // 内核分区已在 2026-09-29 移除（内核随客户端整包分发），只剩客户端更新。
+  await expect(page.locator('#client h2')).toHaveText('客户端', { timeout: 10_000 })
   await expect(page.locator('body')).toContainText('company-briefing')
   await expect(page.locator('header .logo .word')).toBeVisible()
   await expect(page.locator('header .logo .mark')).toHaveCount(0)

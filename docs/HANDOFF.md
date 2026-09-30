@@ -2,6 +2,18 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-09-30：标题栏改参考上游桌面端（caption 40px）+ 内核升 0.2.0-rc.2
+
+- 参考源：`deepseek-ai/deepseek-harness` GitHub `master`（`git clone --depth 1 --filter=blob:none --sparse` 到本机 `E:\orcaWorkspace\dsh-ref`，只取 `apps/desktop` + 相关 `packages/client/*`）。桌面壳契约：`WINDOWS_TITLEBAR_HEIGHT = 40`、`html[data-windows-titlebar]`、`preload-menu.ts`（shadow DOM 菜单条，左 48px，28px 高按钮，点击 → 主进程 `Menu.popup`）、`AppFrame.module.css`（frame 下移 40px + 底色＝侧栏色、`::before` 整条拖区、主列 `border-radius: 16px 0 0 0`、侧栏无边框）。
+- **内核：`0.2.0-rc.1` → `0.2.0-rc.2`**（npm `latest`/`next` ＝ GitHub 最新 release `dsh-v0.2.0-rc.2`）。`scripts/kernel/pin.json` 只改版本；`npm run kernel` 重装后 **20 处补丁新打、4 处已有、2 处 optional 跳过**（junction mklink 锚点消失，预期）；`npm run kernel:check` 齐全。开发 client（profile `desk`）在 0.2.0-rc.2 上启动正常，公司盘 / 模型路由 / 生图插件零报错。
+- 桌面壳自绘 caption（`plugins/desk-ui/src/client/titlebar.jsx`）：40px 一条、与侧栏同色、左侧「折叠侧栏（28px 方钮，`layoutActions.toggleSidebar`）+ 应用 / 编辑」，右侧窗控；菜单调 `deskShell.openMenu(name, x, y)` → `desktop/main.js` 的 `desk:menu-popup` 用 `Menu.popup` 弹原生菜单（应用＝关于/重新加载 F5/开发者工具 F12/退出；编辑＝撤销…全选走 role）。**仍不用 `titleBarOverlay`**（frameless 自绘窗控，避免原生色带 + 主题同步 IPC）。
+- `styles.css`：`--dk-titlebar-h` 36 → **40px**；`.dk-frame { padding-top: 40px; background: var(--dk-bg-1) }`；`.dk-col-main { background: base; border-radius: 16px 0 0 0 }`；Electron 下侧栏去右边框；**删掉整套「会话顶栏挤进 caption」的避让几何**（`:first-child` 行高、`--dk-caption-right`、tablist margin-top、指针开洞）——会话顶栏回到官方默认几何，窗控不再和它抢同一行；右侧栏面板 `top: 0 → var(--dk-titlebar-h)`（绝对定位包含块是 frame 的 padding box）；品牌行 `56px/上内边距` → `height: 40px; margin-top: 6px`（字标中线 66，与参考截图一致）；`e2e/desktop-chrome.spec.js` + `e2e/sidebar-toggle-align.spec.js` 按新几何重写（断言 band 与侧栏同色、`main.left = 280`、圆角 16px、面板 top 40、菜单/折叠/窗控点击命中）。
+- `desktop/preload.js`：兜底条 36 → 40px，图标改 `textContent`（消 innerHTML 告警），新增 `openMenu`。
+- **其他坑**：`.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset) }` 是短写，会把 `padding-top` 清零——已改成只重写 `padding-top`。
+- 顺带：`e2e/session-images.spec.js` 的 web boot 锚点随内核升级换掉（0.2.0-rc.2 是 `globalThis.__ModuleLoader__.create(...)` + `n.run(handler)`，静态模块表 `staticModules: <fn>()`；用正则取函数名再替换 run 调用）；`e2e/admin.{setup,smoke}.spec.js` 还在断言上一轮已从管理页删掉的 `#kernel h2`，改断言 `#client h2`。
+- 验证：`npm test` **557 pass / 0 fail / 1 skip**；全量 `npx playwright test` **17 passed / 7 skipped / 0 failed**；真机（仓库自带 Electron 载入 dev 客户端页，1280×820）截图 `build/caption-new.png` / `build/caption-session.png` / `build/caption-rail.png`：caption 40px、菜单 x=48 起、窗控 138px（3×46）在 x=1142、侧栏 280 与 band 同色 `rgb(247,247,248)`、主列 `left 280 / radius 16px`、品牌行 46..86、caption 折叠钮切 280↔56（rail 内不再重复折叠钮）、会话顶栏右侧按钮 y=51 可点。
+- 未做：未重打 `dist:client`（源码 + pin 已改，安装版要生效需 `npm run dist:client` 再发布）；本机安装版前缀 `~/.company-desk/app/kernel` 仍是 0.1.7-rc.1。过程记录 `docs/sessions/2026-09-30-titlebar-caption.md`。
+
 ## 2026-09-29：移除内核自动更新，内核随客户端整包分发
 
 - 背景：内核大部分不兼容，升级需人工重审补丁；客户端包里本来就带内核。故去掉「网关分发内核 tar + 客户端下次启动切换」这条链，只保留客户端整包更新。
@@ -10,6 +22,12 @@
 - 脚本：删 `scripts/kernel/update.mjs`（discover/prepare/publish）与 `scripts/lib/kernel-update.mjs`；`hashFile` 移入 `scripts/lib/client-update.mjs`，`resolveNpmRegistry` 移入 `scripts/lib/npm-cli.mjs`；`kernel-prepare.mjs` 只留安装/插件函数（删 pack/prepare/assertPublishedOnNpm）；`package.json` 去掉 `kernel:discover|prepare|publish`（`kernel` / `kernel:check` 保留）。`gateway-stage.mjs` / `build-payload.mjs` 的随包清单同步去掉 `kernel-update.mjs`。
 - 测试：删 `scripts/test/kernel-update.test.mjs`、`server/test/kernel-catalog.test.js`；新增 `scripts/test/kernel-install.test.mjs` 保留安装参数 / 错误格式 / registry / 卸插件用例；`gateway.test.js` 去掉内核接口用例。
 - 验证：`npm test` **557 pass / 0 fail / 1 skip**（skip 仍是缺 `build/payload/kernel.tar` 的 preparePackaged）；`npm --prefix packages/vscode test` 82/82。升级内核的新流程：改 `scripts/kernel/pin.json` → `npm run setup` → `npm run dist:client`。
+
+## 2026-09-29：网关管理页设置布局
+
+- `/admin` 左侧主导航保留，概览增加服务器 / 公司盘双列信息区；模型页分为「模型通道 / 搜索密钥 / 模型目录」，知识页分为「查询与录入 / 知识合集」，组织页分为「人员 / 岗位 / 部门」tab。
+- 页面增加分区标题、响应式栅格和更清晰的控件状态；不改接口、权限或数据行为。修改 `server/src/admin-page.js`，不涉及 desk-ui bundle。
+- 验证：`node --test server/test/gateway.test.js` 全部通过（16 项），覆盖管理页渲染、内联脚本语法和 tab 标记；`git diff --check` 通过。
 
 ## 2026-09-29：单账号上游流式被整段缓冲（会话统计 TPS 被放大）
 

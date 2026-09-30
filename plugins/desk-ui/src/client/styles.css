@@ -22,17 +22,17 @@
 }
 
 /* ---------- 外壳 ----------
-   VS Code / Cursor 式合并标题栏：内容顶到 y=0，窗控叠在同一行右侧。
-   不要把会话/右侧栏整体下推——那会空出一截难看的白边。 */
+   上游桌面端（apps/desktop）的 Windows caption：最上面独占 40px 一条，
+   底色＝侧栏色、左边折叠钮 +「应用/编辑」、右边窗控；内容整体从 40px 开始，
+   主列自带 16px 左上圆角。窗控仍由渲染进程自绘（frameless，不走 titleBarOverlay 的原生色带）。 */
 html.dk-desk-electron {
-  --dk-titlebar-h: 36px;
+  --dk-titlebar-h: 40px;
   --dk-win-inset: 0px;
-  --dk-winbtn-h: 36px;
-  --dk-win-controls-w: 138px;
-  --dk-sidebar-chrome-w: 80px;
-  --dk-caption-right: calc(var(--dk-win-controls-w) + 10px + var(--dk-win-inset));
+  --dk-winbtn-h: 40px;
+  /* 主列左上圆角（半径里透出的是 caption/侧栏的底色），与上游桌面端一致。 */
+  --dk-content-radius: 16px;
 }
-html.dk-desk-electron.dk-desk-maximized .dk-frame { padding: var(--dk-win-inset); }
+html.dk-desk-electron.dk-desk-maximized .dk-frame { padding-top: calc(var(--dk-titlebar-h) + var(--dk-win-inset)); }
 html.dk-desk-electron.dk-desk-maximized .dk-titlebar {
   top: var(--dk-win-inset);
   left: var(--dk-win-inset);
@@ -41,51 +41,19 @@ html.dk-desk-electron.dk-desk-maximized .dk-titlebar {
 html.dk-desk-electron .dk-mask,
 html.dk-desk-electron .dk-overlay,
 html.dk-desk-electron [data-shell-overlay] { top: var(--dk-win-inset); }
-/* 无会话顶栏时（空态/任务）给标题栏留位；有会话顶栏则贴顶，与窗控同一行。 */
-html.dk-desk-electron .dk-col-main,
-html.dk-desk-electron .dk-col-right { padding-top: var(--dk-titlebar-h); }
-html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-main:has([data-slot='conversation.session.header']),
-html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-right {
-  padding-top: 0;
-}
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header {
-  padding-top: 0;
-  padding-right: 12px;
-  min-height: 0;
-}
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > :first-child {
+/* caption 独占一行（上游同款）：整条 frame 下移一个 caption 高，底色＝侧栏色，
+   主列自己画底色 + 左上圆角。会话顶栏不再挤进 caption，用它自己的默认几何。 */
+html.dk-desk-electron .dk-frame {
   box-sizing: border-box;
-  min-height: var(--dk-titlebar-h);
-  height: var(--dk-titlebar-h);
-  align-items: center;
-  -webkit-app-region: drag;
+  padding-top: var(--dk-titlebar-h);
+  background: var(--dk-bg-1);
 }
-html.dk-desk-electron .dk-frame[data-mode='chat'][data-rightbar-collapsed] [data-slot='conversation.session.header'] > header > :first-child {
-  margin-right: var(--dk-caption-right);
+html.dk-desk-electron .dk-col-main {
+  background: var(--dk-bg);
+  border-radius: var(--dk-content-radius) 0 0 0;
 }
-/* 0.1.7：会话顶栏骨架重排——header 挂在 conversation.header 槽下，conversation.session.header
-   槽退到 header 内部（display:contents 包装），标题行前还插了个空的 headerLeading 列。
-   旧链里的 :first-child / > header 全部失配，展开按钮（corner 槽，在标题行里）就顶回右缘
-   被窗控三件套挡住。按「含 corner 的那一行」重写几何规则；旧 0.1.5 选择器链保留（回滚仍生效）。 */
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.header'] > header {
-  padding-top: 0;
-  padding-right: 12px;
-  min-height: 0;
-}
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.header'] > header [data-slot='conversation.session.header'] > :has(> [data-conversation-header-corner]) {
-  box-sizing: border-box;
-  min-height: var(--dk-titlebar-h);
-  height: var(--dk-titlebar-h);
-  align-items: center;
-}
-html.dk-desk-electron .dk-frame[data-mode='chat'][data-rightbar-collapsed] [data-slot='conversation.header'] > header [data-slot='conversation.session.header'] > :has(> [data-conversation-header-corner]) {
-  margin-right: var(--dk-caption-right);
-}
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.header'] > header [role='tablist'] {
-  margin-top: 8px;
-}
-html.dk-desk-electron .dk-frame[data-mode='chat'] [data-slot='conversation.session.header'] > header > [role='tablist'] {
-  margin-top: 8px;
+html.dk-desk-electron .dk-col-sidebar {
+  border-right: none;
 }
 /* Folder / session-log used to sit in the caption row. Open-folder moved to
    the workspace row menu; hide the official utilities slot entirely. */
@@ -105,9 +73,10 @@ html.dk-desk-electron [data-sidebar-right-mode] {
   -webkit-app-region: no-drag;
   pointer-events: auto;
 }
-/* 官方右侧栏绝对定位 top:0，与窗控同一行；只把标签条右侧让给三件套。 */
+/* 官方右侧栏绝对定位 top:0——那是 frame 的 padding box，所以它其实会压在 caption 上；
+   要让它落在 caption 之下（上游 Windows caption 的同一处处理）。 */
 html.dk-desk-electron [data-sidebar-right-panel] {
-  top: 0 !important;
+  top: var(--dk-titlebar-h) !important;
 }
 html.dk-desk-electron .dk-frame[data-mode='chat'] .dk-col-right {
   border-left: none;
@@ -116,15 +85,8 @@ html.dk-desk-electron [data-sidebar-right-panel] *:has(> [data-sidebar-right-tog
   box-sizing: border-box;
   min-height: var(--dk-titlebar-h);
   height: var(--dk-titlebar-h);
-  padding-right: var(--dk-caption-right);
+  padding-right: 12px;
   align-items: center;
-}
-/* 标题栏整条是 drag；侧栏按钮上方用子元素 no-drag 开洞，点击才能落到下层。 */
-html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-main {
-  pointer-events: none;
-}
-html.dk-desk-electron body:has(.dk-frame[data-mode='chat'] [data-slot='conversation.session.header']) .dk-titlebar-title {
-  display: none;
 }
 html.dk-desk-electron button,
 html.dk-desk-electron input,
@@ -132,12 +94,13 @@ html.dk-desk-electron textarea,
 html.dk-desk-electron select,
 html.dk-desk-electron a,
 html.dk-desk-electron .dk-resizer { -webkit-app-region: no-drag; }
-/* 品牌行必须从 y=0 起（覆盖标题栏条，供拖窗）；只加行内上边距，避免字标顶到窗口边缘。 */
+/* 品牌行在 caption 之下（40px 行高 + 6px 顶距，字标中线与上游对齐），仍作拖窗热区。 */
 html.dk-desk-electron .dk-brand {
   -webkit-app-region: drag;
-  height: 56px;
-  padding: 16px 14px 8px 12px;
-  align-items: flex-start;
+  height: 40px;
+  margin-top: 6px;
+  padding: 0 14px 0 12px;
+  align-items: center;
 }
 html.dk-desk-electron .dk-brand .dk-iconbtn,
 html.dk-desk-electron .dk-rail .dk-iconbtn {
@@ -146,7 +109,10 @@ html.dk-desk-electron .dk-rail .dk-iconbtn {
   position: relative;
   z-index: 1;
 }
-html.dk-desk-electron .dk-rail { padding-top: 16px; }
+/* 折叠按钮已经搬到 caption（上游同款），侧栏里的那个别重复。 */
+html.dk-desk-electron .dk-brand .dk-collapse-btn,
+html.dk-desk-electron .dk-rail .dk-expand-btn { display: none; }
+html.dk-desk-electron .dk-rail { padding-top: 10px; }
 /* Both workbenches carry data-dsh-panel. The bottom one must stay anchored
    to bottom:0; giving it a top over-constrains its explicit height. The
    portal lives outside .dk-frame, so it also needs border-box sizing. */
@@ -170,62 +136,56 @@ html.dk-desk-electron .dk-rail { padding-top: 16px; }
   top: 0;
   left: 0;
   right: 0;
-  height: var(--dk-titlebar-h, 36px);
+  height: var(--dk-titlebar-h, 40px);
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
+  padding-left: 12px;
   user-select: none;
   z-index: 1100;
   pointer-events: none;
   -webkit-app-region: drag;
 }
-.dk-titlebar-pass {
-  position: absolute;
-  top: 0;
-  right: var(--dk-win-controls-w, 138px);
-  width: var(--dk-sidebar-chrome-w, 80px);
-  height: 100%;
-  pointer-events: none;
-  -webkit-app-region: no-drag;
-}
-.dk-titlebar-side {
+/* 折叠侧栏按钮与「应用 / 编辑」：尺寸与配色照上游 caption 菜单（28px 高、6px 圆角）。 */
+.dk-caption-btn {
   flex: none;
-  width: var(--dk-titlebar-side-w, 280px);
-  pointer-events: none;
-  -webkit-app-region: no-drag;
-  transition: width 160ms ease;
-}
-.dk-titlebar-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  pointer-events: auto;
-  -webkit-app-region: drag;
-}
-.dk-titlebar-title {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dk-text-2);
+  font: inherit;
+  font-size: 14px;
+  cursor: default;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  margin-left: 14px;
-  color: var(--dk-text-3);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-  max-width: calc(100% - 160px);
-  overflow: hidden;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 160ms ease;
+  justify-content: center;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
-.dk-titlebar:not([data-focused]) .dk-titlebar-title,
-.dk-titlebar[data-maximized] .dk-titlebar-title { opacity: 0.7; }
+.dk-caption-btn:hover,
+.dk-caption-btn[aria-expanded='true'] { background: var(--dk-hover); color: var(--dk-text); }
+.dk-caption-btn:focus-visible { outline: 2px solid var(--dk-accent); outline-offset: -2px; }
+/* 折叠按钮与上游一致：28px 方钮，菜单从 48px 起。 */
+.dk-caption-toggle { width: 28px; padding: 0; }
+.dk-caption-menubar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  pointer-events: auto;
+}
+.dk-titlebar-spacer { flex: 1 1 auto; min-width: 0; }
 .dk-titlebar:not([data-focused]) .dk-winbtn { opacity: 0.7; }
 .dk-titlebar-controls {
   position: absolute;
   top: 0;
   right: 0;
   margin-left: auto;
-  height: var(--dk-winbtn-h, 36px);
+  height: var(--dk-winbtn-h, 40px);
   display: flex;
   align-items: stretch;
   pointer-events: auto;
@@ -340,6 +300,8 @@ html.dk-desk-electron .dk-rail { padding-top: 16px; }
   background: transparent;
 }
 .dk-resizer:hover, .dk-resizer.dragging { background: var(--dk-accent-soft); }
+/* 侧栏与主列之间不要留 5px 底色缝（上游是紧邻的），拖区压在侧栏右缘上。 */
+.dk-resizer.overlap-left { margin-left: -5px; }
 .dk-slot-fill { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .dk-slot-fill > * { flex: 1 1 auto; min-height: 0; }
 /* The workbench measures the conversation slot's parent. It reserves bottom

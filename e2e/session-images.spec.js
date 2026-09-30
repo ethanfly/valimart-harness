@@ -26,8 +26,14 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(second, '结果 (1).svg'), svg(128))
   const entry = fs.readdirSync(frontend).find((n) => /^index-.*\.js$/.test(n))
   let boot = fs.readFileSync(path.join(frontend, entry), 'utf8')
-  if (!boot.includes('new Bp(lc).run();')) throw new Error('内核浏览器测试锚点已变化')
-  boot = boot.replace('new Bp(lc).run();', 'window.testModules=zp();')
+  // 0.2.0-rc.2 起启动代码不再有 `new X(y).run()`：应用类直接 `n.run(handler)`，
+  // 静态模块表是 `staticModules: <fn>()`。取那个函数名，用它替掉 run 调用（只要模块表，
+  // 不要真跑应用——harness 自己往 #root 里挂 React 树）。
+  const staticModules = boot.match(/staticModules:([A-Za-z0-9_$]+)\(\)/)
+  const runCall = boot.match(/[A-Za-z0-9_$]+\.run\([A-Za-z0-9_$]+===void 0\?void 0:[A-Za-z0-9_$]+\)/)
+  if (staticModules === null || runCall === null) throw new Error('内核浏览器测试锚点已变化')
+  boot = boot.replace(runCall[0], `window.testModules=${staticModules[1]}()`)
+  if (!boot.includes('window.testModules=')) throw new Error('内核浏览器测试锚点已变化')
   const patch = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1')
   let chat = fs.readFileSync(path.join(kernelPackages, 'dsh-client-ui-chat/lib/client.js'), 'utf8')
   if (!chat.includes(patch.mark)) for (const edit of patch.edits) chat = applyEdit(chat, edit)

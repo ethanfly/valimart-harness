@@ -150,12 +150,12 @@ export class ThemePresenter {
   }
 }
 
-function Resizer({ onDrag, onStart, onEnd, invert = false }) {
+function Resizer({ onDrag, onStart, onEnd, invert = false, overlapLeft = false }) {
   const [dragging, setDragging] = useState(false)
   const origin = useRef(0)
   return (
     <div
-      className={`dk-resizer${dragging ? ' dragging' : ''}`}
+      className={`dk-resizer${dragging ? ' dragging' : ''}${overlapLeft ? ' overlap-left' : ''}`}
       onPointerDown={(e) => {
         origin.current = e.clientX
         setDragging(true)
@@ -240,12 +240,12 @@ export function DeskFrame({ renderSlot, useSessions, ctx }) {
       data-rightbar-fullscreen={panels.rightbarFullscreen || undefined}
       data-electron={electron || undefined}
     >
-      {electron && createPortal(<DeskTitlebar sidebarWidth={sidebarWidth} />, document.body)}
+      {electron && createPortal(<DeskTitlebar onToggleSidebar={layoutActions.toggleSidebar} />, document.body)}
       {narrow && panels.narrowExpanded && <div className="dk-mask" onClick={() => layoutActions.toggleSidebar()} />}
       <div className={`dk-col-sidebar${narrow && panels.narrowExpanded ? ' dk-drawer' : ''}`} style={{ width: narrow && panels.narrowExpanded ? 280 : sidebarWidth }}>
         {renderSlot('sidebar', { collapsed: narrow ? !panels.narrowExpanded : sidebarCollapsed, width: narrow && panels.narrowExpanded ? 280 : sidebarWidth })}
       </div>
-      {!sidebarCollapsed && !narrow && <Resizer onStart={() => (sidebarBase.current = panels.sidebar)} onDrag={onSidebarDrag} />}
+      {!sidebarCollapsed && !narrow && <Resizer overlapLeft onStart={() => (sidebarBase.current = panels.sidebar)} onDrag={onSidebarDrag} />}
 
       {taskMode ? (
         <>

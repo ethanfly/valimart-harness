@@ -12,6 +12,9 @@ app.whenReady().then(async () => {
   ipcMain.on('desk:window-maximize', () => win.isMaximized() ? win.unmaximize() : win.maximize())
   global.testWindow = win
   global.actions = { copied: [], revealed: [], errors: [] }
+  // caption 菜单：只记录调用（真的弹原生菜单会在 headless 里卡住）。
+  global.testPopups = []
+  ipcMain.handle('desk:menu-popup', (_event, name, x, y) => { global.testPopups.push({ name, x, y }) })
   // Verify native menu/renderer integration without replacing the user's clipboard or opening Explorer.
   win.webContents.copyImageAt = (x, y) => global.actions.copied.push([x, y])
   attachImageMenu(win, url, {

@@ -1,7 +1,7 @@
 {
-  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-29 从 0.1.7-rc.1 升到 npm next 的 0.2.0-rc.1（GitHub 最新 release dsh-v0.2.0-rc.1；latest 仍是 0.1.7-rc.2）。0.2.0-rc.1 子包发布完整。prepare 未改 patches.mjs：必打锚点全部命中，缺补丁检查为空。company-think 预设仍 missing（预期跳过）。dsh-browser@0.1.11 的 0.1.7 settings 补丁仍命中。0.1.5-alpha.1 仍因发布不完整勿试。",
+  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-09-30 从 0.2.0-rc.1 升到 npm latest/next 的 0.2.0-rc.2（GitHub 最新 release dsh-v0.2.0-rc.2）。company-think 预设仍 missing（预期跳过）。dsh-browser@0.1.11 的 0.1.7 settings 补丁仍命中。0.1.5-alpha.1 仍因发布不完整勿试。",
   "package": "@deepseek-ai/dsh",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "profilePlugins": [
     {
       "name": "@anweat/dsh-browser",

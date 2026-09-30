@@ -45,7 +45,7 @@ test('空库管理页走首次引导，完成后进入服务器页', async ({ pa
   await page.locator('#setupForm button[type="submit"]').click()
   await expect(page.locator('input[name="cUsername"]')).toBeVisible()
   await page.locator('#setupForm button[type="submit"]').click()
-  await expect(page.locator('#kernel h2')).toHaveText('内核', { timeout: 10_000 })
+  await expect(page.locator('#client h2')).toHaveText('客户端', { timeout: 10_000 })
   await expect(page.locator('#who')).toContainText('系统管理员')
   await expect(page.locator('body')).toContainText('瓦力商贸')
 })

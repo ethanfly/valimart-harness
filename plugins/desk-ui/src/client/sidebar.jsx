@@ -76,7 +76,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
     return (
       <div ref={rootRef} className="dk-rail">
         <WorkspaceGitSync rootRef={rootRef} />
-        <button className="dk-iconbtn" title="展开侧边栏" onClick={toggleSidebar} style={{ marginBottom: 4 }}>
+        <button className="dk-iconbtn dk-expand-btn" title="展开侧边栏" onClick={toggleSidebar} style={{ marginBottom: 4 }}>
           <IconPanel />
         </button>
         <span className="dk-monogram" title={PRODUCT_NAME}><BrandMark size={16} /></span>
@@ -115,7 +115,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
           <button className="dk-iconbtn" title="新会话" onClick={() => startSession()}>
             <IconPlus />
           </button>
-          <button className="dk-iconbtn" title="收起侧边栏" onClick={toggleSidebar}>
+          <button className="dk-iconbtn dk-collapse-btn" title="收起侧边栏" onClick={toggleSidebar}>
             <IconPanel />
           </button>
         </div>
