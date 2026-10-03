@@ -2,6 +2,22 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-09-30：会话里的 `/uploads/...jpg` 被当成图片加载
+
+- 现象：湛江磁盘会话末尾「图片加载失败 xxx.jpg」，重试也没有图。回复原文是举例 `` `/uploads/202609/xxx.jpg` ``，文件不在工作区。
+- 根因：`imageMarkdownParts` 把行内代码里的图片路径一律预览。以 `/` 开头的是服务器路径，不是本机会话目录里的文件，请求 `/desk/api/sessions/:id/image` 必然 404，失败态把路径盖成「图片加载失败」。
+- 修法：行内代码以 `/` 开头不再预览。本机相对路径、`图片文件：`、Windows 路径仍预览。`scripts/test/session-image.test.mjs` 4 pass；`npm run build` 已重打 bundle。
+- **已打客户端包并发布**：`dist/valimart-harness-Setup-0.1.0-20261003.1455.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261003-1455.a084a6ac`，SHA-256 `229691098869db598899368483c65fb7983f347d2762190368795702ad9f1548`）。网关当前客户端已切到这一版，上一版 `…20260930-0700.4ad363e9` 留作 previous。员工机器下次启动静默覆盖安装。
+
+## 2026-09-30：Mixed 审核不通过回规划再实施再审
+
+- 现象：审核 `changes_requested` 在任务级返修（默认 2 轮）用完后直接 `blocked`，改进方案停在错误横幅，不会交给规划模型。
+- 修法：`#reviewLoop` 返修耗尽后调 `#replanFromReview`：审核摘要 / 未过验收 / findings 写进 `planPrompt` 的 `replan.review`；规划模型出新 planVersion；点名任务（即使已 executed）回 pending，小模型再实施，再审核。新计划重置返修预算。次数受既有 `maxReplans`（默认 1）限制，用尽仍 `blocked`，不无限循环。审核 `blocked`、审核输出两次非法仍直接停。
+- 状态机：`reviewing` 允许回到 `planning`。`applyReplan` 的 stale 集包含 `failedTaskIds` 本身。
+- 停在 blocked 之后：面板「按改进继续」仍走 resume continue（同一 run，不另开重跑）。`#resumeEntry` 见到最近一轮 `changes_requested` 就带上改进方案，规划预算归零后再规划、再实施、再审。每次继续给一轮。审核结论是 `blocked`（无法继续）的恢复仍拒绝。
+- 验证：review + recovery + panel **52 pass / 0 fail**；`npm run build` 已重打 desk-ui bundle。未打安装包；`plugins/desk-host/lib/**` 要重启客户端进程才生效。
+- 过程：`docs/sessions/2026-09-30-mixed-review-replan.md`。
+
 ## 2026-09-30：pi CLI 默认模型改成跟公司设置一致
 
 - 现象：网关默认模型是 `grok-4.7-build-fast`（桌面端也显示 Grok），但 pi 打开用的是 `valimart/deepseek-flash`。

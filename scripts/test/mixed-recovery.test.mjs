@@ -44,14 +44,13 @@ import { MixedDriver } from '../../plugins/desk-host/lib/mixed/dsh-driver.js'
 import { MixedRunController } from '../../plugins/desk-host/lib/mixed/service.js'
 import { createMixedBridge } from '../../plugins/desk-host/lib/mixed/session-bridge.js'
 import { recordVerification } from '../../plugins/desk-host/lib/mixed/evidence.js'
-import { planPrompt, taskPrompt, PLAN_LIMITS } from '../../plugins/desk-host/lib/mixed/prompts.js'
+import { planPrompt, taskPrompt } from '../../plugins/desk-host/lib/mixed/prompts.js'
 import {
   submissionKeyOf,
   runIdOf,
   advanceRun,
   resumeMarkerText,
   parseResumeMarker,
-  MixedError,
 } from '../../plugins/desk-host/lib/mixed/contracts.js'
 import { computeOwnerKey } from '../../plugins/desk-host/lib/mixed/owner.js'
 
@@ -421,7 +420,7 @@ test('启动对账：宿主硬杀后遗留 executing run → interrupted（不�
 
 test('启动对账：queued→blocked(retryable)、cancelling→cancelled、waiting_input 保留', async (t) => {
   const root = makeRoot(t)
-  const mk = async (name) => {
+  const mk = async () => {
     const h = createMixedHost({
       stateDir: path.join(root, 'desk'),
       getLogin: () => ({ loggedIn: true, user: { id: 'u1', username: 'alice' } }),
@@ -687,13 +686,22 @@ test('恢复：审核通过未交付（finalizing 中断）→ 只重试 finaliz
   assert.equal(store.getRun(run.runId).status, 'succeeded')
 })
 
-test('恢复：审核结论 changes_requested（返修耗尽）→ 拒绝恢复（resume_not_allowed）', async (t) => {
+test('恢复：审核 changes_requested 停在 blocked → 继续按改进方案重规划并完结', async (t) => {
   const root = makeRoot(t)
   const { store, facility } = openStore(t, root)
   await store.open(facility)
   const run = await claimRun(store, { sessionId: 's1', statusPath: ['planning', 'executing', 'reviewing'] })
   await seedPlan(store, run.runId, { taskStatus: { t1: 'executed', t2: 'executed' } })
-  await seedReviewRound(store, run.runId, { result: reviewResult('changes_requested') })
+  const finding = {
+    findingId: 'f1',
+    taskIds: ['t1'],
+    severity: 'blocking',
+    evidenceIds: [],
+    expected: '验收通过',
+    actual: '仍失败',
+    repairInstruction: '按改进重做 t1',
+  }
+  await seedReviewRound(store, run.runId, { result: reviewResult('changes_requested', { findings: [finding], summary: '还差 t1' }) })
   await store.updateRun(run.runId, (c) =>
     advanceRun(c, {
       ownerKey: c.ownerKey,
@@ -706,10 +714,37 @@ test('恢复：审核结论 changes_requested（返修耗尽）→ 拒绝恢复�
   const sub = makeScriptedSubagents()
   const { controller } = makeController(store, sub, store.getRun(run.runId))
   const outcome = await controller.execute(new AbortController().signal, { resume: { kind: 'continue' } })
+  assert.equal(outcome.outcome, 'succeeded', outcome.error?.detail)
+  assert.equal(store.getRun(run.runId).status, 'succeeded')
+  assert.equal(store.getRun(run.runId).planVersions.length, 2, '同一 run 出新计划，不另开重跑')
+  const planSpawn = sub.spawns.find((s) => s.stage === 'planning')
+  assert.ok(planSpawn, '规划模型被再次派发')
+  assert.ok(sub.spawns.some((s) => s.stage === 'execution' && s.taskId === 't1'), '改进点名的任务重新实施')
+  assert.ok(sub.spawns.some((s) => s.stage === 'review'), '实施后再审核')
+})
+
+test('恢复：审核结论 blocked → 仍拒绝（resume_not_allowed）', async (t) => {
+  const root = makeRoot(t)
+  const { store, facility } = openStore(t, root)
+  await store.open(facility)
+  const run = await claimRun(store, { sessionId: 's1', statusPath: ['planning', 'executing', 'reviewing'] })
+  await seedPlan(store, run.runId, { taskStatus: { t1: 'executed', t2: 'executed' } })
+  await seedReviewRound(store, run.runId, { result: reviewResult('blocked') })
+  await store.updateRun(run.runId, (c) =>
+    advanceRun(c, {
+      ownerKey: c.ownerKey,
+      ownerEpoch: c.ownerEpoch,
+      to: 'blocked',
+      event: { type: 'status_changed', summary: '审核无法继续' },
+      patch: { error: { code: 'review_rejected', retryable: false, detail: 'seed' } },
+    }),
+  )
+  const sub = makeScriptedSubagents()
+  const { controller } = makeController(store, sub, store.getRun(run.runId))
+  const outcome = await controller.execute(new AbortController().signal, { resume: { kind: 'continue' } })
   assert.equal(outcome.outcome, 'blocked')
-  assert.equal(outcome.error?.code, 'resume_not_allowed', '拒绝恢复有明确错误码')
-  assert.equal(sub.spawns.length, 0, '拒绝即零派发')
-  assert.equal(store.getRun(run.runId).status, 'blocked', '状态不变（建议重跑）')
+  assert.equal(outcome.error?.code, 'resume_not_allowed')
+  assert.equal(sub.spawns.length, 0)
 })
 
 test('恢复 retry：failed 任务 + 传递受阻后继回 ready 并重试', async (t) => {
@@ -771,7 +806,7 @@ test('恢复：审核中断在轮内（result=null）→ 重跑该轮（不采�
 // 5) 恢复 marker 桥接（followup → pre-step → 同 turn 重入 + 交付/拒绝）
 // =====================================================================
 
-async function makeBridge(t, { store, run, sub = makeScriptedSubagents(), agent = makeFakeAgent() } = {}) {
+async function makeBridge(t, { store, sub = makeScriptedSubagents(), agent = makeFakeAgent() } = {}) {
   const controllers = new Map()
   // marker 分支要求会话模式已启用（否则静默消费）——测试统一启用
   await store.setSessionMode({ sessionId: 's1', ownerKey: OWNER_U1, ownerEpoch: 0, enabled: true })
@@ -781,7 +816,7 @@ async function makeBridge(t, { store, run, sub = makeScriptedSubagents(), agent 
     getOwner: () => ({ ownerKey: OWNER_U1, ownerEpoch: 0 }),
     workspacePath: () => 'E:\\ws',
     deps: {
-      runControllerFactory: ({ agent, sessionId, run: r, store: s }) => {
+      runControllerFactory: ({ run: r, store: s }) => {
         const { controller } = makeController(s, sub, r)
         controllers.set(r.runId, controller)
         return controller
@@ -943,11 +978,10 @@ test('marker：恢复失败 → reject + 落 resume_failed（防自动重发死�
     messages: [createUserMessage({ content: [{ type: 'text', text: resumeMarkerText(run.runId, 'continue') }], source: { kind: 'plugin', plugin: 'mixed' } })],
   }
   const r = await drivePreStep(agent, decision)
-  assert.equal(r.kind, 'reject')
-  assert.match(r.reason, /resume_not_allowed|重跑/)
+  assert.equal(r.kind, 'enter', r.reason)
   const cur = store.getRun(run.runId)
-  assert.ok(runEvents(cur).includes('resume_failed'), 'resume_failed 已落（宿主不再自动补发）')
-  assert.equal(cur.status, 'blocked')
+  assert.equal(cur.status, 'succeeded', 'changes_requested 的继续应完结，不落 resume_failed')
+  assert.ok(!runEvents(cur).includes('resume_failed'))
 })
 
 // =====================================================================

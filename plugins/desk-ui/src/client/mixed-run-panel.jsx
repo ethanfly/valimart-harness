@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { api, fmtTime } from './api.js'
 import { toast } from './store.js'
 import { isRunDismissed } from './mixed-dismiss.js'
-import { pickActionRun, resumeBusyKey, newRerunRequestId, buildResumeRequest, lastReviewOf } from './mixed-panel-state.js'
+import { pickActionRun, resumeBusyKey, newRerunRequestId, buildResumeRequest, lastReviewOf, canContinueFromReview } from './mixed-panel-state.js'
 import { MIXED_ACTIVE, dismissMixedRun, refreshMixedSessions, useMixedState, watchMixedSession } from './mixed-store.js'
 
 export const STATUS_LABEL = {
@@ -306,6 +306,7 @@ export function makeMixedRunPanel() {
       const failed = b.status === 'blocked' || b.status === 'interrupted'
       const errorText = b.error?.detail || (b.error?.code ? b.error.code : null)
       const resuming = !!b.pendingResume
+      const continueFromReview = canContinueFromReview(b)
       return (
         <div className={`dk-mixed-panel terminal ${ok ? 'ok' : stopped ? 'muted' : 'err'}`}>
           <div className="dk-mixed-bar">
@@ -318,7 +319,7 @@ export function makeMixedRunPanel() {
                   错误只是原因；不可自动恢复时服务端回明确原因，改走重跑） */}
               {(b.status === 'blocked' || b.status === 'interrupted') && (
                 <>
-                  <button type="button" className="dk-btn sm" disabled={busy === resumeBusyKey('continue') || resuming} onClick={() => resume('continue', b)}>继续</button>
+                  <button type="button" className="dk-btn sm" disabled={busy === resumeBusyKey('continue') || resuming} onClick={() => resume('continue', b)}>{continueFromReview ? '按改进继续' : '继续'}</button>
                   <button type="button" className="dk-btn sm" disabled={busy === resumeBusyKey('retry') || resuming} onClick={() => resume('retry', b)}>重试</button>
                 </>
               )}

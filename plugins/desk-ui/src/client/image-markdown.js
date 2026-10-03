@@ -44,7 +44,7 @@ export function imageMarkdownParts(text, { sessionId, origin, failed = new Set()
     for (const child of node.children ?? []) definitionsIn(child)
   }
   definitionsIn(tree)
-  function visit(node, inLink = false) {
+  function visit(node, inLink = false, inCode = false) {
     if (node.type === 'image' || node.type === 'imageReference') {
       const source = node.type === 'image' ? node.url : definitions.get(node.identifier.toUpperCase())
       if (source === undefined) return
@@ -57,12 +57,13 @@ export function imageMarkdownParts(text, { sessionId, origin, failed = new Set()
       reference(node.type === 'link' ? node.url : definitions.get(node.identifier.toUpperCase()))
     } else if (node.type === 'inlineCode' && !inLink) {
       // Exact file/path references only, not inline Markdown examples or shell commands.
-      if (!/[!\[\]=;|]/.test(node.value)) reference(node.value)
-    } else if (node.type === 'text' && !inLink) {
+      // A leading slash is a remote/server path (e.g. /uploads/202609/xxx.jpg), not a file in this workspace.
+      if (!/[!\[\]=;|]/.test(node.value) && !node.value.startsWith('/')) reference(node.value)
+    } else if (node.type === 'text' && !inLink && !inCode) {
       // Unformatted filenames need an explicit delivery label to avoid matching examples in prose.
       for (const match of node.value.matchAll(/(?:图片文件|图片路径|生成图片|图片|文件路径)\s*[:：]\s*([^\r\n]+?\.(?:png|jpe?g|gif|webp|bmp|avif|svg))(?=$|\s|[，。；])/gi)) reference(match[1].trim())
     }
-    for (const child of node.children ?? []) visit(child, inLink || node.type === 'link' || node.type === 'linkReference')
+    for (const child of node.children ?? []) visit(child, inLink || node.type === 'link' || node.type === 'linkReference', inCode || node.type === 'code')
   }
   visit(tree)
   let result = text

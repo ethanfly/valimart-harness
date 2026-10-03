@@ -267,6 +267,7 @@ export async function executeTaskGraph({ store, driver, run, plan, signal, taskP
  * - stale 集 = 失败根任务的传递后继（不含已 accepted 的：验收通过不再重做）。
  * - 新计划中每个任务：旧任务同 id 且状态 executed/accepted 且不在 stale 集 → 保留原状态；
  *   其余 → pending 重做（保留旧 attemptIds/evidenceIds 来源不清除）。
+ * - failedTaskIds 是必须重做的根（审核改进点名的任务也算）：即使旧状态已是 executed，也回 pending。
  * - 旧任务不在新计划中：executed/accepted 保留（供依赖引用/证据留存）；其余移除（被新图取代）。
  *
  * @returns {Promise<{staleIds: string[], retainedIds: string[]}>}
@@ -275,11 +276,12 @@ export async function applyReplan({ store, runId, newPlan, supersedes, reason, f
   const cur = store.getRun(runId)
   if (!cur) throw new MixedError('run_not_found', `run 不存在: ${runId}`)
   // stale 集排除 accepted（已验证任务保留，不再重做）
-  const staleIds = new Set(
-    [...transitiveDependents(cur.tasks, failedTaskIds)].filter(
+  const staleIds = new Set([
+    ...failedTaskIds.filter((id) => cur.tasks.find((t) => t.taskId === id)?.status !== 'accepted'),
+    ...[...transitiveDependents(cur.tasks, failedTaskIds)].filter(
       (id) => cur.tasks.find((t) => t.taskId === id)?.status !== 'accepted',
     ),
-  )
+  ])
   const newByTaskId = new Map(newPlan.taskRecords.map((t) => [t.taskId, t]))
 
   const tasks = []

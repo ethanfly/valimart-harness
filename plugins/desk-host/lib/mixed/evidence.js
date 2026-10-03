@@ -469,8 +469,12 @@ export class EvidenceCollector {
       }))
   }
 
+  manifestItems(run) {
+    return this.#manifestItems(run)
+  }
+
   manifest(run) {
-    return JSON.stringify({ v: 1, items: this.#manifestItems(run) })
+    return JSON.stringify({ v: 1, items: this.manifestItems(run) })
   }
 
   manifestHash(run) {
@@ -513,7 +517,12 @@ export class EvidenceCollector {
       throw new MixedError('evidence_invalid', `${ev.type} 证据只有 record 内容（无 ${kind} 日志）`)
     }
     if (ev.type === 'verification' && (kind === 'stdout' || kind === 'stderr')) {
-      const rec = JSON.parse(fs.readFileSync(path.join(dir, `${ev.ref}.json`), 'utf8'))
+      let rec
+      try {
+        rec = JSON.parse(fs.readFileSync(path.join(dir, `${ev.ref}.json`), 'utf8'))
+      } catch (error) {
+        throw new MixedError('evidence_invalid', `验证证据记录损坏: ${ev.evidenceId}`, { cause: error })
+      }
       const rel = kind === 'stdout' ? rec.stdoutRef : rec.stderrRef
       if (!rel) throw new MixedError('evidence_invalid', `该验证无 ${kind} 日志`)
       file = path.join(dir, rel)

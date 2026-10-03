@@ -18,13 +18,16 @@
  *   原始基线，跳过 executed/accepted）；任务全完→审核未完→reviewing / 审核通过→
  *   finalizing（只重试 finalizing，不重跑实施——§5.1）；审核结论 blocked/返修耗尽→
  *   拒绝恢复（resume_not_allowed，改走重跑）。
+ * - 审核 changes_requested 且任务级返修耗尽：不直接 blocked。把审核改进方案交给规划模型
+ *   重新拆分（计入 maxReplans），再实施、再审核。规划次数用尽或审核 blocked 才停。
+ * - 停在 blocked 后，用户「继续/重试」从最近一轮审核改进再规划、再实施、再审（同一 run，
+ *   不另开重跑）。每次恢复给一轮规划预算，直到审核通过。
  * - 「核查后继续」由用户在面板选择恢复触发（followup marker → 桥接 pre-step），
  *   不是宿主无条件自动续跑；宿主启动/owner 变更的收敛在 host.js（interrupted/blocked）。
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { MixedError, advanceRun, validatePlanGraph, newId } from './contracts.js'
-import { MixedDriver } from './dsh-driver.js'
 import {
   acquireWorkspaceWriteLock,
   executeTaskGraph,
@@ -38,6 +41,7 @@ import { validateReviewOutput, formatReviewRejectionDetail } from './review.js'
 export class MixedRunController {
   #lastPlanError = null
   #self = new AbortController()
+  #reviewReplans = 0
 
   /**
    * @param {object} deps
@@ -111,6 +115,7 @@ export class MixedRunController {
           plan: entry.plan,
           savePlan: entry.phase === 'planning',
           startRound: entry.startRound,
+          carryReview: entry.carryReview ?? null,
         })
       }
       await this.#transition('planning', { type: 'status_changed', summary: '开始规划' })
@@ -150,9 +155,20 @@ export class MixedRunController {
    * @param {object|null} p.plan 进入时已有计划（planning 阶段为 null）
    * @param {boolean} [p.savePlan=true] 是否新落 planVersion（恢复复用既有计划时为 false）
    * @param {number} [p.startRound=0] 审核轮计数起点（continue 沿用已耗轮次；retry 重置）
+   * @param {object|null} [p.carryReview] 从 blocked 恢复时带上的审核改进（先重规划再审）
    */
-  async #runPipeline({ startPhase, plan, savePlan = true, startRound = 0 }) {
+  async #runPipeline({ startPhase, plan, savePlan = true, startRound = 0, carryReview = null }) {
     let currentPlan = plan
+    if (carryReview) {
+      this.#reviewReplans = 0
+      const replanned = await this.#replanFromReview(currentPlan, carryReview)
+      if (!replanned) {
+        throw new MixedError('plan_invalid', '按审核改进重新规划未产出可实施计划')
+      }
+      currentPlan = replanned.plan
+      startPhase = 'reviewing'
+      startRound = 0
+    }
     if (startPhase === 'planning') {
       currentPlan = await this.#plan()
       if (this.#needsInput(currentPlan)) {
@@ -266,7 +282,8 @@ export class MixedRunController {
    * - 任务未完 → executing（复用 planVersion；调度器跳过 executed/accepted）；
    * - 任务全完 + 审核未完 → reviewing（中断轮结果未知 → 重跑该轮，不采信不明结果）；
    * - 任务全完 + 审核 pass → finalizing（只重试 finalizing，不重跑实施）；
-   * - 审核结论 blocked / 返修耗尽 → 拒绝（resume_not_allowed，建议重跑）。
+   * - 审核结论 changes_requested（返修/重规划已用尽）→ 从改进方案再规划（carryReview）；
+   * - 审核结论 blocked → 拒绝（resume_not_allowed）。
    */
   #resumeEntry(resume) {
     const cur = this.#fresh()
@@ -298,9 +315,13 @@ export class MixedRunController {
     if (lastRound.result.verdict === 'pass') {
       return { phase: 'finalizing', plan, startRound: 0 }
     }
+    if (lastRound.result.verdict === 'changes_requested') {
+      // 同一次运行内预算已用尽才落到这里。继续/重试都按改进方案再给一轮规划，不另开 run。
+      return { phase: 'reviewing', plan, startRound: 0, carryReview: lastRound.result }
+    }
     throw new MixedError(
       'resume_not_allowed',
-      `最近审核结论为「${lastRound.result.verdict}」（返修/证据不足已耗尽）：建议「用新需求重跑」而不是恢复`,
+      `最近审核结论为「${lastRound.result.verdict}」（无法继续）：建议「用新需求重跑」而不是恢复`,
     )
   }
 
@@ -474,11 +495,13 @@ export class MixedRunController {
     for (let attempt = 0; attempt < 2; attempt++) {
       const prompt = this.planPrompt(cur, {
         replan: {
-          reason: result.failed.length
-            ? `任务 ${result.failed.join('、')} 实施失败`
-            : '存在无法继续的任务，需要重新拆分',
+          reason: result.reason
+            ?? (result.failed.length
+              ? `任务 ${result.failed.join('、')} 实施失败`
+              : '存在无法继续的任务，需要重新拆分'),
           failedTasks: result.failed.map(pick),
           executedTasks: result.executed.map(pick),
+          ...(result.review ? { review: result.review } : {}),
         },
         formatError: attempt === 0 ? undefined : this.#lastPlanError,
       })
@@ -496,7 +519,8 @@ export class MixedRunController {
           runId: this.run.runId,
           newPlan: plan,
           supersedes: prevPlan.version,
-          reason: result.failed.length ? `任务 ${result.failed.join('、')} 失败后重新拆分` : '重新拆分',
+          reason: result.reason
+            ?? (result.failed.length ? `任务 ${result.failed.join('、')} 失败后重新拆分` : '重新拆分'),
           failedTaskIds: result.failed,
         })
         plan.version = version
@@ -507,11 +531,79 @@ export class MixedRunController {
   }
 
   /**
+   * 审核未通过且任务级返修已耗尽：把改进方案交给规划模型，重新拆分后再实施。
+   * 规划次数（maxReplans）用尽则返回 null，调用方再 blocked。
+   * @returns {Promise<{plan: object, repairBudget: number}|null>} 新计划；次数用尽为 null
+   */
+  async #replanFromReview(prevPlan, review) {
+    if (this.#reviewReplans >= this.maxReplans) return null
+    this.#reviewReplans++
+    const cur = this.#fresh()
+    const failed = new Set()
+    for (const f of (review.findings ?? []).filter((f) => f.severity === 'blocking')) {
+      for (const id of f.taskIds ?? []) failed.add(id)
+    }
+    for (const c of (review.criteria ?? []).filter((c) => c.status === 'fail')) {
+      for (const t of cur.tasks ?? []) {
+        if (t.acceptanceIds?.includes(c.acceptanceId)) failed.add(t.taskId)
+      }
+    }
+    const executed = (cur.tasks ?? [])
+      .filter((t) => (t.status === 'executed' || t.status === 'accepted') && !failed.has(t.taskId))
+      .map((t) => t.taskId)
+    const plan = await this.#replan(
+      {
+        failed: [...failed],
+        executed,
+        blocked: [],
+        reason: review.summary ? `审核未通过：${review.summary}` : '审核未通过，按改进方案重新拆分',
+        review,
+      },
+      prevPlan,
+    )
+    await this.#transition('executing', {
+      type: 'status_changed',
+      summary: `按审核改进重新拆分完成（planVersion=${plan.version}），继续实施`,
+    })
+    const lock = acquireWorkspaceWriteLock(this.run.workspace.canonicalPath, this.run.runId, this.workspaceLocks)
+    try {
+      const exec = await executeTaskGraph({
+        store: this.store,
+        driver: this.driver,
+        run: this.run,
+        plan,
+        signal: this.signal,
+        taskPrompt: this.taskPrompt,
+      })
+      if (!exec.complete) {
+        throw new MixedError(
+          'task_failed',
+          `按审核改进重新实施未完成：失败 ${exec.failed.join('、') || '无'}；受阻 ${exec.blocked.join('、') || '无'}`,
+        )
+      }
+      if (this.collector) {
+        await this.collector.collectAfterExecution({
+          store: this.store,
+          run: this.run,
+          baseline: this.baseline,
+          plan: this.#fresh().planVersions.at(-1),
+          signal: this.signal,
+        })
+      }
+    } finally {
+      lock.release()
+    }
+    await this.#transition('reviewing', { type: 'status_changed', summary: '按改进方案实施完成，重新审核' })
+    return { plan, repairBudget: this.maxRepairRounds }
+  }
+
+  /**
    * 审核闭环（T06）：
    * 每轮 = 证据刷新（失效检查/返修后重跑验证）→ 宿主 manifest → 落盘轮次 → 派发审核
    * → 宿主 verdict 校验（一次格式纠正）→ 回填。pass 前复核「审后修改」（输入树再变 → 重审）；
    * changes_requested → findings 分派 taskId 返修 → 重跑受影响验证 → 整体再审；
-   * 返修轮耗尽 / 审核两次非法 / 证据不足 → 上抛 blocked。
+   * 返修轮耗尽仍不通过 → 改进方案交回规划模型重新拆分、再实施、再审（受 maxReplans 限制）；
+   * 规划次数用尽 / 审核两次非法 / 证据不足 → 上抛 blocked。
    */
   async #reviewLoop(plan, { startRound = 0 } = {}) {
     let staleRetries = 0
@@ -537,7 +629,7 @@ export class MixedRunController {
       // 2) 宿主 manifest（权威；审核必须原样回填）
       const runNow = this.#fresh()
       const manifestHash = this.collector ? this.collector.manifestHash(runNow) : 'pending'
-      const manifest = this.collector ? JSON.parse(this.collector.manifest(runNow)).items : []
+      const manifest = this.collector ? this.collector.manifestItems(runNow) : []
       const hostVerification = this.collector ? this.collector.verificationExitsOf(runNow.runId) : new Map()
 
       // 3) 落盘审核轮（崩溃窗口保护：result 先 null）
@@ -639,8 +731,14 @@ export class MixedRunController {
       }
       if (verdict === 'pass') return 'pass'
       if (verdict === 'blocked') return 'blocked'
-      // changes_requested
-      if (round + 1 > this.maxRepairRounds) return 'changes_requested' // 返修轮耗尽
+      // changes_requested：先按任务返修；返修轮耗尽仍不通过 → 改进方案交给规划模型重新拆分，再实施、再审
+      if (round + 1 > this.maxRepairRounds) {
+        const replanned = await this.#replanFromReview(plan, result)
+        if (!replanned) return 'changes_requested'
+        plan = replanned.plan
+        round = -1 // 下一轮 continue 后从 0 起，新计划重新给返修预算
+        continue
+      }
 
       // 7) 返修：findings 分派 taskId → 受影响任务重跑 → 回 reviewing（下一轮重跑验证+整体再审）
       await this.#transition('repairing', { type: 'status_changed', summary: `第 ${round + 1} 轮返修` })

@@ -13,6 +13,7 @@ import {
   shouldPollFast,
   shouldRefreshLastRun,
   lastReviewOf,
+  canContinueFromReview,
 } from '../../plugins/desk-ui/src/client/mixed-panel-state.js'
 
 test('pickActionRun：当前 blocked 详情优先于过期 last，避免继续打到 null/旧 run', () => {
@@ -69,12 +70,21 @@ test('lastReviewOf：终态横幅优先用 lastReview，否则回退 reviewRound
   assert.equal(fromRounds.findings[0].repairInstruction, '改测试')
 })
 
+test('canContinueFromReview：只有审核要改且停在 blocked 才按改进继续', () => {
+  const review = { verdict: 'changes_requested', summary: '未过' }
+  assert.equal(canContinueFromReview({ status: 'blocked', error: { code: 'review_rejected' }, lastReview: review }), true)
+  assert.equal(canContinueFromReview({ status: 'blocked', error: { code: 'task_failed' }, lastReview: review }), false)
+  assert.equal(canContinueFromReview({ status: 'interrupted', error: { code: 'review_rejected' }, lastReview: review }), false)
+  assert.equal(canContinueFromReview(null), false)
+})
+
 test('运行面板：终态横幅必须画出审核未通过的详细原因（摘要/验收/findings）', () => {
   const src = fs.readFileSync(new URL('../../plugins/desk-ui/src/client/mixed-run-panel.jsx', import.meta.url), 'utf8')
   assert.match(src, /lastReviewOf/)
   assert.match(src, /ReviewReasons/)
   assert.match(src, /repairInstruction/)
   assert.match(src, /bannerRun/)
+  assert.match(src, /按改进继续/)
 })
 
 test('运行面板：恢复打展示 run、busy key 对齐、重跑带 rerunRequestId、pendingResume 可见', () => {

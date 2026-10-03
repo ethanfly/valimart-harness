@@ -37,7 +37,7 @@ function inputRefsBlock(run) {
  * @param {object} [opts]
  * @param {object} [opts.limits] 规模上限（默认 PLAN_LIMITS）
  * @param {string} [opts.formatError] 上一次输出未通过宿主校验的原因（一次格式纠正用）
- * @param {object} [opts.replan] 重新拆分上下文：{reason, failedTasks:[{taskId,title,blockedReason}], executedTasks:[{taskId,title}]}
+ * @param {object} [opts.replan] 重新拆分上下文：{reason, failedTasks:[{taskId,title,blockedReason}], executedTasks:[{taskId,title}], review?}
  */
 export function planPrompt(run, { limits = PLAN_LIMITS, formatError, replan } = {}) {
   const lines = []
@@ -86,6 +86,23 @@ export function planPrompt(run, { limits = PLAN_LIMITS, formatError, replan } = 
       for (const t of replan.executedTasks) lines.push(`  - ${t.taskId} ${t.title}`)
     }
     lines.push('- 可以沿用旧任务 id 表示「重做同一件事」，也可以用新 id；已完成的验收功能不能从 acceptance 删除，只能继续覆盖。')
+    const review = replan.review
+    if (review) {
+      lines.push('')
+      lines.push('审核未通过。下面是审核模型给出的改进方案，必须据此重新安排实施任务（不要只复述结论）：')
+      if (review.summary) lines.push(`- 审核摘要：${review.summary}`)
+      for (const c of review.criteria ?? []) {
+        if (!c.status || c.status === 'pass') continue
+        lines.push(`- 未通过验收 ${c.acceptanceId}（${c.status}）${c.explanation ? `：${c.explanation}` : ''}`)
+      }
+      for (const f of review.findings ?? []) {
+        lines.push(`- ${f.findingId ?? 'finding'}（${f.severity === 'blocking' ? '阻塞' : '提示'}，任务 ${(f.taskIds ?? []).join('、') || '—'}）`)
+        if (f.expected) lines.push(`  期望：${f.expected}`)
+        if (f.actual) lines.push(`  实际：${f.actual}`)
+        if (f.repairInstruction) lines.push(`  改进：${f.repairInstruction}`)
+      }
+      lines.push('- 把改进拆进任务的 goal / pathScope / verificationHints；已完成且与改进无关的任务保留原 taskId，不要重做。')
+    }
   }
   if (formatError) {
     lines.push('')

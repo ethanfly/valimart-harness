@@ -47,7 +47,7 @@ test('生成回复中的文件名、链接和标注路径自动展示，重复�
   }
   assert.equal((imageMarkdown('`a.png` [文件](./a.png) ![预览](a.png)', opts).match(/!\[/g) ?? []).length, 1)
   assert.equal((imageMarkdown('`a.png` [文件](./a.png)', opts).match(/!\[/g) ?? []).length, 1)
-  for (const input of ['```sh\ncat example.png\n```', '`![示例](local.png)`', '支持 png 格式，例如 foo.png', '[网页](https://example.com/page)', '`name = foo.png`']) assert.equal(imageMarkdown(input, opts), input)
+  for (const input of ['```sh\ncat example.png\n```', '`![示例](local.png)`', '支持 png 格式，例如 foo.png', '[网页](https://example.com/page)', '`name = foo.png`', '```text\n/uploads/202609/xxx.jpg\n```', '数据库里的 `/uploads/202609/xxx.jpg` 不用改。']) assert.equal(imageMarkdown(input, opts), input)
   assert.match(imageMarkdown('`a.png`', { ...opts, failed: new Set([sessionImageUrl('a.png', opts.sessionId, opts.origin)]) }), /图片加载失败/)
 })
 

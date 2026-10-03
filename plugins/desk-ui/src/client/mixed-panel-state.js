@@ -54,6 +54,11 @@ export function shouldRefreshLastRun(activeRun) {
 /**
  * 终态横幅用的最后一轮审核结论：列表摘要带 lastReview，详情带 reviewRounds。
  */
+/** 审核要改但预算用尽：面板「继续」会按改进方案再规划，不是重开一条 run。 */
+export function canContinueFromReview(run) {
+  return run?.status === 'blocked' && run?.error?.code === 'review_rejected' && lastReviewOf(run)?.verdict === 'changes_requested'
+}
+
 export function lastReviewOf(run) {
   if (!run) return null
   const direct = run.lastReview

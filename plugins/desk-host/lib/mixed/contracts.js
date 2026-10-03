@@ -81,7 +81,7 @@ const BASE_TRANSITIONS = {
   planning: ['executing', 'waiting_input', 'blocked'],
   waiting_input: ['planning'],
   executing: ['reviewing', 'planning', 'blocked'],
-  reviewing: ['finalizing', 'repairing', 'blocked'],
+  reviewing: ['finalizing', 'repairing', 'planning', 'blocked'], // planning：返修耗尽后按审核改进重新拆分
   repairing: ['reviewing', 'blocked'],
   finalizing: ['succeeded', 'blocked'],
   blocked: [...RESUME_TARGETS], // 恢复：按恢复选择回到对应阶段（宿主对账后）

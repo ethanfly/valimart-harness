@@ -441,7 +441,7 @@ test('formatReviewRejectionDetail：必须写出摘要、未过验收、期望/�
 
 // ---------- 验收 F：两轮返修耗尽 → 明确 blocked ----------
 
-test('审核：changes_requested 两轮返修耗尽 → blocked(review_rejected)，不无限循环', async (t) => {
+test('审核：返修耗尽后重规划一次仍不通过 → blocked(review_rejected)，不无限循环', async (t) => {
   const env = makeEnv(t)
   await env.store.open(env.facility)
   seedWorkspace(env)
@@ -488,9 +488,76 @@ test('审核：changes_requested 两轮返修耗尽 → blocked(review_rejected)
   assert.match(rec.error.detail, /期望：check\.mjs 通过/)
   assert.match(rec.error.detail, /实际：仍失败/)
   assert.match(rec.error.detail, /返修：再试一次/)
-  assert.equal(rec.reviewRounds.length, 3, '审核 3 轮 = 初始 + 2 次返修后重审')
-  assert.equal(executionAttempts(env.store, run.runId), 3, '初始 + 2 次返修')
+  assert.equal(rec.reviewRounds.length, 6, '初始 3 轮 + 重规划后再审 3 轮')
+  assert.equal(rec.planVersions.length, 2, '审核改进只触发一次重新拆分')
+  assert.equal(fakeSub.spawns.filter((s) => s.label === 'mixed:planning').length, 2)
+  assert.ok(executionAttempts(env.store, run.runId) > 3)
   assert.ok(rec.events.filter((e) => e.type === 'repair_assigned').length >= 2)
+})
+
+test('审核：返修耗尽后把改进方案交给规划模型，重新实施再审通过', async (t) => {
+  const env = makeEnv(t)
+  await env.store.open(env.facility)
+  seedWorkspace(env)
+  const run = await claimRun(env, { messageId: 'msg-replan' })
+  const collector = new EvidenceCollector({ storageRoot: env.root, store: env.store, logger: QUIET })
+  let execN = 0
+  const fakeSub = makeFakeSubagents({
+    exec: () => {
+      execN++
+      fs.writeFileSync(path.join(env.ws, 'app.mjs'), execN >= 3 ? FIXED_APP : BROKEN_APP)
+      return { output: '完成', stopReason: 'completed' }
+    },
+    plan: (n, opts) => {
+      const text = opts.prompt?.[0]?.text ?? ''
+      if (n > 1) {
+        assert.match(text, /改进方案/)
+        assert.match(text, /再试一次/)
+      }
+      return { output: 'plan', stopReason: 'completed', structured: planStructured('实现 app.mjs 并通过 check.mjs 校验') }
+    },
+    review: (n, opts) => {
+      const base = makeReviewer(env, run.runId, {
+        verdict: n < 5 ? 'changes_requested' : 'pass',
+        criteriaOf: (r) => {
+          const ev = r.evidence.filter((e) => e.type === 'verification').at(-1).evidenceId
+          const status = n < 5 ? 'fail' : 'pass'
+          return r.planVersions.at(-1).acceptance.map((a) => ({
+            acceptanceId: a.id,
+            status,
+            evidenceIds: [ev],
+            explanation: status === 'pass' ? '通过' : '仍失败',
+          }))
+        },
+        findingsOf: (r) => {
+          if (n >= 5) return []
+          const ev = r.evidence.filter((e) => e.type === 'verification').at(-1).evidenceId
+          return [{
+            findingId: 'f1',
+            taskIds: ['t1'],
+            severity: 'blocking',
+            evidenceIds: [ev],
+            expected: 'check.mjs 通过',
+            actual: '仍失败',
+            repairInstruction: '再试一次',
+          }]
+        },
+      })
+      return base(n, opts)
+    },
+  })
+  const { controller } = makeController(env, run, fakeSub, collector)
+  const res = await controller.execute(new AbortController().signal)
+  const rec = env.store.getRun(run.runId)
+
+  if (res.outcome !== 'succeeded') {
+    const events = rec.events.map((e) => `${e.type}:${e.summary}`).join(' | ')
+    throw new Error(`${rec.error?.code} ${rec.error?.detail}\n${events}`)
+  }
+  assert.equal(rec.status, 'succeeded')
+  assert.ok(rec.planVersions.length >= 2, '审核改进触发了新计划')
+  assert.ok(rec.events.some((e) => e.type === 'plan_replanned' && /审核未通过/.test(e.summary)))
+  assert.ok(fakeSub.spawns.filter((s) => s.label === 'mixed:planning').length >= 2)
 })
 
 // ---------- 验收 G：审核异常（两次无有效结构化输出）→ blocked ----------
@@ -644,7 +711,7 @@ test('回归：审核输出为旧/残缺形状（note、minor、缺 expected/act
       fs.writeFileSync(path.join(env.ws, 'app.mjs'), FIXED_APP)
       return { output: '完成', stopReason: 'completed' }
     },
-    review: (n, opts) => {
+    review: (_n, opts) => {
       const runNow = env.store.getRun(run.runId)
       const ev = runNow.evidence.filter((e) => e.type === 'verification').at(-1)?.evidenceId
       // 完全按旧 LLM schema 的形状输出（note 代替 explanation、severity=minor、description 代替三要素、缺 repairInstruction）
