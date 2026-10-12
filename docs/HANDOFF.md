@@ -2,6 +2,13 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-12：GitHub Pages 直链下载与项目 Star
+
+- `docs/intro/index.html` 的下载入口在页面加载时请求 GitHub `latest` Release API，客户端、网关与 VS Code 插件按附件名称解析为直接下载 URL；VS Code / 网关多个版本时按语义版本取最新。API 请求失败或附件缺失时回退到 Releases 页面。
+- 首页导航增加 GitHub 仓库按钮和 Shields 动态 Star 徽章。GitHub Pages 仍由 `.github/workflows/pages.yml` 在 `docs/intro/**` 推送到 `main` 后发布。
+- 当前在线 `latest` Release 返回客户端 `valimart-harness-Setup-0.1.0-20261012.0207.exe`、网关 `valimart-harness-Gateway-Setup-0.1.0.exe`、VS Code 插件 `valimart-harness-0.3.1.vsix`；客户端链接按 API 响应更新，不固定版本号。过程记录：`docs/sessions/2026-10-12-pages-download-links.md`。
+- 验证：页面 2 段内联脚本语法通过；用 latest 资产样例检查 7 个下载入口直达匹配附件，网络失败回退到 Releases；`git diff --check` 通过。推送后由 Pages Actions 发布。
+
 ## 2026-10-12：订阅账号用量状态与官方入口
 
 - 管理页「模型设置 → 模型通道」为每个订阅账号显示网关最近观察到的状态：有成功响应时标记「最近请求成功 · 可用」，上游额度错误时标记「已触发限额」，并展示网关优先冷却截止时间；冷却期过后提示等待下一次请求验证。
