@@ -25,12 +25,16 @@ before(async () => {
     req.on('end', () => {
       last = { url: req.url, method: req.method, headers: req.headers, body: JSON.parse(raw || '{}') }
       if (req.url === '/videos/generations' || req.url === '/v1/videos/generations') {
+        const asyncJob = last.body.prompt === 'async'
         res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({
-          created: 1,
-          data: [{ url: 'https://cdn.example/clip.mp4', revised_prompt: last.body.prompt }],
-          usage: { prompt_tokens: 8, completion_tokens: 4000, total_tokens: 4008 },
-        }))
+        res.end(JSON.stringify(asyncJob
+          ? { request_id: 'req-1' }
+          : { created: 1, data: [{ url: 'https://cdn.example/clip.mp4', revised_prompt: last.body.prompt }], usage: { prompt_tokens: 8, completion_tokens: 4000, total_tokens: 4008 } }))
+        return
+      }
+      if (req.url === '/v1/videos/req-1') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ status: 'done', video: { url: 'https://cdn.example/async.mp4' } }))
         return
       }
       res.writeHead(404)
@@ -107,6 +111,39 @@ test('未指定 model 时默认 grok-imagine-video-1.5', async () => {
   assert.equal(last.body.model, 'grok-imagine-video-1.5')
   assert.equal(last.body.duration, 6)
   assert.equal(last.body.aspect_ratio, '16:9')
+})
+
+test('xAI 只回 request_id 时轮询到 video.url', async () => {
+  const prev = process.env.DESK_VIDEO_POLL_MS
+  process.env.DESK_VIDEO_POLL_MS = '1'
+  try {
+    const r = await fetch(base + '/v1/videos/generations', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'grok-imagine-video-1.5', prompt: 'async' }),
+    })
+    assert.equal(r.status, 200)
+    assert.equal((await r.json()).data[0].url, 'https://cdn.example/async.mp4')
+    assert.equal(last.url, '/v1/videos/req-1')
+  } finally {
+    if (prev == null) delete process.env.DESK_VIDEO_POLL_MS
+    else process.env.DESK_VIDEO_POLL_MS = prev
+  }
+})
+
+test('裸 base64 参考图包成 data URI，多张走 reference_images', async () => {
+  const r = await fetch(base + '/v1/videos/generations', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'grok-imagine-video-1.5', prompt: '猫动起来', image: 'QUFB', images: ['QUFB', 'QkJC'] }),
+  })
+  assert.equal(r.status, 200)
+  assert.deepEqual(last.body.image, { url: 'data:image/png;base64,QUFB' })
+  assert.equal(last.body.images, undefined)
+  assert.deepEqual(last.body.reference_images, [
+    { image_url: 'data:image/png;base64,QUFB' },
+    { image_url: 'data:image/png;base64,QkJC' },
+  ])
 })
 
 test('缺 prompt 返回 400；未知模型 404', async () => {

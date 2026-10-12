@@ -2,6 +2,34 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-12：提交业务改动，GitHub 客户端只留最新版
+
+- 提交当前生视频插件、媒体历史与会话 tab、工作区排序、网关媒体协议 / 出站代理、管理页布局等积累改动，推送 GitHub `origin/main`，触发既有 release 工作流。
+- `.github/workflows/release.yml`：新客户端上传成功后，仅保留本次客户端 exe；`replacesArtifacts` 只替换同名附件，不能清掉带旧时间戳的客户端。新增 `artifactErrorsFailBuild`，清理前确认唯一客户端已完整上传；失败时保留旧包。
+- 同步删除更早运行的 `windows-installers` Actions artifact，本次产物保留 3 天。网关与 VS Code 附件不在客户端清理范围内。
+- 已在线清理 `latest` Release 的 17 个旧客户端，现保留 `valimart-harness-Setup-0.1.0-20261003.1500.exe`；旧 Windows artifact 也已清理到只剩最新一份，新构建成功后自动替换。
+- 验证：全量测试复跑 **590 pass / 0 fail / 1 skip**；首次全量有一项 Mixed 换账号时序断言失败，单文件复跑 30/30，全量复跑恢复通过。新增发布清理保护测试 **3/3**；`npm run build` 与 `git diff --check` 通过。
+- 临时 `fnos-probe.mjs` 留在本地，未提交。过程见 `docs/sessions/2026-10-12-submit-release-retention.md`。
+
+## 2026-10-08：desk-video 生视频插件
+
+- 插件 `plugins/desk-video`（`@company-desk/desk-video`），照 desk-image：工具 `video_generate` 只走公司网关 `/v1/videos/generations`，密钥不落本机。
+- 短名 wan / qwen / minimax / grok / gpt / seedance 对到公司目录里的真实 id；设置 → 生视频可从目录下拉选择，也可填额外模型 id。输入框「生视频」芯片：提示词 + 最多 4 张参考图 + 时长。
+- 长视频：时长超过模型单段上限（万相/海螺/可灵 10s、Sora/Seedance 12s、Veo 8s，总上限 120s）时分段生成，本机 ffmpeg concat 拼接。参考图只喂第一段。`longForm: false` 关掉。
+- 网关 `server/src/upstream-video.js`：万相（dashscope 异步 video-synthesis）、MiniMax 海螺（video_generation + 取文件）、火山 Seedance（contents/generations/tasks）翻成统一 `{ data: [{ url }] }`。Grok / Sora 仍走 OpenAI 兼容透传。
+- 挂载：`profile/cordis.patch.yml`、`COMPANY_PLUGINS`、`build-payload`、closure。验证：desk-video + upstream-video + 旧视频代理 **20 pass**；bootstrap + desk-image 一起 **44 pass / 1 已修**。
+- **已打客户端包并发布**：`dist/valimart-harness-Setup-0.1.0-20261008.0226.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261008-0226.02cd5a0a`，SHA-256 `57f15f19be149b9216bd509766fcaa5ef87bb642b24e5e845cfe90e9a21b556e`）。网关当前客户端已切到这一版，上一版 `…20261003-1455.a084a6ac` 留作 previous。
+- **再次发布（含生图 / 视频 tab）**：`dist/valimart-harness-Setup-0.1.0-20261008.0237.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261008-0237.074d9b4d`，SHA-256 `8d65afee117a47f5be0125b4cf6dd1fc8a6e15b07c03fdf437ae9fe8421bb526`）。当前版本已切到这一版，0226 留作 previous。
+- **再次发布（生图表单布局）**：`dist/valimart-harness-Setup-0.1.0-20261008.0244.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261008-0244.b2210f38`，SHA-256 `880d97078d39601385aa2262f609002cb697773e0b250c9b377ec5e5f567b60b`）。当前版本切到这一版，0237 留作 previous。
+- **再次发布（视频参考图点选 / 上传）**：`dist/valimart-harness-Setup-0.1.0-20261008.0308.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261008-0308.46ab9a4e`，SHA-256 `8e5a39be286e382ea94ac555a7a958f26636d74ffcb25e6932d857cfebe5b904`）。当前版本切到这一版，0244 留作 previous。
+- **再次发布（表单控件不再溢出）**：`dist/valimart-harness-Setup-0.1.0-20261008.0327.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261008-0327.9ebb32a4`，SHA-256 `699f926b63fa4dc410efbcbc790e25c22d3f412a931f20bb771a71127b3c469c`）。当前版本切到这一版，0308 留作 previous。
+- **再次发布（内容与 0327 相同，只换时间戳）**：`dist/valimart-harness-Setup-0.1.0-20261008.0345.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261008-0345.9ebb32a4`，SHA-256 `3e8b3475192c477b988e231e8e4c4d570f5a331d3f1fe46a14d6464f62d43f56`）。当前版本切到这一版，0327 留作 previous。生视频 422 的修复在 `server/src/llm-proxy.js`。
+- **网关已重打包并升级安装**：`dist/valimart-harness-Gateway-Setup-0.1.0.exe`（27.1 MiB），`/S` 静默升级退出码 0。`TheDivaGateway` 运行中，8790 返回 401（要登录）。安装目录 `llm-proxy.js` 含 `asDataUri` / `settleVideo`（6 处），`config.local.json` 保留，`ethan` 桌面会话仍有效。员工机器下次启动静默覆盖安装。安装版网关仍是旧代码（万相 / MiniMax / Seedance 的协议翻译还没进服务），要这些通道生效需再 `dist:gateway`。`boss/boss123456` 在安装版上已改过，发布用的是本机 `ethan` 桌面会话。
+- **同日后续客户端包**（交接补记，源码仍未提交）：`0418` / `0516` / `0551` / `0639` / `0804` 依次发布。网关记录的最后一版是 `0.1.0+0.2.0-rc.2.20261008-0804.2e33a469`（sha256 `e64837b7…decbf2`，232609992 字节，上一版 `0639` 同摘要 `2e33a469`）。
+- **2026-10-09 再发布**：`dist/valimart-harness-Setup-0.1.0-20261009.0223.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261009-0223.83eba77e`，SHA-256 `5454ab3d9a0a73ffed9e8aadf9484b53dcd37c9a733c13feff84be9034e1ee9c`）。这一包比 `0804` 多出的是 `desk-host`：会话视频 `GET /sessions/:id/video`、插件清单登记 `desk-video`、工作区排序改从后往前插。倒序插入没有生效：内核 `insertBefore` 同步返回、内部排队，连续两次都按调用瞬间的旧顺序算，后一次覆盖前一次；而且内核 `create()` 把新建工作区插到最前，排序只在登录同步时跑一次。
+- **2026-10-09 工作区置顶**：`plugins/desk-host/lib/workspace-order.js` 的 `pinWorkspaceOrder` 等前一次落盘再排下一个，固定「个人、团队、其余」。侧栏 `/workspace-git` 轮询（8 秒）发现前两位不对就再钉一次。`scripts/test/workspace-order.test.mjs` 3 pass。本机安装目录先手工换上并重启验证：顺序为个人、团队、valicreaty…
+- **当前发布**：`dist/valimart-harness-Setup-0.1.0-20261009.0233.exe`（221.8 MiB，buildId `0.1.0+0.2.0-rc.2.20261009-0233.e6179889`，SHA-256 `58e40b116428e0e61c1e118d4a6f01bed0ae92e2a4015e305e4b50c81b9c508f`）。网关当前版本切到这一版，`0223` 留作 previous。解包后的 payload 含 `workspace-order.js` 与 `pinWorkspaceOrder`。
+
 ## 2026-09-30：会话里的 `/uploads/...jpg` 被当成图片加载
 
 - 现象：湛江磁盘会话末尾「图片加载失败 xxx.jpg」，重试也没有图。回复原文是举例 `` `/uploads/202609/xxx.jpg` ``，文件不在工作区。

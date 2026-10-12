@@ -121,7 +121,7 @@ const SPEC_RE = /(?:^|[;{(,\s])(?:require\(\s*|import\s*\(\s*|from\s+|import\s+)
 const seenSpecs = new Map() // spec → {file, resolved|null}
 const hostFiles = []
 const pluginsDir = path.join(payloadDir, 'plugins')
-for (const name of ['desk-host', 'desk-image']) {
+for (const name of ['desk-host', 'desk-image', 'desk-video']) {
   const lib = path.join(pluginsDir, name, 'lib')
   if (fs.existsSync(lib)) hostFiles.push(...walk(lib))
 }

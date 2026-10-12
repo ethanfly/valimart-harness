@@ -453,6 +453,8 @@ html.dk-desk-electron .dk-rail { padding-top: 10px; }
 .dk-input, .dk-select, .dk-textarea {
   appearance: none;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--dk-border);
   background: var(--dk-bg);
   color: var(--dk-text);
@@ -527,6 +529,28 @@ html.dk-desk-electron .dk-rail { padding-top: 10px; }
 .dk-composer-chip-label { white-space: nowrap; }
 .dk-composer-chip-badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 10px; line-height: 16px; text-align: center; background: var(--dk-text); color: var(--dk-bg); }
 @media (max-width: 560px) { .dk-composer-chip-label { display: none; } }
+.dk-media-tab { padding: 16px 20px; overflow: auto; height: 100%; }
+.dk-media-tab h3 { margin: 0; }
+.dk-media-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.dk-media-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dk-media-field > span { font-size: 12px; color: var(--dk-text-3); }
+.dk-media-field .dk-textarea, .dk-media-field .dk-input, .dk-media-field .dk-select { width: 100%; box-sizing: border-box; }
+.dk-media-form-row { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(auto-fit, minmax(120px, .7fr)); gap: 12px; }
+.dk-media-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dk-media-refs, .dk-media-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.dk-media-picks { margin-top: 4px; }
+.dk-media-ref { width: 72px; height: 72px; padding: 0; border: 1px solid var(--dk-border-soft); border-radius: 8px; background: var(--dk-bg-2); overflow: hidden; cursor: pointer; }
+.dk-media-ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dk-media-ref.on { outline: 2px solid var(--dk-text); outline-offset: 1px; }
+.dk-media-ref.add { color: var(--dk-text-3); font-size: 12px; }
+.dk-media-ref:disabled { opacity: .4; cursor: default; }
+@media (max-width: 640px) { .dk-media-form-row { grid-template-columns: 1fr; } }
+.dk-media-prompt { margin: 8px 0 4px; white-space: pre-wrap; }
+.dk-media-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.dk-media-files img { max-width: 220px; max-height: 160px; border-radius: 8px; }
+.dk-media-clip { display: flex; flex-direction: column; gap: 4px; }
+.dk-media-clip video { width: min(480px, 100%); max-height: 300px; border-radius: 8px; background: #000; }
+.dk-media-grid { display: grid; gap: 12px; margin-top: 12px; }
 .dk-card {
   border: 1px solid var(--dk-border-soft);
   border-radius: var(--dk-radius);

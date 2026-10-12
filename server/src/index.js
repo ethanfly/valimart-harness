@@ -26,13 +26,14 @@ import { createLanBeacon, shouldStartLanBeacon } from './lan-beacon.js'
 import { LAN_PRODUCT } from '../../scripts/lib/lan-protocol.mjs'
 import { loadInstanceId } from './instance-id.js'
 import { createRouter, parseUrl, sendError, sendJson, HttpError } from './http.js'
+import { applyOutboundProxy } from './outbound-proxy.js'
 
 const startedAt = Date.now()
 
 export function createGateway(overrides = {}) {
   // fetchReleases / kernels / fetchNpmVersions / prepareInstaller 是旧内核更新链的测试注入位，
   // 现已移除：内核随客户端整包分发，不再经网关更新。仍吸收这些键，避免漏进 loadConfig。
-  const { fetchReleases, kernels, fetchNpmVersions, prepareInstaller, fetchModels, ...cfgOverrides } = overrides
+  const { fetchReleases: _fetchReleases, kernels: _kernels, fetchNpmVersions: _fetchNpmVersions, prepareInstaller: _prepareInstaller, fetchModels, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
   const instanceId = loadInstanceId(cfg.dataDir)
@@ -48,6 +49,9 @@ export function createGateway(overrides = {}) {
   const catalog = () => modelCatalog(cfg)
   const oauth = new OAuthSubscribe({ cfg, channels })
   const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution })
+  applyOutboundProxy().then((outbound) => {
+    if (outbound) console.log(`[gateway] 上游走代理 ${outbound}`)
+  }).catch((err) => console.warn(`[gateway] 出站代理未启用：${err.message}`))
 
   // 在线状态：登录会话心跳（客户端本机 host 每 30s 一次）
   const lastSeen = new Map()

@@ -62,6 +62,12 @@ export const api = {
     config: () => call('GET', '/image/config'),
     saveConfig: (body) => call('POST', '/image/config', body),
     generate: (body) => call('POST', '/image/generate', body, { timeoutMs: 180_000 }),
+    history: (sessionId) => call('GET', `/image/history?sessionId=${encodeURIComponent(sessionId ?? '')}`),
+  },
+  video: {
+    config: () => call('GET', '/video/config'),
+    saveConfig: (body) => call('POST', '/video/config', body),
+    generate: (body) => call('POST', '/video/generate', body, { timeoutMs: 900_000 }),
   },
   mixed: {
     config: () => call('GET', '/mixed/config'),

@@ -458,6 +458,12 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   for (const id of ['overview', 'updates', 'models', 'knowledge', 'org', 'tools']) {
     assert.ok(html.includes(`data-page="${id}"`), `管理页应有 ${id} 分页`)
   }
+  for (const id of ['models', 'knowledge', 'org']) {
+    assert.ok(html.includes(`data-tabs="${id}"`), `管理页应有 ${id} 设置 tab`)
+  }
+  for (const id of ['channels', 'search', 'catalog', 'query', 'collections', 'people', 'positions', 'departments']) {
+    assert.ok(html.includes(`data-tab="${id}"`), `管理页应有 ${id} 子页面`)
+  }
   assert.ok(html.includes('id="nav"'), '管理页应有侧栏菜单')
   assert.ok(html.includes('class="fold"'), '知识/工具合集应折叠')
   assert.ok(html.includes('data-export='), '管理页应有导出')

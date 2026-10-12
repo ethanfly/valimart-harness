@@ -1,4 +1,5 @@
-import fs from 'node:fs/promises'
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,11 +29,11 @@ export async function readSessionImage(session, source) {
     if (/^[a-z][a-z\d+.-]*:/i.test(local) && !/^[a-z]:[\\/]/i.test(local)) throw fail(400, '只接受本地图片路径')
   }
   try {
-    const root = await fs.realpath(session.header.cwd)
-    const file = await fs.realpath(path.resolve(root, local))
+    const root = await fsp.realpath(session.header.cwd)
+    const file = await fsp.realpath(path.resolve(root, local))
     const rel = path.relative(root, file)
     if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) throw fail(403, '图片不在当前会话工作目录内')
-    const handle = await fs.open(file, 'r')
+    const handle = await fsp.open(file, 'r')
     try {
       const stat = await handle.stat()
       if (!stat.isFile()) throw fail(415, '图片路径不是文件')
@@ -71,4 +72,29 @@ export async function serveSessionImage(req, res, { loggedIn, session, source, i
     'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'",
   })
   res.end(bytes)
+}
+
+/** 会话工作目录里的视频。支持 Range，浏览器才能拖动播放。 */
+export async function serveSessionVideo(req, res, { loggedIn, session, source }) {
+  if (!loggedIn) throw fail(401, '请先登录')
+  if (req.headers['sec-fetch-site'] !== 'same-origin') throw fail(403, '视频只允许当前工作台读取')
+  if (!session?.header?.cwd) throw fail(404, '会话不存在或没有工作目录')
+  const root = await fsp.realpath(session.header.cwd)
+  const file = await fsp.realpath(path.resolve(root, String(source ?? '')))
+  const rel = path.relative(root, file)
+  if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) throw fail(403, '视频不在当前会话工作目录内')
+  const stat = await fsp.stat(file)
+  if (!stat.isFile()) throw fail(415, '视频路径不是文件')
+  const headers = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''))
+  if (!range) {
+    res.writeHead(200, { ...headers, 'content-length': stat.size })
+    fs.createReadStream(file).pipe(res)
+    return
+  }
+  const start = range[1] ? Number(range[1]) : Math.max(0, stat.size - Number(range[2]))
+  const end = range[2] && range[1] ? Math.min(Number(range[2]), stat.size - 1) : stat.size - 1
+  if (start > end || start >= stat.size) { res.writeHead(416, { 'content-range': `bytes */${stat.size}` }); res.end(); return }
+  res.writeHead(206, { ...headers, 'content-length': end - start + 1, 'content-range': `bytes ${start}-${end}/${stat.size}` })
+  fs.createReadStream(file, { start, end }).pipe(res)
 }

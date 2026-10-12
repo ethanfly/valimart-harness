@@ -11,6 +11,8 @@ import { makeMixedChip } from './mixed-mode.jsx'
 import { makeMixedRunPanel } from './mixed-run-panel.jsx'
 import { startMixedPolling } from './mixed-store.js'
 import { ImageGenSection, makeImageChip } from './image-gen.jsx'
+import { VideoGenSection, makeVideoChip } from './video-gen.jsx'
+import { ImageTab, VideoTab } from './media-tabs.jsx'
 import { startPolling, loadPeople } from './api.js'
 import { deskStore } from './store.js'
 import { makeFileChip } from './composer.jsx'
@@ -178,6 +180,7 @@ export function apply(ctx) {
     { id: 'desk-subscription', order: 35, label: '订阅', component: SubscriptionSection },
     { id: 'desk-knowledge', order: 40, label: '技能与知识', component: KnowledgeSection },
     { id: 'desk-image', order: 42, label: '生图', component: ImageGenSection },
+    { id: 'desk-video', order: 42.5, label: '生视频', component: VideoGenSection },
     { id: 'desk-mixed', order: 43, label: 'Mixed 混合', component: MixedSection },
     { id: 'desk-desktop', order: 45, label: '桌面', component: DesktopSection },
   ]
@@ -198,15 +201,25 @@ export function apply(ctx) {
   // ---- 输入框工具行：「文件」芯片（本机文件 → 会话工作目录 _attachments/ → @ 引用）----
   const FileChip = makeFileChip(ctx)
   const ImageChip = makeImageChip(ctx)
+  const VideoChip = makeVideoChip(ctx)
   const MixedChip = makeMixedChip()
   const MixedRunPanel = makeMixedRunPanel()
   ctx.effect(
     () => ctx.slots.inject('conversation.input.left', () => [
       ctx.slots.register({ name: 'conversation.input.left', id: 'desk-files', order: 10, label: '文件' }, FileChip),
       ctx.slots.register({ name: 'conversation.input.left', id: 'desk-image', order: 11, label: '生图' }, ImageChip),
+      ctx.slots.register({ name: 'conversation.input.left', id: 'desk-video', order: 11.5, label: '生视频' }, VideoChip),
       ctx.slots.register({ name: 'conversation.input.left', id: 'desk-mixed', order: 12, label: 'Mixed' }, MixedChip),
     ]),
     'desk-ui: composer file and image chips',
+  )
+  // 会话视图：对话 / 轨迹 旁边加「生图」「视频」（本工作目录的历史 + 新建任务）
+  ctx.effect(
+    () => ctx.slots.inject('conversation.view', () => [
+      ctx.slots.register({ name: 'conversation.view', id: 'desk-image', order: 20, label: '生图' }, ImageTab),
+      ctx.slots.register({ name: 'conversation.view', id: 'desk-video', order: 30, label: '视频' }, VideoTab),
+    ]),
+    'desk-ui: image and video views',
   )
   // ---- Mixed 运行面板（输入框上方 dock：阶段/任务/模型/审核/证据/停止恢复）----
   ctx.effect(

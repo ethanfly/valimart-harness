@@ -32,6 +32,7 @@ import {
   toDashscopeImageBody,
   usesDashscopeImages,
 } from './upstream-dashscope.js'
+import { runVendorVideo, videoVendor } from './upstream-video.js'
 
 export class LlmProxy {
   constructor({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution = null }) {
@@ -273,6 +274,7 @@ export class LlmProxy {
     let upstreamRes
     try {
       upstreamRes = await this.fetchUpstream(upstream, body, model, { stream: false, signal: ac.signal, path: apiPath })
+      if (kind === 'videos') upstreamRes = await this.settleVideo(upstream, upstreamRes, ac.signal)
     } catch (err) {
       if (ac.signal.aborted) return
       if (err instanceof HttpError) {
@@ -314,7 +316,7 @@ export class LlmProxy {
     }
   }
 
-  async mockChat(user, model, body, res, upstream) {
+  async mockChat(user, model, body, res, _upstream) {
     const started = Date.now()
     const stream = body.stream === true
     const finish = (usage, status, extra = {}) => {
@@ -532,7 +534,7 @@ export class LlmProxy {
    * ChatGPT 订阅（Codex）出图：上游没有 /images/*，用 Responses 的 image_generation 工具生成，
    * 再把结果包成 OpenAI /images 的形状回给调用方。n>1 逐张生成。
    */
-  async codexImages(upstream, body, model, apiPath, { signal } = {}) {
+  async codexImages(upstream, body, _model, _apiPath, { signal } = {}) {
     const driver = (upstream.models ?? []).find((m) => m?.id && !/image|video|dall-e|imagine|wanx|flux/i.test(m.id))
     if (!driver) throw new HttpError(400, '该订阅通道里没有可用来驱动 image_generation 的对话模型', 'no_image_driver')
     const driverModel = driver.upstreamModel ?? driver.id
@@ -569,7 +571,7 @@ export class LlmProxy {
    * DashScope（阿里云百炼）出图：OpenAI /images/* ↔ 原生接口。
    * qwen-image 系列走同步 multimodal-generation；该模型不支持时退回异步 text2image + 轮询。
    */
-  async dashscopeImages(upstream, body, model, apiPath, { signal } = {}) {
+  async dashscopeImages(upstream, body, model, _apiPath, { signal } = {}) {
     const origin = dashscopeOrigin(upstream.baseUrl)
     const modelId = model.upstreamModel ?? model.id
     const count = Math.max(1, Math.min(4, Number(body.n) || 1))
@@ -665,6 +667,46 @@ export class LlmProxy {
     throw new HttpError(502, errors.filter(Boolean).join('；') || 'DashScope 出图失败', 'dashscope_failed')
   }
 
+  /**
+   * xAI 视频是异步的：POST 只回 request_id，GET /videos/{id} 到 status=done 才有 video.url。
+   * 同步上游（直接 data[].url）原样返回。ponytail: 固定 5s 轮询，排队超过 10 分钟再调 DESK_VIDEO_TIMEOUT_MS。
+   */
+  async settleVideo(upstream, res, signal) {
+    const text = await res.text()
+    const replay = () => new Response(text, { status: res.status, headers: { 'content-type': res.headers.get('content-type') ?? 'application/json' } })
+    if (!res.ok) return replay()
+    let json
+    try { json = JSON.parse(text) } catch { return replay() }
+    const url = json?.data?.[0]?.url ?? json?.video?.url
+    const requestId = json?.request_id ?? json?.id
+    if (url || !requestId) return replay()
+    const deadline = Date.now() + Number(process.env.DESK_VIDEO_TIMEOUT_MS || 600_000)
+    const pollMs = Number(process.env.DESK_VIDEO_POLL_MS || 5000)
+    const base = String(upstream.baseUrl ?? '').replace(/\/+$/, '').replace(/\/v1$/, '')
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, pollMs))
+      if (signal?.aborted) throw new HttpError(504, '生视频已取消', 'timeout')
+      const polled = await fetch(`${base}/v1/videos/${encodeURIComponent(requestId)}`, {
+        headers: { authorization: `Bearer ${upstream.resolvedKey}`, accept: 'application/json' },
+        signal,
+      })
+      const body = await polled.text()
+      let state
+      try { state = JSON.parse(body) } catch { throw new HttpError(502, `视频轮询返回非 JSON：${body.slice(0, 200)}`, 'bad_upstream') }
+      if (!polled.ok) throw new HttpError(502, state?.error?.message || `视频轮询 HTTP ${polled.status}`, 'upstream_error')
+      const status = String(state.status ?? '').toLowerCase()
+      if (status === 'expired' || status === 'failed') throw new HttpError(502, state.error?.message || `视频任务 ${status}`, 'upstream_failed')
+      const done = state.video?.url ?? state.data?.[0]?.url
+      if (done || status === 'done' || status === 'succeeded') {
+        if (!done) throw new HttpError(502, '视频任务完成但没有地址', 'empty')
+        return new Response(JSON.stringify({ created: Math.floor(Date.now() / 1000), data: [{ url: done }] }), {
+          status: 200, headers: { 'content-type': 'application/json; charset=utf-8' },
+        })
+      }
+    }
+    throw new HttpError(504, '视频生成超时', 'timeout')
+  }
+
   async fetchImageB64(url, signal) {
     const raw = String(url ?? '')
     const dataUrl = /^data:image\/[^;]+;base64,(.+)$/i.exec(raw)
@@ -683,6 +725,9 @@ export class LlmProxy {
       }
       if (usesDashscopeImages(upstream) && String(apiPath).includes('/images')) {
         return this.dashscopeImages(upstream, body, model, apiPath, { signal })
+      }
+      if (String(apiPath).includes('/videos') && videoVendor(upstream)) {
+        return runVendorVideo(upstream, body, model, { signal })
       }
       if (usesAnthropicMessages(upstream) || usesCloudCodePa(upstream)) {
         throw new HttpError(400, '该上游不支持媒体接口（仅 OpenAI 兼容通道，如 Grok / xAI）', 'media_unsupported')
@@ -847,7 +892,11 @@ export class LlmProxy {
           usage: translator.usage,
         }
       } else {
-        json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
+        try {
+          json = usesAnthropicMessages(upstream) ? toOpenAIResponse(JSON.parse(text), model.id) : JSON.parse(text)
+        } catch {
+          throw new HttpError(502, `上游返回非 JSON：${text.slice(0, 200)}`, 'bad_upstream')
+        }
       }
       content = json.choices?.[0]?.message?.content ?? ''
       usage = json.usage
@@ -923,6 +972,14 @@ function mediaForwardBody(body, model, apiPath) {
   if (video) {
     if (forward.duration == null) forward.duration = 6
     if (forward.aspect_ratio == null) forward.aspect_ratio = '16:9'
+    // xAI 的 image 是对象 { url }，字符串（哪怕是 data URI）会 422：invalid type: string。
+    // 官方 SDK 用 ImageUrlContent(image_url=…)。多张参考图走 reference_images: [{ image_url }]。
+    const asDataUri = (s) => (/^(https?:|data:|file_)/i.test(s) ? s : `data:image/png;base64,${s}`)
+    const refs = Array.isArray(forward.images) ? forward.images.filter(Boolean).map((s) => asDataUri(String(s))) : []
+    delete forward.images
+    const first = typeof forward.image === 'string' && forward.image ? asDataUri(forward.image) : refs[0]
+    if (first) forward.image = { url: first }
+    if (refs.length > 1) forward.reference_images = refs.map((url) => ({ image_url: url }))
     return forward
   }
   if (forward.n == null) forward.n = 1

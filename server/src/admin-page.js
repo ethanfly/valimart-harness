@@ -72,27 +72,38 @@ export function renderAdminHtml({ companyName }) {
 <link rel="icon" type="image/png" href="/admin/brand/valimart-mark.png" />
 <link rel="apple-touch-icon" href="/admin/brand/valimart-mark.png" />
 <style>
-  :root { --bg:#f6f6f4; --card:#fff; --text:#1c1c1c; --muted:#6b6b6b; --line:#e6e6e2; --accent:#1c1c1c; --ok:#0a7d37; --warn:#b26a00; --bad:#b3261e; --chip:#f0efe9; }
+  :root { --bg:#f4f6f8; --card:#fff; --text:#18212b; --muted:#66727e; --line:#dfe5ea; --accent:#176b87; --accent-soft:#e7f3f7; --ok:#087443; --warn:#a66000; --bad:#b3261e; --chip:#eef2f4; --shadow:0 8px 24px rgba(28,48,64,.06); }
   * { box-sizing: border-box; }
   html, body { height:100%; }
   body { margin:0; overflow:hidden; display:flex; flex-direction:column; background:var(--bg); color:var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  header { display:flex; align-items:center; gap:16px; padding:14px 24px; border-bottom:1px solid var(--line); background:var(--card); flex:0 0 auto; z-index:5; }
+  header { display:flex; align-items:center; gap:16px; padding:13px 28px; border-bottom:1px solid var(--line); background:rgba(255,255,255,.96); flex:0 0 auto; z-index:5; }
   .app { display:flex; align-items:stretch; flex:1; min-height:0; }
-  #nav { display:none; width:188px; flex:0 0 188px; padding:14px 10px; border-right:1px solid var(--line); background:var(--card); overflow-y:auto; }
+  #nav { display:none; width:204px; flex:0 0 204px; padding:20px 12px; border-right:1px solid var(--line); background:#fbfcfd; overflow-y:auto; }
   body.ready #nav { display:block; }
-  #nav a { display:block; padding:8px 12px; border-radius:8px; color:inherit; text-decoration:none; font-size:13px; }
-  #nav a:hover { background:#f3f3f0; }
-  #nav a.on { background:#f0efe9; font-weight:600; }
+  #nav a { display:block; padding:10px 13px; border-radius:9px; color:var(--muted); text-decoration:none; font-size:13px; margin:2px 0; transition:background .15s,color .15s; }
+  #nav a:hover { background:#edf4f6; color:var(--text); }
+  #nav a.on { background:var(--accent-soft); color:var(--accent); font-weight:650; }
   #nav .muted { padding:4px 12px 8px; font-size:11px; }
   .logo { display:flex; align-items:center; color:var(--text); }
   .logo .word { display:block; height:18px; width:calc(18px * 4.97); background:currentColor; -webkit-mask:url("${WORD_MASK}") center / contain no-repeat; mask:url("${WORD_MASK}") center / contain no-repeat; }
   .login .logo .word { height:22px; width:calc(22px * 4.97); }
   header .sp { flex:1; }
   header .who { color:var(--muted); font-size:13px; }
-  main { flex:1; min-width:0; min-height:0; overflow-y:auto; padding: 24px max(28px, calc((100% - 1080px) / 2)) 64px; }
-  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
-  h2 { margin:0 0 4px; font-size:16px; }
+  main { flex:1; min-width:0; min-height:0; overflow-y:auto; padding:30px max(32px, calc((100% - 1180px) / 2)) 72px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px 24px; margin-bottom:18px; box-shadow:var(--shadow); }
+  h1 { margin:0; font-size:24px; line-height:1.25; letter-spacing:0; }
+  h2 { margin:0 0 5px; font-size:17px; letter-spacing:0; }
+  h3 { letter-spacing:0; }
+  .page-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin:0 0 20px; }
+  .page-head .desc { max-width:720px; margin-top:6px; }
   .desc { color:var(--muted); font-size:13px; margin:0 0 14px; }
+  .dashboard-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
+  .dashboard-grid section { margin:0; }
+  .subtabs { display:flex; flex-wrap:wrap; gap:6px; padding:4px; margin:0 0 16px; border:1px solid var(--line); border-radius:10px; background:#f7f9fa; width:max-content; max-width:100%; }
+  .subtabs button { height:31px; padding:0 13px; border:0; border-radius:7px; background:transparent; color:var(--muted); }
+  .subtabs button:hover { background:#eaf2f4; }
+  .subtabs button.on { background:#fff; color:var(--accent); box-shadow:0 1px 4px rgba(28,48,64,.12); font-weight:600; }
+  .tab-panel[hidden] { display:none; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { color:var(--muted); font-weight:500; }
@@ -112,16 +123,16 @@ export function renderAdminHtml({ companyName }) {
   .kv { display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:10px 24px; font-size:13px; }
   .kv div span { color:var(--muted); display:block; font-size:12px; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  button, .btn { height:32px; padding:0 14px; border-radius:8px; border:1px solid var(--line); background:#fff; color:var(--text); font:inherit; font-size:13px; cursor:pointer; }
-  button:hover { background:#f3f3f0; }
+  button, .btn { height:32px; padding:0 14px; border-radius:8px; border:1px solid var(--line); background:#fff; color:var(--text); font:inherit; font-size:13px; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
+  button:hover { background:#edf4f6; border-color:#bfd5dc; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
-  button.primary:hover { background:#333; }
+  button.primary:hover { background:#12556d; border-color:#12556d; }
   button.danger { color:var(--bad); }
   button:disabled { opacity:.5; cursor:default; }
   input, select, textarea { height:32px; padding:0 10px; border-radius:8px; border:1px solid var(--line); font:inherit; font-size:13px; background:#fff; min-width:0; }
   textarea { height:auto; min-height:64px; padding:8px 10px; }
   input:focus, select:focus, textarea:focus { outline:none; border-color:#999; }
-  .chip { display:inline-block; padding:0 8px; border-radius:6px; background:var(--chip); font-size:12px; line-height:20px; }
+  .chip { display:inline-block; padding:0 8px; border-radius:6px; background:var(--chip); color:#40515d; font-size:12px; line-height:20px; }
   .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); }
   .mono { font-family: ui-monospace, Consolas, monospace; font-size:12px; }
   .hit { padding:10px 0; border-bottom:1px solid var(--line); }
@@ -152,7 +163,8 @@ export function renderAdminHtml({ companyName }) {
   .toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:#1c1c1c; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.show { opacity:1; }
   .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-  @media (max-width: 760px) { .grid2 { grid-template-columns:1fr; } main { padding:16px; } header { padding:14px 16px; } }
+  @media (max-width: 900px) { .dashboard-grid { grid-template-columns:1fr; } }
+  @media (max-width: 760px) { .grid2 { grid-template-columns:1fr; } main { padding:20px 16px 48px; } header { padding:12px 16px; } h1 { font-size:21px; } section { padding:18px 16px; } }
   ul.files { margin:4px 0 0; padding-left:18px; font-size:13px; }
   ul.files li { margin:2px 0; }
   .empty { color:var(--muted); font-size:13px; }
@@ -168,7 +180,7 @@ export function renderAdminHtml({ companyName }) {
     body { overflow:auto; display:block; }
     header { position:sticky; top:0; }
     .app { flex-direction:column; height:auto; min-height:0; }
-    body.ready #nav { display:flex; width:100%; flex:none; min-height:0; overflow:visible; border-right:none; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:4px; position:sticky; top:53px; z-index:4; }
+    body.ready #nav { display:flex; width:100%; flex:none; min-height:0; overflow:visible; border-right:none; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:4px; position:sticky; top:53px; z-index:4; padding:8px 12px; }
     #nav a { padding:6px 10px; }
     main { overflow:visible; min-height:0; padding:16px; }
   }
@@ -196,6 +208,22 @@ export function renderAdminHtml({ companyName }) {
     const page = pageOf();
     document.querySelectorAll('#nav a[data-page]').forEach((a) => a.classList.toggle('on', a.getAttribute('data-page') === page));
     document.querySelectorAll('#main > [data-page]').forEach((el) => { el.style.display = el.getAttribute('data-page') === page ? '' : 'none'; });
+  };
+  const activateTabs = (root = document) => {
+    root.querySelectorAll('[data-tabs]').forEach((tabs) => {
+      const buttons = [...tabs.querySelectorAll('[data-tab]')];
+      const panels = [...tabs.parentElement.querySelectorAll(':scope > [data-tab-panel]')];
+      const select = (name) => {
+        buttons.forEach((button) => {
+          const active = button.dataset.tab === name;
+          button.classList.toggle('on', active);
+          button.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        panels.forEach((panel) => { panel.hidden = panel.dataset.tabPanel !== name; });
+      };
+      buttons.forEach((button) => button.addEventListener('click', () => select(button.dataset.tab)));
+      select((buttons.find((button) => button.classList.contains('on')) || buttons[0])?.dataset.tab);
+    });
   };
   const $ = (sel, root = document) => root.querySelector(sel);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -404,6 +432,8 @@ export function renderAdminHtml({ companyName }) {
     const impexpMany = (items) => isAdmin ? '<div class="row impexp">' + items.map((x) => impexpBtn(x[0], x[1])).join('') + '</div>' : '';
     $('#main').innerHTML = \`
       <div data-page="overview">
+      <div class="page-head"><div><h1>概览</h1><p class="desc">网关运行状态、公司盘和近期业务数据。</p></div></div>
+      <div class="dashboard-grid">
       <section>
         <h2>服务器</h2>
         <p class="desc">公司网关：账号登录 → 按人签发令牌 → /v1 模型代理（真实密钥不出服务端）→ 按人记账 / 周额度 → 任务卡与四格验收 → 公司盘。</p>
@@ -418,9 +448,23 @@ export function renderAdminHtml({ companyName }) {
           <div><span>默认模型</span>\${esc(status.company.defaultModel || '—')} · 快速推理 \${esc(status.company.quickInferenceModel || '—')}</div>
         </div>
       </section>
+      <section>
+        <h2>公司盘</h2>
+        <p class="desc">\${esc(s.driveRoot)} · 客户端登录后自动同步到本机镜像；Agent 在本机读写，服务器只保存文件。</p>
+        <table>
+          <thead><tr><th>区</th><th>用途</th><th>文件</th><th>大小</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">_shared/</td><td>岗位手册 / 公司技能手册 + 共享经验（01-projects · 02-methods · 03-evidence · 04-reviews · 05-logs · 90-system）</td><td>\${status.drive.shared.files}</td><td>\${fmtBytes(status.drive.shared.bytes)}</td></tr>
+            <tr><td class="mono">_office/&lt;账号&gt;/</td><td>个人记忆（一人一座，跟人走，换电脑还在）</td><td>\${status.drive.office.files}</td><td>\${fmtBytes(status.drive.office.bytes)}</td></tr>
+            <tr><td class="mono">projects/inbox/&lt;任务ID&gt;/</td><td>任务交付格子（交付物 + 任务卡副本 + 工作日志）</td><td>\${status.drive.inbox.files}</td><td>\${fmtBytes(status.drive.inbox.bytes)}</td></tr>
+          </tbody>
+        </table>
+      </section>
+      </div>
       </div>
 
       <div data-page="updates">
+      <div class="page-head"><div><h1>更新</h1><p class="desc">管理客户端安装包的上传、发布与回滚。</p></div></div>
       <section id="client">
         <h2>客户端</h2>
         <p class="desc">上传 npm run dist:client 打出的 Setup.exe，发布后员工机登录会后台下载，下次启动静默覆盖安装。安装包文件名带构建时间；buildId 从安装包自动读取，不必手填。\${isAdmin ? '' : '（总监只读）'}</p>
@@ -445,22 +489,10 @@ export function renderAdminHtml({ companyName }) {
       </section>
       </div>
 
-      <div data-page="overview">
-      <section>
-        <h2>公司盘</h2>
-        <p class="desc">\${esc(s.driveRoot)} · 客户端登录后自动同步到本机镜像；Agent 在本机读写，服务器只保存文件。</p>
-        <table>
-          <thead><tr><th>区</th><th>用途</th><th>文件</th><th>大小</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">_shared/</td><td>岗位手册 / 公司技能手册 + 共享经验（01-projects · 02-methods · 03-evidence · 04-reviews · 05-logs · 90-system）</td><td>\${status.drive.shared.files}</td><td>\${fmtBytes(status.drive.shared.bytes)}</td></tr>
-            <tr><td class="mono">_office/&lt;账号&gt;/</td><td>个人记忆（一人一座，跟人走，换电脑还在）</td><td>\${status.drive.office.files}</td><td>\${fmtBytes(status.drive.office.bytes)}</td></tr>
-            <tr><td class="mono">projects/inbox/&lt;任务ID&gt;/</td><td>任务交付格子（交付物 + 任务卡副本 + 工作日志）</td><td>\${status.drive.inbox.files}</td><td>\${fmtBytes(status.drive.inbox.bytes)}</td></tr>
-          </tbody>
-        </table>
-      </section>
-      </div>
-
       <div data-page="models">
+      <div class="page-head"><div><h1>模型设置</h1><p class="desc">接入上游模型、配置搜索密钥，并查看当前模型目录。</p></div></div>
+      <div class="subtabs" data-tabs="models" role="tablist"><button type="button" class="on" data-tab="channels" role="tab" aria-selected="true">模型通道</button><button type="button" data-tab="search" role="tab" aria-selected="false">搜索密钥</button><button type="button" data-tab="catalog" role="tab" aria-selected="false">模型目录</button></div>
+      <div data-tab-panel="channels">
       <section id="channels">
         <h2>模型通道</h2>
         <p class="desc">可接入订阅（Grok / ChatGPT / Claude / Google One · Gemini）或 API key（OpenAI / Anthropic / DeepSeek）；员工统一走公司网关，凭据不出服务端。\${isAdmin ? '' : '（总监只读）'}</p>
@@ -483,7 +515,9 @@ export function renderAdminHtml({ companyName }) {
           </tbody>
         </table>
       </section>
+      </div>
 
+      <div data-tab-panel="search" hidden>
       <section id="searchkey">
         <h2>搜索密钥</h2>
         <p class="desc">AnySearch 的 key 只存服务端，员工登录后自动下发到本机 DSH 凭据（插件逐次解析，换 key 下一次搜索即生效）。不配则员工走 AnySearch 匿名额度。\${isAdmin ? '' : '（总监只读）'}</p>
@@ -496,7 +530,9 @@ export function renderAdminHtml({ companyName }) {
           <button type="button" id="searchKeyClear">清除</button>
         </form>\` : ''}
       </section>
+      </div>
 
+      <div data-tab-panel="catalog" hidden>
       <section>
         <h2>模型目录</h2>
         <p class="desc">当前对全员分发的模型（客户端模型菜单按厂商分组显示）。</p>
@@ -505,8 +541,12 @@ export function renderAdminHtml({ companyName }) {
         </tbody></table>\` : '<div class="empty">还没有可用模型：接入一个通道，或在 config.json / 环境变量里配置上游密钥。</div>'}
       </section>
       </div>
+      </div>
 
       <div data-page="knowledge">
+      <div class="page-head"><div><h1>知识</h1><p class="desc">查询企业知识，并维护共享经验、手册和技能合集。</p></div></div>
+      <div class="subtabs" data-tabs="knowledge" role="tablist"><button type="button" class="on" data-tab="query" role="tab" aria-selected="true">查询与录入</button><button type="button" data-tab="collections" role="tab" aria-selected="false">知识合集</button></div>
+      <div data-tab-panel="query">
       <section>
         <h2>知识库查询</h2>
         <p class="desc">企业知识库的第四层通道：在公司盘（手册 / 共享经验 / 你的个人记忆 / 任务格子）和任务卡里搜「公司里有没有人做过」。只回谁、何时、在哪；不拷贝会话，细节去问那张任务卡旁边的进程。</p>
@@ -523,6 +563,8 @@ export function renderAdminHtml({ companyName }) {
           <button class="primary" type="submit">写入知识库</button>
         </form>\` : ''}
       </section>
+      </div>
+      <div data-tab-panel="collections" hidden>
       <section>
         <h2>知识 / 手册合集</h2>
         <p class="desc">按组合折叠，不再整页铺开。\${isAdmin ? '' : '（总监只读）'}</p>
@@ -532,38 +574,17 @@ export function renderAdminHtml({ companyName }) {
         \${Object.entries(collections.shared).map(([dir, layer]) => foldFiles(esc(layer.label) + ' · ' + esc(dir), layer.files)).join('')}
       </section>
       </div>
+      </div>
 
       <div data-page="org">
+      <div class="page-head"><div><h1>组织</h1><p class="desc">管理岗位额度、部门和人员权限。</p></div></div>
       <section>
         <h2>组织</h2>
         <p class="desc">人员按部门折叠；岗位可配周额度（金额或 token 总量）。额度优先级：个人覆盖 → 岗位 → 角色 → 公司默认。\${isAdmin ? '' : '（总监只读）'}</p>
         \${impexpMany([['personnel', '人员'], ['positions', '岗位'], ['departments', '部门']])}
-        <h3 style="margin:16px 0 8px;font-size:14px">岗位</h3>
-        \${isAdmin ? \`<form id="posAdd" class="row" style="align-items:flex-end;margin-bottom:12px">
-          <div class="field"><label>岗位名</label><input name="name" required /></div>
-          <div class="field"><label>额度类型</label><select name="quotaKind"><option value="cny">金额 ¥</option><option value="tokens">token 总量</option></select></div>
-          <div class="field"><label>额度</label><input name="quota" type="number" min="0" step="1" required /></div>
-          <button class="primary" type="submit">新增岗位</button>
-        </form>\` : ''}
-        \${(personnel.positions && personnel.positions.length) ? \`<table><thead><tr><th>岗位</th><th>额度</th><th></th></tr></thead><tbody>
-          \${personnel.positions.map((pos) => \`<tr data-posrow="\${esc(pos.id)}">
-            <td>\${esc(pos.name)}</td>
-            <td>\${isAdmin ? '<div class="row"><select data-poskind><option value="cny"' + (pos.quotaKind === 'tokens' ? '' : ' selected') + '>金额 ¥</option><option value="tokens"' + (pos.quotaKind === 'tokens' ? ' selected' : '') + '>token 总量</option></select><input data-posquota type="number" min="0" step="1" value="' + esc(pos.quotaKind === 'tokens' ? (pos.weeklyQuotaTokens ?? '') : (pos.weeklyQuotaCny ?? '')) + '" style="width:110px" /><button type="button" data-possave>保存</button></div>' : '<span class="mono">' + (pos.quotaKind === 'tokens' ? (pos.weeklyQuotaTokens + ' tokens') : ('¥' + (pos.weeklyQuotaCny ?? '—'))) + '</span>'}
-            <td style="text-align:right">\${isAdmin ? '<button class="danger" data-posdel="' + esc(pos.id) + '">删除</button>' : ''}</td>
-          </tr>\`).join('')}
-        </tbody></table>\` : '<div class="empty">还没有岗位</div>'}
-        <h3 style="margin:18px 0 8px;font-size:14px">部门</h3>
-        \${isAdmin ? \`<form id="depAdd" class="row" style="align-items:flex-end;margin-bottom:12px">
-          <div class="field"><label>部门名</label><input name="name" required /></div>
-          <button class="primary" type="submit">新增部门</button>
-        </form>\` : ''}
-        \${(personnel.departmentCatalog && personnel.departmentCatalog.length) ? \`<table><thead><tr><th>部门</th><th></th></tr></thead><tbody>
-          \${personnel.departmentCatalog.map((d) => \`<tr>
-            <td>\${esc(d.name)}</td>
-            <td style="text-align:right">\${isAdmin ? '<button class="danger" data-depdel="' + esc(d.name) + '">删除</button>' : ''}</td>
-          </tr>\`).join('')}
-        </tbody></table>\` : '<div class="empty">尚未配置部门</div>'}
-        <h3 style="margin:18px 0 8px;font-size:14px">人员</h3>
+        <div class="subtabs" data-tabs="org" role="tablist"><button type="button" class="on" data-tab="people" role="tab" aria-selected="true">人员</button><button type="button" data-tab="positions" role="tab" aria-selected="false">岗位</button><button type="button" data-tab="departments" role="tab" aria-selected="false">部门</button></div>
+        <div data-tab-panel="people">
+        <h3 style="margin:4px 0 8px;font-size:14px">人员</h3>
         \${isAdmin ? \`<form id="userAdd" class="row" style="align-items:flex-end;margin-bottom:12px">
           <div class="field"><label>账号</label><input name="username" required placeholder="字母数字 ._- " /></div>
           <div class="field"><label>密码</label><input name="password" type="password" minlength="6" required /></div>
@@ -581,10 +602,41 @@ export function renderAdminHtml({ companyName }) {
             <td class="mono">\${u.quota && u.quota.kind === 'tokens' ? (u.quota.limit + ' tokens') : ('¥' + (u.quota ? u.quota.limit : '—'))}<div class="muted">\${esc((u.quota && u.quota.source) || '')}</div></td>
           </tr>\`).join('')}
         </tbody></table></div></details>\`).join('') || '<div class="empty">没有人员</div>'}
+        </div>
+        <div data-tab-panel="positions" hidden>
+        <h3 style="margin:16px 0 8px;font-size:14px">岗位</h3>
+        \${isAdmin ? \`<form id="posAdd" class="row" style="align-items:flex-end;margin-bottom:12px">
+          <div class="field"><label>岗位名</label><input name="name" required /></div>
+          <div class="field"><label>额度类型</label><select name="quotaKind"><option value="cny">金额 ¥</option><option value="tokens">token 总量</option></select></div>
+          <div class="field"><label>额度</label><input name="quota" type="number" min="0" step="1" required /></div>
+          <button class="primary" type="submit">新增岗位</button>
+        </form>\` : ''}
+        \${(personnel.positions && personnel.positions.length) ? \`<table><thead><tr><th>岗位</th><th>额度</th><th></th></tr></thead><tbody>
+          \${personnel.positions.map((pos) => \`<tr data-posrow="\${esc(pos.id)}">
+            <td>\${esc(pos.name)}</td>
+            <td>\${isAdmin ? '<div class="row"><select data-poskind><option value="cny"' + (pos.quotaKind === 'tokens' ? '' : ' selected') + '>金额 ¥</option><option value="tokens"' + (pos.quotaKind === 'tokens' ? ' selected' : '') + '>token 总量</option></select><input data-posquota type="number" min="0" step="1" value="' + esc(pos.quotaKind === 'tokens' ? (pos.weeklyQuotaTokens ?? '') : (pos.weeklyQuotaCny ?? '')) + '" style="width:110px" /><button type="button" data-possave>保存</button></div>' : '<span class="mono">' + (pos.quotaKind === 'tokens' ? (pos.weeklyQuotaTokens + ' tokens') : ('¥' + (pos.weeklyQuotaCny ?? '—'))) + '</span>'}
+            <td style="text-align:right">\${isAdmin ? '<button class="danger" data-posdel="' + esc(pos.id) + '">删除</button>' : ''}</td>
+          </tr>\`).join('')}
+        </tbody></table>\` : '<div class="empty">还没有岗位</div>'}
+        </div>
+        <div data-tab-panel="departments" hidden>
+        <h3 style="margin:18px 0 8px;font-size:14px">部门</h3>
+        \${isAdmin ? \`<form id="depAdd" class="row" style="align-items:flex-end;margin-bottom:12px">
+          <div class="field"><label>部门名</label><input name="name" required /></div>
+          <button class="primary" type="submit">新增部门</button>
+        </form>\` : ''}
+        \${(personnel.departmentCatalog && personnel.departmentCatalog.length) ? \`<table><thead><tr><th>部门</th><th></th></tr></thead><tbody>
+          \${personnel.departmentCatalog.map((d) => \`<tr>
+            <td>\${esc(d.name)}</td>
+            <td style="text-align:right">\${isAdmin ? '<button class="danger" data-depdel="' + esc(d.name) + '">删除</button>' : ''}</td>
+          </tr>\`).join('')}
+        </tbody></table>\` : '<div class="empty">尚未配置部门</div>'}
+        </div>
       </section>
       </div>
 
       <div data-page="tools">
+      <div class="page-head"><div><h1>工具</h1><p class="desc">查看公司 Agent 工具和内核插件状态。</p></div></div>
       <section>
         <h2>Agent 工具合集</h2>
         <p class="desc">公司工具与内核插件。长列表折叠，不占满一屏。</p>
@@ -596,6 +648,7 @@ export function renderAdminHtml({ companyName }) {
       </section>
       </div>\`;
     applyPage();
+    activateTabs($('#main'));
 
     const searchKeyForm = $('#searchKeyForm');
     if (searchKeyForm) searchKeyForm.addEventListener('submit', async (e) => {

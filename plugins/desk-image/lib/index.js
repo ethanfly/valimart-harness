@@ -12,6 +12,7 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { ASPECT_RATIOS, listImageModels, normalizeImageConfig, resolveImageModel } from './models.js'
 import { assertInside, callGatewayImages, readImageB64, writeImageItems } from './generate.js'
+import { appendHistory, readHistory } from './history.js'
 
 export const name = 'desk-image'
 export const inject = ['webServer', 'tools', 'systemPrompt', 'sessions', 'deskHost', 'settings']
@@ -91,6 +92,10 @@ export function apply(ctx, config) {
       signal,
     })
     const written = await writeImageItems({ cwd, out, items })
+    appendHistory(cwd, 'image', {
+      prompt, model: used, aspectRatio: ratio, n: written.length, edit: !!edit,
+      files: written.map((f) => ({ rel: f.rel, bytes: f.bytes })),
+    })
     return { written, model: used, edit, ratio }
   }
 
@@ -216,8 +221,12 @@ export function apply(ctx, config) {
       throw Object.assign(new Error('跨站请求被拒绝'), { status: 403, code: 'bad_origin' })
     }
     const origin = req.headers.origin
-    if (origin && (!req.headers.host || String(new URL(origin).host) !== String(req.headers.host))) {
-      throw Object.assign(new Error('跨源请求被拒绝'), { status: 403, code: 'bad_origin' })
+    if (origin) {
+      let host = ''
+      try { host = new URL(origin).host } catch { host = '' }
+      if (!req.headers.host || host !== String(req.headers.host)) {
+        throw Object.assign(new Error('跨源请求被拒绝'), { status: 403, code: 'bad_origin' })
+      }
     }
   }
 
@@ -278,6 +287,13 @@ export function apply(ctx, config) {
                 cwd,
               })
               return json(res, 200, r)
+            }
+            if (method === 'GET' && rel === '/history') {
+              const sid = url.searchParams.get('sessionId') ?? ''
+              const live = sid ? ctx.sessions.get?.(sid) : null
+              const cwd = live?.header?.cwd
+              if (!cwd) return json(res, 200, { image: [], video: [] })
+              return json(res, 200, readHistory(cwd))
             }
             json(res, 404, { error: { message: `no route ${method} ${rel}`, code: 'not_found' } })
           } catch (err) {

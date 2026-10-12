@@ -57,7 +57,7 @@ function copyKernelPrefix(src, dest) {
 const out = path.resolve(argOf('--out', path.join(root, 'build', 'payload')))
 const stage = path.join(root, 'build', 'kernel-stage')
 const gateway = argOf('--gateway', process.env.DESK_GATEWAY_URL)
-const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
+const version = (() => { try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version } catch (err) { die('读 package.json 失败：' + err.message) } })()
 
 // --out 可以是任意路径：绝不能整目录 rmSync（配错会删掉项目树）。只清空它的直接子项，且目录像项目根就拒绝。
 if (fs.existsSync(out)) {
@@ -166,6 +166,7 @@ log(`kernel.tar ${(fs.statSync(tarFile).size / 1024 / 1024).toFixed(1)} MB`)
   if (b.status !== 0) die('build-client 失败')
   fs.cpSync(path.join(root, 'plugins', 'desk-host'), path.join(out, 'plugins', 'desk-host'), { recursive: true })
   fs.cpSync(path.join(root, 'plugins', 'desk-image'), path.join(out, 'plugins', 'desk-image'), { recursive: true })
+  fs.cpSync(path.join(root, 'plugins', 'desk-video'), path.join(out, 'plugins', 'desk-video'), { recursive: true })
   const uiSrc = path.join(root, 'plugins', 'desk-ui')
   fs.cpSync(uiSrc, path.join(out, 'plugins', 'desk-ui'), { recursive: true, filter: (s) => path.relative(uiSrc, s).split(path.sep)[0] !== 'src' })
 }
@@ -186,7 +187,7 @@ for (const rel of ['scripts/kernel/patches.mjs', 'scripts/kernel/locate.mjs', 's
 const mixedDir = path.join(out, 'plugins', 'desk-host', 'lib', 'mixed')
 const mixedFiles = fs.existsSync(mixedDir) ? fs.readdirSync(mixedDir).filter((f) => f.endsWith('.js')).map((f) => path.join(mixedDir, f)) : []
 if (!fs.existsSync(mixedDir)) die('payload 缺少 plugins/desk-host/lib/mixed（T01–T10 模块未随包）')
-const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'session-image.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), ...mixedFiles, path.join(out, 'plugins', 'desk-image', 'lib', 'index.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'model-input.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
+const digest = digestFiles([path.join(out, 'profile', 'cordis.patch.yml'), path.join(out, 'plugins', 'desk-ui', 'lib', 'client.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'session-image.js'), path.join(out, 'plugins', 'desk-host', 'lib', 'lan-discover.js'), ...mixedFiles, path.join(out, 'plugins', 'desk-image', 'lib', 'index.js'), path.join(out, 'plugins', 'desk-video', 'lib', 'index.js'), path.join(out, 'scripts', 'lib', 'bootstrap.mjs'), path.join(out, 'scripts', 'lib', 'find-tar.mjs'), path.join(out, 'scripts', 'lib', 'lan-protocol.mjs'), path.join(out, 'scripts', 'lib', 'git-head.mjs'), path.join(out, 'scripts', 'lib', 'model-input.mjs'), path.join(out, 'scripts', 'lib', 'client-update.mjs'), path.join(out, 'scripts', 'kernel', 'patches.mjs')])
 const now = new Date()
 const installerVersion = makeInstallerVersion({ version, now })
 const payload = {

@@ -1,0 +1,11 @@
+{
+  "name": "@company-desk/desk-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "企业交付工作台 · 生视频插件：经公司网关调用万相 / MiniMax / Grok / GPT / Qwen / Seedance，支持多参考图与长视频分段",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  }
+}

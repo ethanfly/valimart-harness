@@ -19,7 +19,7 @@ import { DeskState } from './state.js'
 import { GatewayClient, GatewayError } from './gateway-client.js'
 import { DriveMirror } from './drive-mirror.js'
 import { ProducedIndex } from './produced.js'
-import { serveSessionImage } from './session-image.js'
+import { serveSessionImage, serveSessionVideo } from './session-image.js'
 import { fetchClientUpdate, resolveClientPendingDir, resolvePayloadDir } from './client-update.js'
 import { readLocalKernelVersion } from './kernel-version.js'
 import { syncSearchCredentials } from './search-key.js'
@@ -29,6 +29,7 @@ import { createMixedHost } from './mixed/host.js'
 import { portFromUrl } from '../../../scripts/lib/lan-protocol.mjs'
 import { gitBranchesForWorkspaces } from '../../../scripts/lib/git-head.mjs'
 import { resolveModelInput } from '../../../scripts/lib/model-input.mjs'
+import { pinWorkspaceOrder } from './workspace-order.js'
 
 export const name = 'desk-host'
 export const inject = ['webServer', 'settings', 'credentials', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'workspaceRegistry', 'agents', 'subagents']
@@ -231,11 +232,9 @@ export function apply(ctx, config) {
     } catch (err) {
       log(`收起他人个人工作区失败: ${err.message}`)
     }
-    // 「个人」置顶，「团队」紧随其后，其余工作区排在后面
+    // 内核 create() 把新工作区插到最前。insertBefore 同步返回、内部排队，必须等前一次落盘再读顺序。
     try {
-      const ours = wanted.map((w) => found[w.key]).filter(Boolean)
-      const firstOther = ctx.workspaceRegistry.list().map((w) => w.id).find((id) => !ours.includes(id))
-      for (const id of ours) await ctx.workspaceRegistry.insertBefore(id, firstOther)
+      await pinWorkspaceOrder(ctx.workspaceRegistry, [found.personal, found.team])
     } catch {
       /* 排序失败不影响使用 */
     }
@@ -778,6 +777,12 @@ export function apply(ctx, config) {
             }
             if (method === 'GET' && rel === '/state') return json(res, 200, publicDesk())
             if (method === 'GET' && rel === '/workspace-git') {
+              // 内核把新建工作区插到最前。侧栏轮询到这里时若「个人 / 团队」不在前两位，再钉一次。
+              const pinned = [state.data.workspaces?.personal, state.data.workspaces?.team].filter(Boolean)
+              const order = ctx.workspaceRegistry?.list?.().map((w) => w.id) ?? []
+              if (pinned.length && pinned.some((id, i) => order[i] !== id)) {
+                await pinWorkspaceOrder(ctx.workspaceRegistry, pinned).catch(() => {})
+              }
               return json(res, 200, { items: gitBranchesForWorkspaces(ctx.workspaceRegistry?.list?.() ?? []) })
             }
             if (method === 'GET' && rel === '/discover') {
@@ -825,6 +830,12 @@ export function apply(ctx, config) {
               return await serveSessionImage(req, res, {
                 loggedIn: state.loggedIn, session: ctx.sessions.get?.(sid), source: url.searchParams.get('path'),
                 info: url.searchParams.get('info') === '1',
+              })
+            }
+            if (method === 'GET' && /^\/sessions\/[^/]+\/video$/.test(rel)) {
+              const sid = decodeURIComponent(rel.split('/')[2])
+              return await serveSessionVideo(req, res, {
+                loggedIn: state.loggedIn, session: ctx.sessions.get?.(sid), source: url.searchParams.get('path'),
               })
             }
             if (method === 'GET' && rel.startsWith('/sessions/') && rel.endsWith('/produced')) {
@@ -934,6 +945,7 @@ export function apply(ctx, config) {
                 { entryId: 'desk-host', moduleName: '@company-desk/desk-host', enabled: true, fiberPhase: 'active' },
                 { entryId: 'desk-ui', moduleName: '@company-desk/desk-ui', enabled: true, fiberPhase: 'active' },
                 { entryId: 'desk-image', moduleName: '@company-desk/desk-image', enabled: true, fiberPhase: 'active' },
+                { entryId: 'desk-video', moduleName: '@company-desk/desk-video', enabled: true, fiberPhase: 'active' },
               ]) {
                 if (!have.has(extra.entryId)) entries.push(extra)
               }

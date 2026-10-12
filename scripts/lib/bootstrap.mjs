@@ -28,7 +28,7 @@ export const here = path.dirname(fileURLToPath(import.meta.url))
 export const repoRoot = path.resolve(here, '..', '..')
 
 const noop = () => {}
-const COMPANY_PLUGINS = ['desk-host', 'desk-ui', 'desk-image']
+const COMPANY_PLUGINS = ['desk-host', 'desk-ui', 'desk-image', 'desk-video']
 
 // ---------- 通用 ----------
 
@@ -329,6 +329,7 @@ export function ensureProfile({ profileName, dshHome, root, pluginsDir, patchFil
       '@company-desk/desk-host': `file:${path.join(pluginsDir, 'desk-host').replace(/\\/g, '/')}`,
       '@company-desk/desk-ui': `file:${path.join(pluginsDir, 'desk-ui').replace(/\\/g, '/')}`,
       '@company-desk/desk-image': `file:${path.join(pluginsDir, 'desk-image').replace(/\\/g, '/')}`,
+      '@company-desk/desk-video': `file:${path.join(pluginsDir, 'desk-video').replace(/\\/g, '/')}`,
     },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...profilePluginBundles(kernel)] } },
   }
@@ -592,7 +593,8 @@ export function needsExtract({ stateFile, kernelPrefix, buildId }) {
  */
 export function preparePackaged({ payloadDir, appDir, dshHome, log = noop }) {
   assertSafeAppDir(appDir)
-  const payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8'))
+  let payload
+  try { payload = JSON.parse(fs.readFileSync(path.join(payloadDir, 'payload.json'), 'utf8')) } catch (err) { throw new Error('payload.json 无法读取：' + err.message) }
   const kernelPrefix = path.join(appDir, 'kernel')
   const stateFile = path.join(appDir, 'state.json')
   const skillsDir = path.join(dshHome, 'desk', 'drive', '_shared', 'skills')

@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FAMILY_ALIASES, isImageModel, listImageModels, normalizeImageConfig, resolveImageModel } from '../../plugins/desk-image/lib/models.js'
 import { callGatewayImages, destPath, parseDataUrl, sniffImage, stampName, writeImageItems } from '../../plugins/desk-image/lib/generate.js'
+import { appendHistory, readHistory } from '../../plugins/desk-image/lib/history.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -131,6 +132,22 @@ test('callGatewayImages：有参考图走 edits；缺 prompt / 未登录失败',
   assert.equal(r.edit, true)
   await assert.rejects(() => callGatewayImages({ gatewayUrl: 'http://gw', token: 't', model: 'x', prompt: '  ', fetchImpl }), /prompt/)
   await assert.rejects(() => callGatewayImages({ gatewayUrl: 'http://gw', token: '', model: 'x', prompt: 'a', fetchImpl }), /未登录/)
+})
+
+test('生图历史按工作目录记，超过 200 条丢掉最旧的', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-media-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  assert.deepEqual(readHistory(dir), { image: [], video: [] })
+  appendHistory(dir, 'image', { prompt: '猫', model: 'grok', files: [{ rel: 'a.png', bytes: 3 }] })
+  appendHistory(dir, 'video', { prompt: '猫走路', model: 'wan', files: [{ rel: 'a.mp4', bytes: 9 }] })
+  const once = readHistory(dir)
+  assert.equal(once.image[0].prompt, '猫')
+  assert.equal(once.video[0].files[0].rel, 'a.mp4')
+  for (let i = 0; i < 205; i++) appendHistory(dir, 'image', { prompt: String(i), model: 'grok', files: [] })
+  const many = readHistory(dir)
+  assert.equal(many.image.length, 200)
+  assert.equal(many.image[0].prompt, '204')
+  assert.equal(many.video.length, 1)
 })
 
 test('desk-host 暴露 deskHost；profile 插入 desk-image；设置页与输入框有生图入口', () => {
