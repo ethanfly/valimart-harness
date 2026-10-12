@@ -12,6 +12,7 @@ import { createGateway } from '../src/index.js'
 let gw
 let base
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-gateway-test-'))
+const usageCalls = []
 
 before(async () => {
   gw = createGateway({
@@ -28,6 +29,10 @@ before(async () => {
     quota: { anchor: '2026-08-31T17:45:21+08:00', weeklyCny: 100, byRole: { admin: 1000, director: 500, employee: 100 } },
     fetchReleases: async () => [],
     fetchModels: async () => new Response(JSON.stringify({ error: 'no' }), { status: 404 }),
+    fetchUsage: async (url, options) => {
+      usageCalls.push({ url, options })
+      return Response.json({ config: { creditUsagePercent: 27.5, currentPeriod: { type: 'weekly', end: '2026-10-20T00:00:00Z' }, prepaidBalance: { val: 1234 } } })
+    },
   })
   base = await gw.listen()
 })
@@ -340,7 +345,7 @@ test('通道：管理员加入订阅 → 全员模型目录更新；凭据不外
   const sigBefore = (await api('POST', '/api/presence', { token: ctx.emp.sessionToken, body: {} })).json.modelsSignature
   assert.equal(typeof sigBefore, 'string')
 
-  const connected = await api('POST', '/api/channels/grok/connect', { token: ctx.boss.sessionToken, body: { credential: secret, models: 'grok-4.6, grok-4.6-fast, grok-4.6' } })
+  const connected = await api('POST', '/api/channels/grok/connect', { token: ctx.boss.sessionToken, body: { credential: secret, xaiUserId: 'grok-user-test', models: 'grok-4.6, grok-4.6-fast, grok-4.6' } })
   assert.equal(connected.status, 200)
   const sigAfter = (await api('POST', '/api/presence', { token: ctx.emp.sessionToken, body: {} })).json.modelsSignature
   assert.notEqual(sigAfter, sigBefore, '接入通道后目录签名必须变化')
@@ -369,6 +374,22 @@ test('通道：管理员加入订阅 → 全员模型目录更新；凭据不外
   assert.equal(stored.items.grok.credential, secret)
   assert.ok(fs.existsSync(path.join(tmp, 'gateway.sqlite')), '默认走 SQLite')
   assert.ok(!fs.existsSync(path.join(tmp, 'channels.json')), '新库不再写 channels.json')
+
+  // 官方额度刷新需要管理员权限，并使用服务端 OAuth 令牌主动查询，不向浏览器返回凭据。
+  const accountId = connected.json.channel.accounts[0].id
+  const refreshed = await api('POST', '/api/channels/grok/usage/refresh', { token: ctx.boss.sessionToken, body: { accountId } })
+  assert.equal(refreshed.status, 200)
+  assert.equal(refreshed.json.results[0].status, 'ok')
+  assert.equal(refreshed.json.results[0].metrics[0].remainingPercent, 72.5)
+  assert.equal(refreshed.json.results[0].metrics[1].detail, '$12.34 USD')
+  assert.equal(usageCalls.length, 1)
+  assert.match(usageCalls[0].url, /cli-chat-proxy\.grok\.com\/v1\/billing\?format=credits/)
+  assert.equal(usageCalls[0].options.headers.authorization, `Bearer ${secret}`)
+  assert.equal(usageCalls[0].options.headers['x-userid'], 'grok-user-test')
+  assert.ok(!JSON.stringify(refreshed.json).includes(secret))
+  const forbiddenRefresh = await api('POST', '/api/channels/grok/usage/refresh', { token: ctx.emp.sessionToken, body: { accountId } })
+  assert.equal(forbiddenRefresh.status, 403)
+  assert.equal(usageCalls.length, 1)
 
   // 断开：模型即刻下架，请求该模型 → 404
   const fromConfig = await api('POST', '/api/channels/mock/disconnect', { token: ctx.boss.sessionToken })

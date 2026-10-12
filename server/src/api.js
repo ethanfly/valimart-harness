@@ -11,7 +11,8 @@ import { MEMORY_LAYERS } from './drive.js'
 import { openClientCatalog } from './client-catalog.js'
 import { registerOAuthSubscribe, decorateChannels, resolveProviderConfig } from './oauth-subscribe.js'
 import { setupGeminiProject } from './upstream-gemini.js'
-import { normalizeModels } from './channels.js'
+import { accountsOf, normalizeModels } from './channels.js'
+import { queryOfficialSubscriptionUsage } from './subscription-usage.js'
 import { discoverUpstreamModels, mergeDiscoveredModels } from './upstream-models.js'
 import { createModelResolver, roleCapabilities } from './model-resolver.js'
 import { workspacePluginCatalog } from './dsh-plugins.js'
@@ -37,6 +38,7 @@ function throwCatalog(err) {
 
 export function registerApi(router, ctx) {
   const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, mixedAttribution } = ctx
+  const fetchUsage = ctx.fetchUsage ?? fetch
   const clients = ctx.clients ?? openClientCatalog(cfg.dataDir)
   const org = ctx.org ?? openOrg(db)
 
@@ -355,6 +357,41 @@ export function registerApi(router, ctx) {
   router.get('/api/channels', async (req, res) => {
     const { user } = auth(req)
     sendJson(res, 200, { channels: decorateChannels(channels?.view() ?? [], cfg), canEdit: user.role === 'admin' })
+  })
+
+  router.post('/api/channels/:id/usage/refresh', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!channels) throw new HttpError(500, '通道模块未启用')
+    const channel = channels.find(req.params.id)
+    if (channel.kind !== 'subscription') throw new HttpError(409, '只有订阅通道支持官方额度查询', 'channel_not_subscription')
+    const body = await readJson(req)
+    const item = channels.store.load().items[req.params.id]
+    if (!item) throw new HttpError(409, '该通道通过服务端配置接入，没有可单独查询的订阅账号', 'channel_accounts_unavailable')
+    const accounts = accountsOf(item)
+    const targets = body.accountId ? accounts.filter((account) => account.id === String(body.accountId)) : accounts
+    if (body.accountId && !targets.length) throw new HttpError(404, '订阅账号不存在', 'channel_account_not_found')
+    if (!targets.length) throw new HttpError(409, '该通道没有可查询的订阅账号', 'channel_accounts_unavailable')
+
+    const results = await Promise.all(targets.map(async (account) => {
+      const checkedAt = new Date().toISOString()
+      try {
+        // 如 OAuth 令牌临近过期，先在网关侧续期，再以新令牌发起实时额度查询。
+        await oauth?.ensureFresh(req.params.id, { accountId: account.id })
+        const latest = accountsOf(channels.store.load().items[req.params.id]).find((entry) => entry.id === account.id) ?? account
+        const usage = await queryOfficialSubscriptionUsage({ channelId: channel.id, account: latest, fetchImpl: fetchUsage, cfg })
+        return { accountId: account.id, label: account.label, ...usage }
+      } catch (error) {
+        return {
+          accountId: account.id,
+          label: account.label,
+          status: 'error',
+          checkedAt,
+          error: String(error?.message ?? '官方额度查询失败').slice(0, 300),
+        }
+      }
+    }))
+    sendJson(res, 200, { channelId: channel.id, results })
   })
 
   const fetchModels = ctx.fetchModels ?? fetch

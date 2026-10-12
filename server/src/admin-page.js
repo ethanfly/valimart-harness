@@ -119,6 +119,19 @@ export function renderAdminHtml({ companyName }) {
   #channels .ch-who { display:flex; flex-direction:column; gap:1px; line-height:1.35; white-space:nowrap; }
   #channels .ch-actions { display:flex; flex-wrap:nowrap; justify-content:flex-end; gap:6px; }
   #channels .ch-actions button { height:28px; padding:0 10px; white-space:nowrap; }
+  #channels .ch-account-row td { background:#fafbfc; }
+  #channels .ch-account-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  #channels .ch-account-head-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+  #channels .ch-account-head-actions button, #channels .ch-account-refresh button { height:26px; padding:0 9px; font-size:12px; white-space:nowrap; }
+  #channels .ch-account-cards { display:flex; flex-wrap:wrap; gap:8px; }
+  #channels .ch-account-card { flex:1 1 240px; max-width:420px; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  #channels .ch-account-state { font-weight:600; }
+  #channels .ch-account-meta { margin-top:3px; font-size:12px; }
+  #channels .ch-account-official { margin-top:8px; padding-top:7px; border-top:1px solid var(--line); font-size:12px; }
+  #channels .ch-account-usage-metric { display:flex; flex-wrap:wrap; gap:6px; margin:3px 0; }
+  #channels .ch-account-usage-metric strong { font-weight:600; }
+  #channels .ch-account-refresh { display:flex; justify-content:flex-end; margin-top:6px; }
+  #channels .ch-account-link { font-size:12px; white-space:nowrap; }
   tr:last-child td { border-bottom:none; }
   .kv { display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:10px 24px; font-size:13px; }
   .kv div span { color:var(--muted); display:block; font-size:12px; }
@@ -285,6 +298,58 @@ export function renderAdminHtml({ companyName }) {
   };
   const fmtBytes = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
   const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
+  const officialUsageResults = new Map();
+  const officialUsagePending = new Set();
+  const officialUsageKey = (channelId, accountId) => channelId + '::' + accountId;
+  const renderOfficialUsage = (result, pending) => {
+    if (pending) return '<div class="ch-account-usage muted">正在请求平台官方额度…</div>';
+    if (!result) return '<div class="ch-account-usage muted">点击“刷新官方额度”主动查询平台当前用量。</div>';
+    const checked = result.checkedAt ? ' · 查询于 ' + fmtTime(result.checkedAt) : '';
+    if (result.status !== 'ok') return '<div class="ch-account-usage bad">官方额度查询失败：' + esc(result.error || '未知错误') + esc(checked) + '</div>';
+    const plan = result.plan ? '<span class="muted">' + esc(result.plan) + '</span> · ' : '';
+    const metrics = (result.metrics || []).map((m) => {
+      const remaining = m.remainingPercent != null && Number.isFinite(Number(m.remainingPercent)) ? '剩余 ' + Number(m.remainingPercent).toFixed(1) + '%' : '';
+      const reset = m.resetAt ? '重置 ' + fmtTime(m.resetAt) : '';
+      const extra = [m.detail, reset].filter(Boolean).join(' · ');
+      return '<div class="ch-account-usage-metric"><strong>' + esc(m.label || '额度') + '</strong> ' + (remaining ? '<span class="ok">' + esc(remaining) + '</span>' : '') + (extra ? '<span class="muted">' + esc(extra) + '</span>' : '') + '</div>';
+    }).join('');
+    return '<div class="ch-account-usage">' + plan + (metrics || '<span class="muted">官方接口未返回额度明细</span>') + '<div class="muted" style="font-size:11px">官方实时查询' + esc(checked) + '</div></div>';
+  };
+  const subscriptionUsageLinks = {
+    grok: { url: 'https://grok.com', label: 'Grok · Settings → Usage' },
+    chatgpt: { url: 'https://chatgpt.com', label: 'ChatGPT · Settings → Usage' },
+    claude: { url: 'https://claude.ai', label: 'Claude · 使用量（Claude Code 可用 /status）' },
+    gemini: { url: 'https://gemini.google.com', label: 'Gemini · Settings → Usage limits' },
+    antigravity: { url: 'https://antigravity.google', label: 'Antigravity · Settings / Models / /usage' },
+  };
+  const renderSubscriptionAccounts = (channel, canRefresh = false) => {
+    const entry = subscriptionUsageLinks[channel.id];
+    const link = entry ? '<a class="ch-account-link" href="' + entry.url + '" target="_blank" rel="noopener noreferrer">' + esc(entry.label) + '</a>' : '';
+    const accounts = Array.isArray(channel.accounts) ? channel.accounts : [];
+    const cards = accounts.map((a) => {
+      const usageKey = officialUsageKey(channel.id, a.id);
+      const usageResult = officialUsageResults.get(usageKey);
+      const usagePending = officialUsagePending.has(usageKey);
+      const untilMs = Date.parse(a.exhaustedUntil || '');
+      let state = '暂无调用记录', stateClass = 'muted', detail = '最近检查：—';
+      if (a.status === 'exhausted' && Number.isFinite(untilMs) && untilMs > Date.now()) {
+        state = '已触发限额'; stateClass = 'bad';
+        detail = '网关优先冷却至 ' + fmtTime(a.exhaustedUntil) + '；无其他可用账号时仍可能提前重试';
+      } else if (a.status === 'exhausted') {
+        state = '曾触发限额（优先冷却期已过）'; stateClass = 'warn';
+        detail = '最近检查：' + fmtTime(a.lastStatusAt) + ' · 等待下次请求验证';
+      } else if (a.status === 'active' && a.lastStatusAt) {
+        state = '最近请求成功 · 可用'; stateClass = 'ok';
+        detail = '最近检查：' + fmtTime(a.lastStatusAt);
+      }
+      const refresh = canRefresh ? '<button type="button" data-usage-refresh="' + esc(channel.id) + '" data-usage-account="' + esc(a.id) + '"' + (usagePending ? ' disabled' : '') + '>' + (usagePending ? '查询中…' : '刷新官方额度') + '</button>' : '';
+      return '<div class="ch-account-card"><div><strong>' + esc(a.label || '订阅账号') + '</strong> <span class="ch-account-state ' + stateClass + '">' + state + '</span></div><div class="ch-account-meta muted">' + esc(detail) + '</div><div class="ch-account-official" data-usage-result="' + esc(usageKey) + '">' + renderOfficialUsage(usageResult, usagePending) + '</div>' + (refresh ? '<div class="ch-account-refresh">' + refresh + '</div>' : '') + '</div>';
+    }).join('');
+    const empty = channel.connected ? '该通道通过服务端配置接入，没有可单独查询的 OAuth 订阅账号。' : '接入账号后可查询官方实时额度。';
+    const allPending = accounts.some((a) => officialUsagePending.has(officialUsageKey(channel.id, a.id)));
+    const refreshAll = canRefresh && accounts.length > 1 ? '<button type="button" data-usage-refresh-all="' + esc(channel.id) + '"' + (allPending ? ' disabled' : '') + '>' + (allPending ? '查询中…' : '刷新全部账号官方额度') + '</button>' : '';
+    return '<div class="ch-account-head"><span class="muted">官方额度通过手动刷新直接查询平台，显示查询时间；下方网关状态来自最近一次模型调用。额度和重置时间以平台返回为准。</span><div class="ch-account-head-actions">' + refreshAll + link + '</div></div>' + (cards ? '<div class="ch-account-cards">' + cards + '</div>' : '<div class="muted">' + empty + '</div>');
+  };
   const fmtDur = (s) => (s < 60 ? s + ' 秒' : s < 3600 ? Math.floor(s / 60) + ' 分钟' : s < 86400 ? (s / 3600).toFixed(1) + ' 小时' : (s / 86400).toFixed(1) + ' 天');
   let token = sessionStorage.getItem('diva-admin-token') || '';
   let me = null;
@@ -504,14 +569,17 @@ export function renderAdminHtml({ companyName }) {
         <table>
           <thead><tr><th>通道</th><th>种类</th><th>状态</th><th>模型</th><th>接入</th><th>操作</th></tr></thead>
           <tbody>
-            \${channels.channels.map((c) => \`<tr>
+            \${channels.channels.map((c) => {
+              const row = \`<tr>
               <td title="\${esc(c.label)}">\${esc(c.label)}</td>
               <td>\${esc(c.kindLabel)}</td>
               <td class="\${c.connected ? 'ok' : 'muted'}">\${esc(c.connected ? '已接' : '未接')}\${c.accountCount > 1 ? '<div class="muted" style="font-size:12px">' + c.accountCount + ' 个账号</div>' : ''}</td>
               <td>\${c.models.length ? '<div class="ch-models" title="' + esc(c.models.join(', ')) + '">' + c.models.map((id) => '<span class="chip mono">' + esc(id) + '</span>').join('') + '</div>' : '<span class="muted">' + esc(c.hint) + '</span>'}</td>
               <td class="muted">\${c.source === 'config' ? '服务端配置' : c.source === 'runtime' ? '<div class="ch-who"><span>' + esc(c.connectedBy || '') + '</span><span>' + esc(fmtTime(c.connectedAt)) + '</span></div>' : '—'}</td>
               <td>\${isAdmin ? (c.connected ? (c.source === 'runtime' ? '<div class="ch-actions"><button data-edit="' + esc(c.id) + '">编辑</button><button data-more="' + esc(c.id) + '">再登录</button>' + (c.custom ? '<button class="danger" data-cdelch="' + esc(c.id) + '">删除</button>' : '<button class="danger" data-disc="' + esc(c.id) + '">断开</button>') + '</div>' : '') : '<div class="ch-actions"><button data-conn="' + esc(c.id) + '">接入</button>' + (c.custom ? '<button class="danger" data-cdelch="' + esc(c.id) + '">删除</button>' : '') + '</div>') : ''}</td>
-            </tr>\`).join('')}
+            </tr>\`;
+              return row + (c.kind === 'subscription' && c.connected ? '<tr class="ch-account-row"><td colspan="6">' + renderSubscriptionAccounts(c, isAdmin) + '</td></tr>' : '');
+            }).join('')}
           </tbody>
         </table>
       </section>
@@ -726,6 +794,45 @@ export function renderAdminHtml({ companyName }) {
     });
     const addSub = $('#addSub');
     if (addSub) addSub.addEventListener('click', () => openConnect(channels.channels, 'subscription'));
+    const refreshSubscriptionUsage = async (channelId, accountId) => {
+      const channel = channels.channels.find((entry) => entry.id === channelId);
+      const accounts = Array.isArray(channel?.accounts) ? channel.accounts : [];
+      const targets = accountId ? accounts.filter((entry) => entry.id === accountId) : accounts;
+      if (!targets.length) return toast('该通道没有可查询的订阅账号', true);
+      if (targets.some((entry) => officialUsagePending.has(officialUsageKey(channelId, entry.id)))) return;
+      for (const account of targets) {
+        const key = officialUsageKey(channelId, account.id);
+        officialUsagePending.add(key);
+        officialUsageResults.delete(key);
+        document.querySelectorAll('[data-usage-result]').forEach((node) => {
+          if (node.dataset.usageResult === key) node.innerHTML = renderOfficialUsage(null, true);
+        });
+        document.querySelectorAll('[data-usage-refresh]').forEach((button) => {
+          if (button.dataset.usageRefresh === channelId && button.dataset.usageAccount === account.id) {
+            button.disabled = true;
+            button.textContent = '查询中…';
+          }
+        });
+      }
+      document.querySelectorAll('[data-usage-refresh-all]').forEach((button) => {
+        if (button.dataset.usageRefreshAll === channelId) { button.disabled = true; button.textContent = '查询中…'; }
+      });
+      try {
+        const response = await api('POST', '/api/channels/' + encodeURIComponent(channelId) + '/usage/refresh', accountId ? { accountId } : {});
+        for (const result of response.results || []) officialUsageResults.set(officialUsageKey(channelId, result.accountId), result);
+        toast('已完成 ' + (response.results || []).length + ' 个账号的官方实时查询');
+      } catch (error) {
+        for (const account of targets) officialUsageResults.set(officialUsageKey(channelId, account.id), {
+          status: 'error', checkedAt: new Date().toISOString(), error: error.message,
+        });
+        toast(error.message, true);
+      } finally {
+        for (const account of targets) officialUsagePending.delete(officialUsageKey(channelId, account.id));
+        await renderMain();
+      }
+    };
+    document.querySelectorAll('[data-usage-refresh]').forEach((button) => button.addEventListener('click', () => refreshSubscriptionUsage(button.dataset.usageRefresh, button.dataset.usageAccount)));
+    document.querySelectorAll('[data-usage-refresh-all]').forEach((button) => button.addEventListener('click', () => refreshSubscriptionUsage(button.dataset.usageRefreshAll)));
     const addKey = $('#addKey');
     if (addKey) addKey.addEventListener('click', () => openConnect(channels.channels, 'key'));
     const addCustom = $('#addCustom');

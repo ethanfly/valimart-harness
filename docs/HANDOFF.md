@@ -2,6 +2,15 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-12：订阅账号用量状态与官方入口
+
+- 管理页「模型设置 → 模型通道」为每个订阅账号显示网关最近观察到的状态：有成功响应时标记「最近请求成功 · 可用」，上游额度错误时标记「已触发限额」，并展示网关优先冷却截止时间；冷却期过后提示等待下一次请求验证。
+- 账号状态附最近检查时间和平台官方入口（Grok、ChatGPT、Claude、Gemini、Antigravity）。页面区分网关调用观察与官方额度查询；冷却表示账号优先级恢复时间，没其他可用账号时网关仍可能提前回退重试。
+- 账号状态时间写入通道 `channels.json` 集合（默认 SQLite），成功状态最多每 5 分钟持久化一次，避免每次请求都写数据库。服务端配置接入但没有独立账号列表的订阅通道会提示暂无单账号状态。
+- 用户明确“手动刷新”应主动查询官方实时余额，并允许复用官方客户端内部接口。管理员可按账号或整通道刷新；服务端先续期 OAuth，再直接请求平台接口，结果带本次查询时间、剩余比例/金额和平台返回的恢复时间。令牌与原始响应仅留在网关。
+- 实时适配：ChatGPT `/backend-api/wham/usage`、Claude `/api/oauth/usage`、Grok Build `/v1/billing?format=credits`、Gemini Code Assist `retrieveUserQuota`、Antigravity `retrieveUserQuotaSummary`。这些产品内部接口可能变更或拒绝某些客户端；错误按账号显示，不缓存旧余额冒充实时结果。服务端配置接入且没有独立 OAuth 账号列表的通道不可单独刷新。
+- 修改 `server/src/subscription-usage.js`、`server/src/api.js`、`server/src/index.js`、`server/src/oauth-subscribe.js`、`server/src/channels.js`、`server/src/llm-proxy.js`、`server/src/admin-page.js`，并补充适配器与网关路由测试。全量 `npm test` **600 pass / 0 fail / 1 skip**。未对真实订阅账号发请求，未打网关安装包。过程记录：`docs/sessions/2026-10-12-subscription-account-usage.md`。
+
 ## 2026-10-12：提交业务改动，GitHub 客户端只留最新版
 
 - 提交当前生视频插件、媒体历史与会话 tab、工作区排序、网关媒体协议 / 出站代理、管理页布局等积累改动，推送 GitHub `origin/main`，触发既有 release 工作流。

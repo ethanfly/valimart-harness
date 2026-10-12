@@ -87,6 +87,7 @@ export class Channels {
         api: a.api ?? item.api,
         status: a.status,
         exhaustedUntil: a.exhaustedUntil,
+        lastStatusAt: a.lastStatusAt,
       })),
       // 展示名/推理档位等默认值在加载时补齐（grok-4.6-fast → Grok 4.6 Fast），不固化进 data/channels.json
       models: (item.models?.length ? item.models : existing?.models ?? []).map((m) => withModelDefaults(m, channel)),
@@ -261,6 +262,7 @@ export class Channels {
         apply(acc)
         acc.status = 'active'
         acc.exhaustedUntil = null
+        acc.lastStatusAt = null
         acc.lastError = null
       }
       apply(item)
@@ -283,11 +285,39 @@ export class Channels {
       if (!acc) return
       acc.status = 'exhausted'
       acc.exhaustedUntil = until
+      acc.lastStatusAt = new Date().toISOString()
       acc.lastError = error ? String(error).slice(0, 240) : acc.lastError
       Object.assign(item, persistItem(item, accounts))
     })
     const item = this.store.load().items[id]
     if (item) this.applyOne(channel, item)
+    return this.view().find((c) => c.id === id)
+  }
+
+  /** 记录一次成功上游响应；限频写入，避免每个请求都触发持久化。 */
+  markAccountAvailable(id, accountId) {
+    const channel = this.catalog().find((x) => x.id === id)
+    if (!channel) return null
+    const item = this.store.load().items[id]
+    if (!item) return null
+    const acc = accountsOf(item).find((a) => a.id === accountId)
+    if (!acc) return null
+    const now = Date.now()
+    const checkedAt = Date.parse(acc.lastStatusAt ?? '')
+    if (acc.status === 'active' && Number.isFinite(checkedAt) && now - checkedAt < 5 * 60 * 1000) return this.view().find((c) => c.id === id)
+    this.store.update((d) => {
+      const current = d.items[id]
+      if (!current) return
+      const accounts = accountsOf(current)
+      const currentAccount = accounts.find((a) => a.id === accountId)
+      if (!currentAccount) return
+      currentAccount.status = 'active'
+      currentAccount.exhaustedUntil = null
+      currentAccount.lastStatusAt = new Date(now).toISOString()
+      currentAccount.lastError = null
+      Object.assign(current, persistItem(current, accounts))
+    })
+    this.applyOne(channel, this.store.load().items[id])
     return this.view().find((c) => c.id === id)
   }
 
@@ -388,6 +418,7 @@ export function accountsOf(item) {
         refreshToken: item.refreshToken,
         tokenExpiresAt: item.tokenExpiresAt,
         chatgptAccountId: item.chatgptAccountId,
+        xaiUserId: item.xaiUserId,
         googleProjectId: item.googleProjectId,
         googleAccountId: item.googleAccountId,
         oauthProvider: item.oauthProvider,
@@ -421,6 +452,7 @@ function makeAccount(input, user) {
     refreshToken: input.refreshToken ? String(input.refreshToken) : undefined,
     tokenExpiresAt: input.tokenExpiresAt,
     chatgptAccountId,
+    xaiUserId: input.xaiUserId,
     googleProjectId: input.googleProjectId,
     googleAccountId: input.googleAccountId,
     oauthProvider: input.oauthProvider,
@@ -428,6 +460,7 @@ function makeAccount(input, user) {
     api: input.api,
     status: 'active',
     exhaustedUntil: null,
+    lastStatusAt: null,
     lastError: null,
     connectedAt: new Date().toISOString(),
     connectedBy: user?.username ?? null,
@@ -454,6 +487,7 @@ function publicAccounts(accounts) {
     label: a.label,
     status: a.status || 'active',
     exhaustedUntil: a.exhaustedUntil ?? null,
+    lastStatusAt: a.lastStatusAt ?? null,
     connectedAt: a.connectedAt ?? null,
     connectedBy: a.connectedBy ?? null,
     chatgptAccountId: a.chatgptAccountId ?? null,

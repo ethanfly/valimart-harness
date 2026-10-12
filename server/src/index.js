@@ -33,7 +33,7 @@ const startedAt = Date.now()
 export function createGateway(overrides = {}) {
   // fetchReleases / kernels / fetchNpmVersions / prepareInstaller 是旧内核更新链的测试注入位，
   // 现已移除：内核随客户端整包分发，不再经网关更新。仍吸收这些键，避免漏进 loadConfig。
-  const { fetchReleases: _fetchReleases, kernels: _kernels, fetchNpmVersions: _fetchNpmVersions, prepareInstaller: _prepareInstaller, fetchModels, ...cfgOverrides } = overrides
+  const { fetchReleases: _fetchReleases, kernels: _kernels, fetchNpmVersions: _fetchNpmVersions, prepareInstaller: _prepareInstaller, fetchModels, fetchUsage, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
   const instanceId = loadInstanceId(cfg.dataDir)
@@ -87,6 +87,7 @@ export function createGateway(overrides = {}) {
     startedAt,
     oauth,
     fetchModels,
+    fetchUsage,
     mixedAttribution,
   })
   registerAdminPage(router, { cfg })

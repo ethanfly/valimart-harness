@@ -504,6 +504,8 @@ export class LlmProxy {
       // 全部 chunk（会话统计的解码时间塌成 0，TPS 被放大到不可能的值）。失败响应才值得窥探配额。
       if (!res.ok && acc?.id && isUpstreamQuotaExhausted(res.status, await res.clone().text().catch(() => ''))) {
         this.channels?.markAccountExhausted?.(upstream.channel, acc.id, { error: 'quota exhausted' })
+      } else if (res.ok && acc?.id) {
+        this.channels?.markAccountAvailable?.(upstream.channel, acc.id)
       }
       return res
     }
@@ -516,7 +518,10 @@ export class LlmProxy {
         current = bind(await this.prepareUpstream(current, { force: true, accountId: acc.id }), acc)
         res = await this.sendUpstream(current, body, model, opts)
       }
-      if (res.ok) return res
+      if (res.ok) {
+        this.channels?.markAccountAvailable?.(upstream.channel, acc.id)
+        return res
+      }
       const peek = await res.clone().text().catch(() => '')
       if (isUpstreamQuotaExhausted(res.status, peek)) {
         this.channels?.markAccountExhausted?.(upstream.channel, acc.id, { error: peek.slice(0, 200) })
