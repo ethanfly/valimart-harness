@@ -86,8 +86,19 @@ export const CODE_PATCHES = [
     edits: [
       {
         name: 'markdown-render-prop',
-        from: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMessageImages,',
-        to: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMarkdown, renderMessageImages,',
+        variants: [
+          {
+            // 0.1.2–0.2.0：interrupted 后是 renderMessageImages。
+            from: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMessageImages,',
+            to: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMarkdown, renderMessageImages,',
+          },
+          {
+            // 0.2.1-rc.2：签名重写为 loadImage/groupPart/reasoningHidden/…/renderSlot（上游为
+            // conversation.chat.* 槽原生传入 renderSlot），renderMarkdown 仍按老位置插在 interrupted 后。
+            from: 'function AssistantMarkdown({ blocks, streaming, interrupted, loadImage,',
+            to: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMarkdown, loadImage,',
+          },
+        ],
       },
       {
         name: 'assistant-markdown-slot-render',
@@ -97,26 +108,15 @@ export const CODE_PATCHES = [
             to: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(react.Fragment, { children: renderMarkdown({ text: block.text, streaming, labels, fileMentions: mentions }) }, i));',
           },
           {
-            // 0.1.5-rc.1：MarkdownText 增加 pathImages，本地路径图走官方 resolver。
+            // 0.1.5-rc.1：MarkdownText 增加 pathImages，本地路径图走官方 resolver。0.2.1-rc.2 文本块渲染与这条逐字节一致，仍命中。
             from: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions,\n\t\t\t\t\t\t\tpathImages\n\t\t\t\t\t\t}, i));',
             to: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(react.Fragment, { children: renderMarkdown({ text: block.text, streaming, labels, fileMentions: mentions, pathImages }) }, i));',
           },
         ],
       },
-      {
-        name: 'assistant-node-render-slot',
-        variants: [
-          {
-            from: 'function AssistantNodeView({ node, useTurnData,',
-            to: 'function AssistantNodeView({ node, renderSlot, useTurnData,',
-          },
-          {
-            // 0.1.7-rc.1：过程组把 groupPart 插到 node 后面，renderSlot 仍要在组件参数里。
-            from: 'function AssistantNodeView({ node, groupPart, useDisclosure, useTurnData,',
-            to: 'function AssistantNodeView({ node, renderSlot, groupPart, useDisclosure, useTurnData,',
-          },
-        ],
-      },
+      // assistant-node-render-slot（给 AssistantNodeView 补 renderSlot 参数）已删：0.2.1-rc.2 起
+      // 上游为 conversation.chat.reasoning.body / message.images 槽原生给 AssistantNodeView 传入
+      // renderSlot，编辑 4 直接可用。回退老内核需从 git 历史找回该编辑及其 0.1.2/0.1.7 变体。
       {
         name: 'assistant-node-markdown-fallback',
         variants: [
@@ -128,6 +128,7 @@ export const CODE_PATCHES = [
           {
             // 0.1.7-rc.1：AssistantMarkdown 先收 groupPart。锚点必须长过 0.1.5 那条，
             // 否则 `blocks: data.blocks,` 是公共前缀，两条变体同时命中。
+            // 0.2.1-rc.2 实例化 props 顺序（blocks→groupPart→useDisclosure）与这条一致，仍命中。
             from: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,',
             to: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\trenderMarkdown: (props) => renderSlot("conversation.assistant.markdown", props, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, props) }),\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,',
           },
@@ -144,6 +145,12 @@ export const CODE_PATCHES = [
             // 0.1.7-rc.1：assistant-step 已有 inject（presentation hook），子槽跟在 inject 后面声明。
             from: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView)',
             to: 'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => ({ hooks: { presentation } }),\n\t\t\t\tchildren: { "conversation.assistant.markdown": { kind: "single", scope: "session" } }\n\t\t\t}, AssistantNodeView)',
+          },
+          {
+            // 0.2.1-rc.2：assistant-step 原生带 children（reasoning.body + message.images）且 inject
+            // 移到 children 之后；公司槽追加为第三个 child。锚到 message.images 整块保证唯一命中。
+            from: '\t\t\t\t\t"conversation.chat.message.images": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView));',
+            to: '\t\t\t\t\t"conversation.chat.message.images": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t},\n\t\t\t\t\t"conversation.assistant.markdown": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView));',
           },
         ],
       },

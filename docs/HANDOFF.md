@@ -2,6 +2,16 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-21：内核升 0.2.1-rc.2（补丁已重审）· TDH 同步 · dsh-purge 拒装
+
+- **内核 `0.2.0-rc.2` → `0.2.1-rc.2`**（npm latest/next，2026-10-17 发布）。只改 `scripts/kernel/pin.json`；`npm run setup` + `npm run kernel:check` ✓ 20 处补丁齐全。junction mklink v3/v4 仍 anchor-gone、company-think 预设仍 missing（均预期）；dsh-browser@0.1.11 / anysearch@0.1.4 插件补丁仍命中，兼容豁免由 setup 自动写 `profiles/desk/compatibility.json`。
+- **markdown-slot 补丁重审**（`patches.mjs` 第一条）：0.2.1 上游给 `AssistantMarkdown`/`AssistantNodeView` 原生传 `renderSlot`、assistant-step 注册原生带 children（reasoning.body + message.images）。处置：签名与子槽声明各加 0.2.1 变体；**删除 `assistant-node-render-slot` 编辑**（上游已吸收）；文本块与实例化锚点复用 0.1.5/0.1.7 变体（逐字节一致）。`kernel-patches.test.mjs` 同步改：0.1.7 用例去掉已删编辑断言，新增 0.2.1 锚点用例。
+- 验证：全量 `npm test`（PowerShell） **602 tests，601 pass / 0 fail / 1 skip**（skip=preparePackaged 缺 kernel.tar，预期）；e2e boot 锚点（`staticModules:` / `.run(`）在 0.2.1 前端仍命中，`session-images.spec.js` 不用改，但未跑 Playwright 全量。dev 客户端冒烟（安装版占 3470，改 `--port 3471`）：启动零报错，desk-host/image/video 就绪、模型路由已配、公司盘同步 1565 文件、token URL 303 正常；冒烟进程已清理。
+- **新 gotcha**：从 Git Bash 跑 `npm test` 时 `spawnSync('tar')` 会解析到 GNU tar，`E:` 被当远程主机（`Cannot connect to E: resolve failed`），gateway-linux 打包用例误报失败——**测试必须在 PowerShell 下跑**（System32 bsdtar）。
+- **TDH 上游克隆已同步**：`E:/orcaWorkspace/TDHarness-coding` main 快进 `1523e56 → 82c65fc`（2026.10.19）。上游 `kernel.yml` pin 0.2.1-alpha.1；其补丁器把 markdown-slot 用 `maxKernel: 0.1.6` 门跳过（他们新客户端不用该槽），本仓 desk-ui 仍消费 `conversation.assistant.markdown`，故走变体重写。锚点重审可参考上游 `patches/apply-kernel-patches.js`。
+- **dsh-purge 拒绝安装**（决策，别轻易推翻）：GitHub `YuJunZhiXue/dsh-purge` 是「破甲」越狱插件，直接改写内核包的提示词/权限策略/工具限制。与公司锚点补丁层正面冲突；企业多用户 + 上游订阅账号场景下违反平台 ToS、有批量封号风险；原仓库删库中、镜像 fork 遍地且未审计，供应链风险高。研究/防御目的可隔离审查源码，不入 company-harness。细节 `docs/sessions/2026-10-21-kernel-0.2.1-rc.2.md`。
+- **未做**：未打客户端安装包——员工机器安装版 payload 仍是 0.2.0-rc.2，分发需 `npm run dist:client` + 网关发布（等确认）；profile 插件未升（dsh-browser 0.2.1 / anysearch 0.1.8 已发布，升级要连带重审 settings 补丁变体）；改动未提交（pin.json、patches.mjs、kernel-patches.test.mjs）。
+
 ## 2026-10-12：GitHub Pages 直链下载与项目 Star
 
 - `docs/intro/index.html` 的下载入口在页面加载时请求 GitHub `latest` Release API，客户端、网关与 VS Code 插件按附件名称解析为直接下载 URL；VS Code / 网关多个版本时按语义版本取最新。API 请求失败或附件缺失时回退到 Releases 页面。

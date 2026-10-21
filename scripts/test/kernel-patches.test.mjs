@@ -27,22 +27,38 @@ const MARKDOWN_RC13 =
 const MARKDOWN_RC15 =
   '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions,\n\t\t\t\t\t\t\tpathImages\n\t\t\t\t\t\t}, i));'
 
-const ASSISTANT_017_SIG = 'function AssistantNodeView({ node, groupPart, useDisclosure, useTurnData,'
 const ASSISTANT_017_RETURN =
   'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,'
 const ASSISTANT_017_REGISTER =
   'key: "assistant-step",\n\t\t\t\tlocale: NS,\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView)'
 
+// 0.2.1-rc.2：AssistantMarkdown / AssistantNodeView 原生带 renderSlot（上游为 conversation.chat.*
+// 槽传入），assistant-node-render-slot 编辑已从补丁删除；assistant-step 注册原生带 children。
+// 文本块渲染与实例化锚点同 MARKDOWN_RC15 / ASSISTANT_017_RETURN（逐字节一致），不重复建 fixture。
+const ASSISTANT_021_SIG =
+  'function AssistantMarkdown({ blocks, streaming, interrupted, loadImage, groupPart, useDisclosure, reasoningHidden = false, usePresentation, revealProcess, mentions, renderSlot, useGroupAction, t }) {'
+const ASSISTANT_021_REGISTER =
+  '\t\t\t\t\t"conversation.chat.message.images": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView));'
+
 test('assistant markdown：0.1.7 的过程组签名仍把正文交给 renderMarkdown 槽', () => {
   const patch = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1')
-  const slot = applyEdit(ASSISTANT_017_SIG, patch.edits.find((e) => e.name === 'assistant-node-render-slot'), 'dsh-client-ui-chat')
   const ret = applyEdit(ASSISTANT_017_RETURN, patch.edits.find((e) => e.name === 'assistant-node-markdown-fallback'), 'dsh-client-ui-chat')
   const reg = applyEdit(ASSISTANT_017_REGISTER, patch.edits.find((e) => e.name === 'assistant-markdown-child-slot'), 'dsh-client-ui-chat')
-  assert.match(slot, /function AssistantNodeView\(\{ node, renderSlot, groupPart/)
   assert.match(ret, /renderMarkdown: \(props\) => renderSlot\("conversation\.assistant\.markdown"/)
   assert.match(ret, /groupPart,/)
   assert.match(reg, /children: \{ "conversation\.assistant\.markdown": \{ kind: "single", scope: "session" \} \}/)
   assert.match(reg, /inject: \(\) => \(\{ hooks: \{ presentation \} \}\)/)
+})
+
+test('assistant markdown：0.2.1-rc.2 原生 renderSlot 签名与 children 子槽都能打上', () => {
+  const patch = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1')
+  assert.equal(patch.edits.some((e) => e.name === 'assistant-node-render-slot'), false, '0.2.1 上游已原生传 renderSlot，该编辑应已删除')
+  const sig = applyEdit(ASSISTANT_021_SIG, patch.edits.find((e) => e.name === 'markdown-render-prop'), 'dsh-client-ui-chat')
+  const reg = applyEdit(ASSISTANT_021_REGISTER, patch.edits.find((e) => e.name === 'assistant-markdown-child-slot'), 'dsh-client-ui-chat')
+  assert.match(sig, /function AssistantMarkdown\(\{ blocks, streaming, interrupted, renderMarkdown, loadImage,/)
+  assert.match(reg, /"conversation\.chat\.message\.images": \{\n\t+kind: "single",\n\t+scope: "session"\n\t+\},/)
+  assert.match(reg, /"conversation\.assistant\.markdown": \{\n\t+kind: "single",\n\t+scope: "session"\n\t+\}\n\t+\},/)
+  assert.match(reg, /inject: \(\) => \(\{ hooks: \{ presentation \} \}\)\n\t+\}, AssistantNodeView\)\);/)
 })
 
 test('assistant markdown：0.1.3 与 0.1.5 的 MarkdownText 都能切到 renderMarkdown 槽', () => {
