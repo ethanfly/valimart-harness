@@ -10,7 +10,8 @@
 - **新 gotcha**：从 Git Bash 跑 `npm test` 时 `spawnSync('tar')` 会解析到 GNU tar，`E:` 被当远程主机（`Cannot connect to E: resolve failed`），gateway-linux 打包用例误报失败——**测试必须在 PowerShell 下跑**（System32 bsdtar）。
 - **TDH 上游克隆已同步**：`E:/orcaWorkspace/TDHarness-coding` main 快进 `1523e56 → 82c65fc`（2026.10.19）。上游 `kernel.yml` pin 0.2.1-alpha.1；其补丁器把 markdown-slot 用 `maxKernel: 0.1.6` 门跳过（他们新客户端不用该槽），本仓 desk-ui 仍消费 `conversation.assistant.markdown`，故走变体重写。锚点重审可参考上游 `patches/apply-kernel-patches.js`。
 - **dsh-purge 拒绝安装**（决策，别轻易推翻）：GitHub `YuJunZhiXue/dsh-purge` 是「破甲」越狱插件，直接改写内核包的提示词/权限策略/工具限制。与公司锚点补丁层正面冲突；企业多用户 + 上游订阅账号场景下违反平台 ToS、有批量封号风险；原仓库删库中、镜像 fork 遍地且未审计，供应链风险高。研究/防御目的可隔离审查源码，不入 company-harness。细节 `docs/sessions/2026-10-21-kernel-0.2.1-rc.2.md`。
-- **未做**：未打客户端安装包——员工机器安装版 payload 仍是 0.2.0-rc.2，分发需 `npm run dist:client` + 网关发布（等确认）；profile 插件未升（dsh-browser 0.2.1 / anysearch 0.1.8 已发布，升级要连带重审 settings 补丁变体）；改动未提交（pin.json、patches.mjs、kernel-patches.test.mjs）。
+- **已提交推送并打包发布（10-22 凌晨）**：提交 `058af7a` 已推 origin/main，触发 release 工作流。本地 `npm run dist:client` 打出 **`dist/valimart-harness-Setup-0.1.0-20261021.1619.exe`**（244.1 MiB / 255,991,489 字节，buildId `0.1.0+0.2.1-rc.2.20261021-1619.02c12f4f`，SHA-256 `91cd8ce4cc68e7e42c49808f0ac5da46b955831791836c499e8b0d031a6acf38`），用本机 ethan 桌面会话令牌发布到安装版网关：**当前版本已切到这一版**，`0.1.0+0.2.0-rc.2.20261012-0325.37e0a9ad` 留作 previous 可回滚。员工机器下次启动静默覆盖安装。payload.json 确认随包内核 0.2.1-rc.2。
+- **未做**：Playwright e2e 全量未跑（需要时 `npm run test:e2e`，内核桌面页要 `DESK_SMOKE_URL`）；未做隔离目录 payload 真实启动核验（dev 冒烟用的是同一前缀同一补丁内核，风险已覆盖大半）；profile 插件未升（dsh-browser 0.2.1 / anysearch 0.1.8 已发布，升级要连带重审 settings 补丁变体）；安装版网关 server 代码未重发（本轮未改 `server/**`，无需 `dist:gateway`）。
 
 ## 2026-10-12：GitHub Pages 直链下载与项目 Star
 
