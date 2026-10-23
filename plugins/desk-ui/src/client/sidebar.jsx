@@ -101,7 +101,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
           {tab === 'sessions' && renderSlot('sidebar.workspaces', { wide: false, expandSidebar: toggleSidebar })}
         </div>
         {renderSlot('sidebar.footer.action', { wide: false })}
-        <div className="dk-account-settings compact">{renderSlot('sidebar.settings', { wide: false })}</div>
+        <div className="dk-account-settings compact">{renderSlot('sidebar.settings', { wide: false })}<DeskUserChip wide={false} /></div>
       </div>
     )
   }
@@ -138,7 +138,7 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
       </div>
       <div className="dk-side-footer">
         {renderSlot('sidebar.footer.action', { wide: true })}
-        <div className="dk-account-settings">{renderSlot('sidebar.settings', { wide: true })}</div>
+        <div className="dk-account-settings">{renderSlot('sidebar.settings', { wide: true })}<DeskUserChip wide /></div>
         <div className="dk-client-ver" title={`${clientVersionDetail(desk?.client)} · 内核 ${kernelVersionLabel(desk)}`}>
           {clientVersionLabel(desk?.client)} · 内核 {kernelVersionLabel(desk)}
         </div>
@@ -150,9 +150,11 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
 /** Content of the native settings trigger; its button retains modal and focus handling. */
 export function DeskUserSettingsTrigger({ wide }) {
   const desk = useStoreValue(deskStore, (s) => s.desk)
-  if (!wide) return <span className="dk-avatar sm" title="打开设置" aria-label="打开设置">{initials(desk?.user)}</span>
+  // data-desk-user-trigger：0.2.1 起内核槽的显式 priority 被覆盖、遮蔽只看注册先后，
+  // index.jsx 靠这个标记在 DOM 里判断自己有没有被官方入口顶掉。
+  if (!wide) return <span className="dk-avatar sm" data-desk-user-trigger="" title="打开设置" aria-label="打开设置">{initials(desk?.user)}</span>
   return (
-    <span className="dk-side-user" title="打开设置" aria-label={`${desk?.user?.displayName || '账号'}，打开设置`}>
+    <span className="dk-side-user" data-desk-user-trigger="" title="打开设置" aria-label={`${desk?.user?.displayName || '账号'}，打开设置`}>
       <span className="dk-avatar">{initials(desk?.user)}</span>
       <span className="dk-grow">
         <span className="dk-small dk-ellipsis" style={{ display: 'block', fontWeight: 500 }}>
@@ -166,6 +168,26 @@ export function DeskUserSettingsTrigger({ wide }) {
         {desk.online ? '在线' : '离线'}
       </span>}
     </span>
+  )
+}
+
+/**
+ * 公司账号芯片（0.2.1 起左下角显示位接管者）：官方账号菜单 launcher 被样式隐藏但仍挂载，
+ * 点击转发给隐藏官方按钮——0.2.1 它开账号菜单，再点菜单「设置」进设置面板；老内核直接开面板。
+ */
+export function DeskUserChip({ wide }) {
+  const openCompanySettings = async () => {
+    const official = document.querySelector('.dk-account-settings [data-slot="settings.launcher"] button, .dk-account-settings button[class*="_trigger"]')
+    official?.click()
+    await new Promise((r) => setTimeout(r, 350))
+    const item = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button, [role="menu"] [role="option"]')]
+      .find((el) => (el.innerText ?? '').trim().startsWith('设置'))
+    item?.click()
+  }
+  return (
+    <button type="button" className="dk-settings-launcher" data-desk-user-trigger="" onClick={openCompanySettings}>
+      <DeskUserSettingsTrigger wide={wide} />
+    </button>
   )
 }
 

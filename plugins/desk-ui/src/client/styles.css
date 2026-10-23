@@ -656,10 +656,14 @@ html.dk-desk-electron .dk-rail { padding-top: 10px; }
 }
 .dk-dialog .dk-client-ver { margin-top: 10px; text-align: center; padding: 0; }
 .dk-account-settings [class*='_triggerRow'] { width: 100%; margin: 0; }
-.dk-account-settings button[class*='_trigger'] { width: 100%; height: auto; padding: 0; border-radius: 8px; text-align: left; }
-.dk-account-settings button[class*='_trigger']:focus-visible { outline: 2px solid var(--dk-accent); outline-offset: 2px; }
+/* 0.2.1 官方账号菜单（settings.launcher）与 0.2.0 官方 trigger 按钮统一隐藏：显示位由公司
+   芯片 DeskUserChip 接管；官方节点保持挂载（display:none 不影响程序化 click 转发）。 */
+.dk-account-settings [data-slot='settings.launcher'] { display: none !important; }
+.dk-account-settings button[class*='_trigger'] { display: none !important; }
+.dk-settings-launcher { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.dk-settings-launcher:focus-visible { outline: 2px solid var(--dk-accent); outline-offset: 2px; }
 .dk-account-settings.compact { width: 36px; margin: 8px 0; }
-.dk-account-settings.compact button[class*='_trigger'] { width: 36px; height: 36px; border-radius: 50%; }
+.dk-account-settings.compact .dk-settings-launcher { width: 36px; }
 .dk-side-user { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; }
 .dk-avatar {
   width: 30px;

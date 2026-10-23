@@ -2,6 +2,13 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-23：修 0.2.1 官方账号菜单顶掉公司员工入口（已重发包）
+
+- **回归**：1619 包（内核 0.2.1-rc.2）左下角公司芯片被 dsh 官方账号菜单芯片顶掉（点开是设置/意见反馈/退出 DeepSeek 登录），员工入口消失。根因：0.2.1 官方设置入口重构为 `settings.launcher` 槽（官方注册秩 0）；single 槽 **lowest renders + 同秩拒注册**；内核把显式 priority 覆盖成自动遮蔽秩，desk-ui 的 `-10` 失效。
+- **修法（DOM 接管，别再去抢槽）**：styles.css 隐藏 `.dk-account-settings [data-slot='settings.launcher']` 与旧 `button[class*='_trigger']`（保持挂载）；sidebar.jsx `DeskUserChip` 接管显示位，点击转发隐藏官方按钮再点菜单「设置」开面板；`settings.trigger` 注册保留供老内核。**踩坑**：apply 时 inject 未声明的 launcher 槽会拖死整个插件；异步定时器里 register 无 fiber 上下文；factory 里 register 被同秩拒——都试过，都失败，见 `docs/sessions/2026-10-21-kernel-0.2.1-rc.2.md`。
+- **验证**：Playwright 探针截图公司芯片恢复、点击开设置面板公司分区齐全；e2e 无断言涉及。
+- **已重发**：新包替换 1619（带病版），网关 current 已切、1619 留 previous；提交推送触发 CI release。员工机器下次启动静默升级。
+
 ## 2026-10-21：内核升 0.2.1-rc.2（补丁已重审）· TDH 同步 · dsh-purge 拒装
 
 - **内核 `0.2.0-rc.2` → `0.2.1-rc.2`**（npm latest/next，2026-10-17 发布）。只改 `scripts/kernel/pin.json`；`npm run setup` + `npm run kernel:check` ✓ 20 处补丁齐全。junction mklink v3/v4 仍 anchor-gone、company-think 预设仍 missing（均预期）；dsh-browser@0.1.11 / anysearch@0.1.4 插件补丁仍命中，兼容豁免由 setup 自动写 `profiles/desk/compatibility.json`。

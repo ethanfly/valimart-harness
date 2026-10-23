@@ -4,7 +4,7 @@
  */
 import css from './styles.css'
 import { DeskFrame, DeskLayoutController, ThemePresenter, layoutActions, layoutStore } from './layout.jsx'
-import { DeskSidebar, DeskUserSettingsTrigger } from './sidebar.jsx'
+import { DeskSidebar, DeskUserSettingsTrigger, DeskUserChip } from './sidebar.jsx'
 import { AccountSection, ColleaguesSection, DesktopSection, KnowledgeSection, PersonnelSection, QuickInferenceSection, SubscriptionSection } from './settings.jsx'
 import { MixedSection } from './mixed-settings.jsx'
 import { makeMixedChip } from './mixed-mode.jsx'
@@ -168,6 +168,10 @@ export function apply(ctx) {
   )
 
   // ---- 设置页：账号 / 同事 / 人员 / 快速推理 / 订阅 ----
+  // 0.2.1-rc.2 起左下角换成官方「账号菜单」launcher（设置/意见反馈/退出 DeepSeek 登录），
+  // 公司员工入口被顶掉。槽优先级已被内核改成自动遮蔽秩且同秩拒注册，抢槽不稳；改为 DOM 接管：
+  // 样式隐藏官方 launcher（见 styles.css），公司芯片由 DeskSidebar 自己渲染（DeskUserChip），
+  // 点击转发给隐藏的官方按钮、再点菜单「设置」开设置面板。trigger 槽保留注册供老内核。
   ctx.effect(
     () => ctx.slots.inject('settings.trigger', () => ctx.slots.register({ name: 'settings.trigger', priority: -10 }, DeskUserSettingsTrigger)),
     'desk-ui: account settings trigger',
