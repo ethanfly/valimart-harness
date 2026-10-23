@@ -70,4 +70,24 @@ node --test server/test/audio.test.js
 
 详见 `docs/device-voice-api.md`。这是设备 PCM 扩展，并非向任意 OpenAI 音频客户端
 承诺的全功能兼容端点；不支持任意 multipart、format、model 或 voice 透传。仍需在
-配置真实语音供应商后做其 WAV 输出兼容性与实际 I2S/麦克风联调；未打 `dist:gateway`。
+配置真实语音供应商后做其 WAV 输出兼容性与实际 I2S/麦克风联调。
+
+## 提交、推送与网关打包（同日后续）
+
+- 提交前在 PowerShell 重跑全量（`TEMP`/`TMP` 设在仓库外）：620 tests：619 pass / 0 fail / 1 skip。
+- 提交 `ba41746`（`feat(server): 网关设备语音代理与设备端知识检索`），只含本次 7 个文件；`fnos-probe.mjs` 仍不入库。
+- 推送：`feature/device-voice-proxy` → origin（GitHub，已设上游）与 gitea；gitea `main` 补推
+  `ba50fc0..ba67ed2`（14 个提交，快进）。未合入 main；GitHub release 工作流只对 main 触发，本次不触发。
+- 打包：`npm run dist:gateway` → `dist/valimart-harness-Gateway-Setup-0.1.0.exe`，27.1 MiB（28,384,700 字节），
+  SHA-256 `b85ed743113a5adb71b00a53f3ccda610882dc6ae0908491a438fee4d46b4db5`；makensis 用 electron-builder
+  缓存的 nsis-3.0.4.1，WinSW 2.12.0 取自 `build/cache`；随包 `runtime/node.exe` 为构建机 v26.7.0。
+- 打包前把同名旧包（10-08，28,372,278 字节，SHA-256
+  `681dbbfb34c77dbf70c3c20b3c4d3b17a816a19f48fc2c6f16b927fae257e1aa`）复制为
+  `dist/valimart-harness-Gateway-Setup-0.1.0-prev-20261008.exe`，回滚用。
+- 冒烟：在暂存目录 `build/gateway/server` 用 `../runtime/node.exe src/index.js`，按服务环境
+  （`NODE_ENV=production`、`DESK_GATEWAY_PACKAGED=1`）加临时 `DESK_GATEWAY_DATA` 与端口 18797 启动：
+  `/health` 正常（`needsSetup:true`，不播种账号）；`GET /v1/audio/config`、`POST /v1/audio/speech`、
+  `GET /v1/knowledge/search` 无令牌均 `401 invalid_token`。临时数据已删。
+- 生产配置：暂存 `config.json` 只剩 `deepseek` 上游（mock 被 `toProductionConfig` 去掉），`voice.provider`
+  仍是 `mock`，因此安装版在接入真实语音上游前 `available:false`、语音请求 `503 voice_not_configured`。
+- 未做：安装/升级本机网关（需 UAC）、真实语音供应商联调、设备端 I2S/麦克风联调、合入 main。
