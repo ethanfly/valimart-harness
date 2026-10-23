@@ -2,6 +2,18 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-23：设备语音代理与设备端知识检索（分支 feature/device-voice-proxy，未合入 main）
+
+- **新增设备专用 `/v1` 端点**（都用 `gatewayToken`，同 `LlmProxy.authenticate` 的吊销/停用检查）：
+  `GET /v1/audio/config`、`POST /v1/audio/transcriptions`、`POST /v1/audio/speech`、
+  `GET /v1/knowledge/search`。知识检索直接调用 `knowledge.search(user, …)`，所以个人记忆不会跨用户暴露；固件目前用 `limit=2`。
+- **明确契约（不是通用 OpenAI Audio 透传）**：ASR 收 `audio/pcm` 裸 `pcm_s16le`（8–48 kHz、仅单声道；chunked 可用；固件 16 kHz mono、≤6 s/192000 B），网关补 WAV 头后受控 multipart 上送；不支持未验证 multipart 透传。TTS 只收 `{input,format:"pcm"}`，固定用服务端 model/voice，向上游要 WAV 后只接受 16-bit/mono/8–48 kHz，剥成 `audio/pcm` 并回 `x-audio-rate` / `x-audio-channels: 1` / `x-audio-bits: 16`。
+- **mock/生产状态**：开发默认 `voice.provider:"mock"`；`/config` 返回明确布尔 `available` 和 `mock`，mock TTS 另有 `x-audio-mock: 1`。没有有密钥的真实通道即 `available:false`、请求为 `503 voice_not_configured`，不把 mock 静默当真语音。配置及完整协议见 `docs/device-voice-api.md`。
+- **安全与资源**：禁止上游重定向（避免 Authorization 泄漏）；30 s 可配超时、设备断开取消、ASR 错误文本 64 KiB / TTS 默认 20 MiB 响应上限。拒绝上游非 WAV、MP3/Opus、立体声、非 16-bit 或不支持采样率，绝不拿任意字节冒充 PCM。记账有 `voice:{kind,audioSeconds}` 和 `voice-asr|voice-tts` tag；可配每分钟语音价目，未配时 `costCny=0, priceKnown=false`，不改原有账本语义。
+- **TTL 已核实**：登录路径给 session 与 gateway token 均传 `loginTtlDays ?? 30`，所以这里都是 **30 天**；登出/吊销/停用即时失效。此前 session 草稿误称 gateway token 90 天，已纠正（90 只是 DB 方法的旧默认值，当前 API 不用它）。
+- **最终加固**：RIFF 声明长度必须等于完整响应，逐块检查长度/填充、唯一 fmt/data、非空且样本对齐的 PCM、blockAlign/byteRate 一致性；上游发头后卡在响应体的超时也统一为 `504 timeout`。真实语音通道仅接受 `openai-compatible` kind 且已解析密钥。
+- **验证**：`node --test server/test/audio.test.js` **18 pass / 0 fail**（临时目录 + 本机真实 HTTP stub；覆盖打包/格式、畸形 RIFF、响应体超时/取消/超限/错误、禁用/吊销、账本与知识隔离）；PowerShell `npm --prefix E:/orcaWorkspace/company-harness test` **620 tests：619 pass / 0 fail / 1 skip**（唯一 skip 是未设 `DESK_NATIVE_TEST_KERNEL` 的真实内核跨进程锁用例）。未用真实密钥/付费上游、未打包/部署；`fnos-probe.mjs` 未触碰。过程：`docs/sessions/2026-10-23-device-voice-proxy.md`。
+
 ## 2026-10-23：修 0.2.1 官方账号菜单顶掉公司员工入口（已重发包）
 
 - **回归**：1619 包（内核 0.2.1-rc.2）左下角公司芯片被 dsh 官方账号菜单芯片顶掉（点开是设置/意见反馈/退出 DeepSeek 登录），员工入口消失。根因：0.2.1 官方设置入口重构为 `settings.launcher` 槽（官方注册秩 0）；single 槽 **lowest renders + 同秩拒注册**；内核把显式 priority 覆盖成自动遮蔽秩，desk-ui 的 `-10` 失效。

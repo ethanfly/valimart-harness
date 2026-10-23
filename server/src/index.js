@@ -16,6 +16,7 @@ import { MixedAttribution } from './mixed-attribution.js'
 import { Drive } from './drive.js'
 import { Tasks } from './tasks.js'
 import { LlmProxy } from './llm-proxy.js'
+import { AudioProxy } from './audio-proxy.js'
 import { Channels } from './channels.js'
 import { SearchSettings } from './search-settings.js'
 import { OAuthSubscribe } from './oauth-subscribe.js'
@@ -33,7 +34,7 @@ const startedAt = Date.now()
 export function createGateway(overrides = {}) {
   // fetchReleases / kernels / fetchNpmVersions / prepareInstaller 是旧内核更新链的测试注入位，
   // 现已移除：内核随客户端整包分发，不再经网关更新。仍吸收这些键，避免漏进 loadConfig。
-  const { fetchReleases: _fetchReleases, kernels: _kernels, fetchNpmVersions: _fetchNpmVersions, prepareInstaller: _prepareInstaller, fetchModels, fetchUsage, ...cfgOverrides } = overrides
+  const { fetchReleases: _fetchReleases, kernels: _kernels, fetchNpmVersions: _fetchNpmVersions, prepareInstaller: _prepareInstaller, fetchModels, fetchUsage, fetchAudio, ...cfgOverrides } = overrides
   const cfg = loadConfig(cfgOverrides)
   const db = new Db(cfg.dataDir)
   const instanceId = loadInstanceId(cfg.dataDir)
@@ -49,6 +50,8 @@ export function createGateway(overrides = {}) {
   const catalog = () => modelCatalog(cfg)
   const oauth = new OAuthSubscribe({ cfg, channels })
   const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution })
+  // 语音与知识检索都挂在网关令牌下：设备只保存一个令牌，吊销/过期行为一致。
+  const audio = new AudioProxy({ db, cfg, ledger, proxy, fetchImpl: fetchAudio })
   applyOutboundProxy().then((outbound) => {
     if (outbound) console.log(`[gateway] 上游走代理 ${outbound}`)
   }).catch((err) => console.warn(`[gateway] 出站代理未启用：${err.message}`))
@@ -96,6 +99,18 @@ export function createGateway(overrides = {}) {
   router.post('/v1/images/generations', (req, res) => proxy.handleImages(req, res, 'generations'))
   router.post('/v1/images/edits', (req, res) => proxy.handleImages(req, res, 'edits'))
   router.post('/v1/videos/generations', (req, res) => proxy.handleVideos(req, res))
+  router.get('/v1/audio/config', (req, res) => audio.handleConfig(req, res))
+  router.post('/v1/audio/transcriptions', (req, res) => audio.handleTranscriptions(req, res))
+  router.post('/v1/audio/speech', (req, res) => audio.handleSpeech(req, res))
+  // 设备端知识检索：与 /api/knowledge/search 同一套权限，只是令牌换成网关令牌。
+  router.get('/v1/knowledge/search', (req, res) => {
+    const { user } = proxy.authenticate(req)
+    const url = parseUrl(req)
+    const q = url.searchParams.get('q') ?? ''
+    const limit = Number(url.searchParams.get('limit') ?? 10)
+    const kinds = (url.searchParams.get('kinds') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    sendJson(res, 200, knowledge.search(user, q, { limit: Number.isFinite(limit) ? limit : 10, kinds }))
+  })
   router.get('/health', (_req, res) => {
     const addr = server.address()
     sendJson(res, 200, {

@@ -97,6 +97,14 @@
     }
   },
   "defaultModel": "deepseek-v4-pro",
+  "voice": {
+    "provider": "mock",
+    "asrModel": "whisper-1",
+    "ttsModel": "tts-1",
+    "voice": "alloy",
+    "ttsRate": 16000,
+    "timeoutMs": 30000
+  },
   "quickInference": {
     "defaultModel": "deepseek-v4-flash"
   },
