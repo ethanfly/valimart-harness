@@ -7,7 +7,7 @@
 - **回归**：1619 包（内核 0.2.1-rc.2）左下角公司芯片被 dsh 官方账号菜单芯片顶掉（点开是设置/意见反馈/退出 DeepSeek 登录），员工入口消失。根因：0.2.1 官方设置入口重构为 `settings.launcher` 槽（官方注册秩 0）；single 槽 **lowest renders + 同秩拒注册**；内核把显式 priority 覆盖成自动遮蔽秩，desk-ui 的 `-10` 失效。
 - **修法（DOM 接管，别再去抢槽）**：styles.css 隐藏 `.dk-account-settings [data-slot='settings.launcher']` 与旧 `button[class*='_trigger']`（保持挂载）；sidebar.jsx `DeskUserChip` 接管显示位，点击转发隐藏官方按钮再点菜单「设置」开面板；`settings.trigger` 注册保留供老内核。**踩坑**：apply 时 inject 未声明的 launcher 槽会拖死整个插件；异步定时器里 register 无 fiber 上下文；factory 里 register 被同秩拒——都试过，都失败，见 `docs/sessions/2026-10-21-kernel-0.2.1-rc.2.md`。
 - **验证**：Playwright 探针截图公司芯片恢复、点击开设置面板公司分区齐全；e2e 无断言涉及。
-- **已重发**：新包替换 1619（带病版），网关 current 已切、1619 留 previous；提交推送触发 CI release。员工机器下次启动静默升级。
+- **已重发**：`dist/valimart-harness-Setup-0.1.0-20261023.0322.exe`（244.1 MiB，buildId `0.1.0+0.2.1-rc.2.20261023-0322.a632f28f`，SHA-256 `63cb31c4109aabea9891d76f6cb80d2ea7350fb5c011b2f95c790192298d890c`）替换 1619（带病版）；网关 current 已切、1619 留 previous 可回滚；提交 `4616a9b` 推送触发 CI release。员工机器下次启动静默升级。
 
 ## 2026-10-21：内核升 0.2.1-rc.2（补丁已重审）· TDH 同步 · dsh-purge 拒装
 
