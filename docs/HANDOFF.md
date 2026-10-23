@@ -2,7 +2,7 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
-## 2026-10-23：设备语音代理与设备端知识检索（分支 feature/device-voice-proxy，未合入 main；已打网关包、未安装）
+## 2026-10-23：设备语音代理与设备端知识检索（已合入 main；已打网关包、未安装）
 
 - **新增设备专用 `/v1` 端点**（都用 `gatewayToken`，同 `LlmProxy.authenticate` 的吊销/停用检查）：
   `GET /v1/audio/config`、`POST /v1/audio/transcriptions`、`POST /v1/audio/speech`、
@@ -13,7 +13,8 @@
 - **TTL 已核实**：登录路径给 session 与 gateway token 均传 `loginTtlDays ?? 30`，所以这里都是 **30 天**；登出/吊销/停用即时失效。此前 session 草稿误称 gateway token 90 天，已纠正（90 只是 DB 方法的旧默认值，当前 API 不用它）。
 - **最终加固**：RIFF 声明长度必须等于完整响应，逐块检查长度/填充、唯一 fmt/data、非空且样本对齐的 PCM、blockAlign/byteRate 一致性；上游发头后卡在响应体的超时也统一为 `504 timeout`。真实语音通道仅接受 `openai-compatible` kind 且已解析密钥。
 - **验证**：`node --test server/test/audio.test.js` **18 pass / 0 fail**（临时目录 + 本机真实 HTTP stub；覆盖打包/格式、畸形 RIFF、响应体超时/取消/超限/错误、禁用/吊销、账本与知识隔离）；PowerShell `npm --prefix E:/orcaWorkspace/company-harness test` **620 tests：619 pass / 0 fail / 1 skip**（唯一 skip 是未设 `DESK_NATIVE_TEST_KERNEL` 的真实内核跨进程锁用例）。未用真实密钥/付费上游；`fnos-probe.mjs` 未触碰（仍是本地临时文件、不入库）。过程：`docs/sessions/2026-10-23-device-voice-proxy.md`。
-- **已提交推送并打网关包（未安装）**：提交 `ba41746` 已推 origin 与 gitea 的 `feature/device-voice-proxy`（未合入 main，release 工作流只对 main 触发，本次不触发）；gitea `main` 一并补推到 `ba67ed2`（原停在 09-24 的 `ba50fc0`）。`npm run dist:gateway` 打出 **`dist/valimart-harness-Gateway-Setup-0.1.0.exe`**（27.1 MiB / 28,384,700 字节，SHA-256 `b85ed743113a5adb71b00a53f3ccda610882dc6ae0908491a438fee4d46b4db5`，随包 node 为构建机 v26.7.0）。暂存版按服务环境（`NODE_ENV=production`、`DESK_GATEWAY_PACKAGED=1`、临时数据目录、端口 18797）冒烟：`/health` 正常，`/v1/audio/*` 与 `/v1/knowledge/search` 无令牌 401。安装版 config 去掉了 mock 上游而 `voice.provider` 仍是 `mock`，所以装上后 `/v1/audio/config` 为 `available:false`、语音请求 503，要在 `config.local.json` 接 `openai-compatible` 语音上游才可用。原 10-08 旧包备份为 `dist/valimart-harness-Gateway-Setup-0.1.0-prev-20261008.exe`（SHA-256 `681dbbfb34c77dbf70c3c20b3c4d3b17a816a19f48fc2c6f16b927fae257e1aa`）可回滚。**未做**：安装/升级本机网关（要 UAC）、真实语音供应商与设备联调、合入 main。
+- **已提交推送并打网关包（未安装）**：提交 `ba41746` 已推 origin 与 gitea 的 `feature/device-voice-proxy`（当时未合入 main，未触发 release）；gitea `main` 一并补推到 `ba67ed2`（原停在 09-24 的 `ba50fc0`）。`npm run dist:gateway` 打出 **`dist/valimart-harness-Gateway-Setup-0.1.0.exe`**（27.1 MiB / 28,384,700 字节，SHA-256 `b85ed743113a5adb71b00a53f3ccda610882dc6ae0908491a438fee4d46b4db5`，随包 node 为构建机 v26.7.0）。暂存版按服务环境（`NODE_ENV=production`、`DESK_GATEWAY_PACKAGED=1`、临时数据目录、端口 18797）冒烟：`/health` 正常，`/v1/audio/*` 与 `/v1/knowledge/search` 无令牌 401。安装版 config 去掉了 mock 上游而 `voice.provider` 仍是 `mock`，所以装上后 `/v1/audio/config` 为 `available:false`、语音请求 503，要在 `config.local.json` 接 `openai-compatible` 语音上游才可用。原 10-08 旧包备份为 `dist/valimart-harness-Gateway-Setup-0.1.0-prev-20261008.exe`（SHA-256 `681dbbfb34c77dbf70c3c20b3c4d3b17a816a19f48fc2c6f16b927fae257e1aa`）可回滚。**未做**：安装/升级本机网关（要 UAC）、真实语音供应商与设备联调。
+- **已合入 main**：`feature/device-voice-proxy` 快进合入 main（线性历史，无合并提交），连同本条交接补记推 origin 与 gitea；推 origin/main 触发 release 工作流（CI 用 Node 22 重打客户端 + 网关并更新 Release `latest`；`pi-valimart-desk` 版本未变，不发 npm）。main 的 server 代码与上面本地网关包一致（合入后只多文档提交）。功能分支两端都保留未删。
 
 ## 2026-10-23：修 0.2.1 官方账号菜单顶掉公司员工入口（已重发包）
 

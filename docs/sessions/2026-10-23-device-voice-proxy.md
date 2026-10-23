@@ -90,4 +90,12 @@ node --test server/test/audio.test.js
   `GET /v1/knowledge/search` 无令牌均 `401 invalid_token`。临时数据已删。
 - 生产配置：暂存 `config.json` 只剩 `deepseek` 上游（mock 被 `toProductionConfig` 去掉），`voice.provider`
   仍是 `mock`，因此安装版在接入真实语音上游前 `available:false`、语音请求 `503 voice_not_configured`。
-- 未做：安装/升级本机网关（需 UAC）、真实语音供应商联调、设备端 I2S/麦克风联调、合入 main。
+- 未做：安装/升级本机网关（需 UAC）、真实语音供应商联调、设备端 I2S/麦克风联调。
+
+## 合入 main（同日后续）
+
+- `git merge --ff-only feature/device-voice-proxy`：main 从 `ba67ed2` 快进到 `9913a14`（仓库历史线性，
+  不建合并提交），再加本条交接补记，一起推 origin 与 gitea。
+- origin/main 推送触发 release 工作流（Windows 客户端 + 网关、VS Code vsix，更新 Release `latest`）；
+  `pi-valimart-desk` 版本未变，不发 npm。
+- 本地 `dist` 网关包与 main 的 server 代码一致（合入后只多文档提交）。功能分支未删除。
