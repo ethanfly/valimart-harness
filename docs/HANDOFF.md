@@ -2,6 +2,35 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-26：Claude Code 插件 valimart-desk
+
+- **为什么**：pi 包已经能登录公司网关并在界面显示当前用户。Claude Code 没有对等插件，而且状态栏只有一条命令，oh-my-claudecode 的 HUD 会占住它。
+- **现在**：`packages/claude-valimart-desk`。登录态在 `~/.claude/valimart-desk.json`，和 pi 分开。`/valimart-desk:desk-status` 与会话开始的系统提示显示姓名、账号、角色、公司。`scripts/statusline.mjs` 打一行，但检测到 OMC 或别人的 `statusLine` 就不改 `settings.json`。
+- **模型**：`cli.mjs serve` 在 `127.0.0.1:8799` 把 Anthropic `/v1/messages` 转成网关 `/v1/chat/completions`（保留 tool_use）。`ANTHROPIC_API_KEY=valimart-gateway` 只是占位，真令牌留在登录态。
+- **验证**：`node --test packages/claude-valimart-desk/test/claude-desk.test.mjs` **13 pass**。已装到本机用户级 `valimart-desk@valimart-harness`（直接读仓库目录）。登录态从 pi 的同一网关会话同步，`/api/auth/me` 200，界面行是「冯一宸 (ethan) · admin @ValimartHarness」。本机没有 OMC，`~/.claude/settings.json` 的 `statusLine` 指到 `scripts/statusline.mjs`。未跑全量 `npm test`。
+- **marketplace**：`.claude-plugin/marketplace.json`，名 `valimart-harness`，插件 source `./`。
+- **未做**：不进 release 产物、不镜像公司盘、不映射思考档位。本机 `ANTHROPIC_BASE_URL` 仍是 `127.0.0.1:3425`，没有改去 8799 桥。过程：`docs/sessions/2026-10-26-claude-code-plugin.md`。
+
+## 2026-10-26：语音通道 ASR / TTS 拆成两个独立端点
+
+- **为什么**：本地部署的识别和合成通常不在同一个端口，之前管理页只有一个 `baseUrl`，两边只能走同一个地址。
+- **现在**：`voice.json` 的 channel 存 `asrBaseUrl`/`asrApiKey` 与 `ttsBaseUrl`/`ttsApiKey`。TTS 端点留空 = 与 ASR 共用地址和密钥，所以一个服务同时提供两边时用法不变。密钥沿用规则按端点各自判断：换了哪一端的地址，就只重填那一端的 key。
+- **兼容**：更早的记录只有 `baseUrl`/`apiKey`，`stored()` 读取时两边共用，下一次保存才写成新字段，不用迁移脚本。`config.voice` 仍是一个 provider，配置通道两边地址相同。
+- **设备路径**：`/v1/audio/transcriptions` 打 ASR 端点，`/v1/audio/speech` 打 TTS 端点；「测试连通」的两段往返同样分开。任一端缺地址或密钥，`available=false`、请求 503。
+- **验证**：`voice-admin.test.js` 增至 8 项（新增「分两个端口」：合成带 TTS 密钥打 TTS 端口、识别带 ASR 密钥打 ASR 端口且不打到 TTS）；`audio.test.js` + `gateway.test.js` 37 pass。
+- **未做**：未重打网关包、未提交。
+
+## 2026-10-26：网关本机语音运行时（自动下载 + 进程内推理）
+
+- **为什么**：用户要的不是填外部地址，是网关自己把语音模型下载下来并跑起来。
+- **选型**：sherpa-onnx 没有官方的 OpenAI 兼容 HTTP 服务（只有命令行和 WebSocket）。网关直接调官方 Windows 命令行，不引入 Python / Docker：`sherpa-onnx-offline` + SenseVoice Small int8（中英日韩粤，16 kHz），`sherpa-onnx-offline-tts` + Kokoro 多语言 v1.0（中英，24 kHz）。版本和 sha256 固定在 `server/src/voice-runtime.js` 的 `VOICE_ASSETS`，不拉 latest。
+- **体积**：运行库 26.5 MB、识别模型 166 MB、合成模型 350 MB，落在 `dataDir/voice-runtime/`，不进安装包。解压前逐条检查路径，含 `..` 或逃出预期目录的整包拒绝。
+- **接线**：激活后通道写成 `local://asr` / `local://tts`（`normalizeBaseUrl` 单独放行，不发真实请求）。`AudioProxy` 遇到这两个地址就走 `VoiceRuntime.transcribe/speak`，其余路径不变。进程随 `gateway.close()` 杀掉。
+- **管理页**：语音页底部「本机运行」：状态（运行库 / 两个模型 / 是否已接管）、下载并安装、改用本机模型。总监只读。
+- **验证**：`server/test/voice-runtime.test.js` 6 项（未装状态、未装激活 400、按固定地址下载三项且二次不重复、激活后设备识别/合成走本机且不出网、压缩包路径穿越拒绝、校验和不符删临时文件）。配合 `audio` / `voice-admin` / `gateway` 共 45 项全过。未做真实下载和真实推理。
+- **同轮补 Linux**：`VOICE_RUNTIMES` 按 `platform-arch` 分三份运行库，sha256 都取自 v2.0.0 发布：Windows x64（MT，26.5 MB）、Linux x64（shared，27.9 MB）、Linux arm64（`linux-aarch64-shared-cpu`，27.8 MB，树莓派网关用这份）。模型包与平台无关。Linux 启动命令行时把包内 `lib/` 注入 `LD_LIBRARY_PATH`，不装系统库。不支持的架构 `install()` 直接 400 `unsupported_platform`，不发下载。新增 2 项测试：arm64 下到 aarch64 包且库路径正确、riscv64 拒绝。
+- **顺带修**：`upstreamFor` 原先见配置通道是 mock 就直接返回，管理页改用本机模型会被演示分支截走。现在 `local://` 端点优先于 mock。
+
 ## 2026-10-26：管理页「模型 → 语音」接入 ASR/TTS（已改 WAV 占位符兼容）
 
 - **为什么**：上一轮的语音通道只能改 `server/config.local.json` 再重启网关，管理员在管理页里看不到也改不了。现在管理页「模型」下多一个「语音」子标签：填端点 `baseUrl`、API Key、ASR/TTS 模型、音色、建议采样率、可选每分钟价目；保存即生效（下一次语音请求就用新通道，**不用重启**），「清除管理页设置」回退到 `config.voice`。

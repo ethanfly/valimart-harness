@@ -86,7 +86,7 @@ Electron 壳 (desktop/) / 浏览器 :3470
 - `node --test`，用临时数据目录 + mock 上游，不依赖网络（见 `server/test/gateway.test.js` 的 `createGateway` overrides 模式）。
 - 服务端测试在 `server/test/*.test.js`，脚本在 `scripts/test/*.test.mjs`，pi 包在 `packages/pi-valimart-desk/test/*.test.mjs`，一起被根 `npm test` 跑。
 - e2e 在 `e2e/*.spec.js`（Playwright，`config` 默认本机 `msedge`，workers 1）。完整内核桌面页要先设 `DESK_SMOKE_URL=http://127.0.0.1:3470`。
-- pi 包单测在 `packages/pi-valimart-desk`；VS Code 插件测试独立：`npm --prefix packages/vscode test`。
+- pi 包单测在 `packages/pi-valimart-desk`；Claude Code 插件在 `packages/claude-valimart-desk`（两者都进根 `npm test`）。VS Code 插件测试独立：`npm --prefix packages/vscode test`。
 
 ## 改完自检
 

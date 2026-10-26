@@ -1,0 +1,10 @@
+{
+  "name": "valimart-desk",
+  "displayName": "valimart claude desk",
+  "version": "0.1.0",
+  "description": "公司网关登录、模型转发，并在 Claude Code 界面显示当前登录用户。与 oh-my-claudecode 并存：不改它的 hooks，也不接管它的状态栏。",
+  "author": { "name": "ethanfly" },
+  "license": "UNLICENSED",
+  "keywords": ["valimart", "company-desk"],
+  "hooks": "./hooks/hooks.json"
+}

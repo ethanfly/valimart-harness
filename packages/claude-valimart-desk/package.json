@@ -1,0 +1,9 @@
+{
+  "name": "claude-valimart-desk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "valimart claude desk（惠利玛）：给 Claude Code 补上公司网关登录、模型转发，并在界面显示当前登录用户",
+  "type": "module",
+  "license": "UNLICENSED",
+  "author": "ethanfly"
+}

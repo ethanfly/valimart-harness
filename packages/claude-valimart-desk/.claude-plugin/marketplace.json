@@ -1,0 +1,13 @@
+{
+  "name": "valimart-harness",
+  "description": "惠利玛公司网关的 Claude Code 插件",
+  "owner": { "name": "ethanfly" },
+  "plugins": [
+    {
+      "name": "valimart-desk",
+      "source": "./",
+      "description": "公司网关登录、模型转发，并在界面显示当前登录用户。与 oh-my-claudecode 并存。",
+      "version": "0.1.0"
+    }
+  ]
+}
