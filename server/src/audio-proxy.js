@@ -568,6 +568,11 @@ export class AudioProxy {
       out.asr = { text: '（离线演示）mock 通道不会真的合成或识别语音。', latencyMs: 0 }
       return finish()
     }
+    // 页面在测试开始前就关了：不要为了没人看的结果去调付费上游。
+    if (res.destroyed || res.writableEnded) {
+      out.error = { stage: 'tts', code: 'client_closed', message: '管理页已关闭，测试取消' }
+      return finish()
+    }
     const origin = String(ch.baseUrl ?? '').replace(/\/+$/, '')
     const text = '你好，这是一条语音通道测试。'
     const recordTest = (kind, model, t0, status, audioSeconds = 0) => {
