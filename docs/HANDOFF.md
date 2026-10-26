@@ -15,7 +15,7 @@
 - **UI 冒烟（Playwright / 本机 Edge）**：临时脚本起真网关 + 本机 stub 语音上游，走完整页面流程——登录管理页 → 模型 → 语音：初始状态显示「mock 演示」，填入端点/key/模型保存后状态变「管理页设置」且**停在语音子标签**、页面源码里搜不到 key；「测试连通」显示 `合成 16000 Hz · 1 秒 · 19 ms / 识别 UI 冒烟识别成功`；「清除管理页设置」回退到配置。全程无 pageerror。脚本跑完已删，未入库。
 - **已提交推送并重打网关包**：提交 `c8d6565` 已推 origin 与 gitea 的 `main`（origin 推送触发 release 工作流）；随后补了一条「测试开始前页面已关闭就不再调付费上游」的守卫，重打 **`dist/valimart-harness-Gateway-Setup-0.1.0.exe`**（27.1 MiB / 28,386,189 字节，SHA-256 `291DF297693543D52E231981D1F75CCA21535249023167875E8382AFA78FBE4D`）。按服务环境（`NODE_ENV=production`、`DESK_GATEWAY_PACKAGED=1`、临时数据目录、端口 18797）冒烟：`/health` 正常、`/v1/audio/config` 与 `/api/admin/voice` 无令牌均 401、`/admin` 页面含 `data-tab="voice"` 与 `/api/admin/voice/test`。该文件覆盖了 10-23 打的那版（`b85ed743…`，未单独备份，可用 `65fb679` 重打）。**未安装**（要 UAC）。
 - **未做**：真实供应商联调（OpenAI/通义等端点和模型名要按实际填）、安装版网关未装、e2e 全量未跑。
-- **release 已更新**：`c8d6565` 与 `d8eda35` 两次推送的 release 工作流都成功；`latest` 现有客户端 `valimart-harness-Setup-0.1.0-20261026.0214.exe`、网关 `valimart-harness-Gateway-Setup-0.1.0.exe`（CI 用 d8eda35 构建，代码与本地包一致，安装包字节不保证可复现）、VS Code 插件未变（仍 0.3.1）。
+- **release 已更新**：`c8d6565`、`d8eda35`、`d08514d` 三次推送的 release 工作流都成功；`latest` 的客户端是 `valimart-harness-Setup-0.1.0-20261026.*.exe`（纯文档提交也会重打，时间戳会变）、网关 `valimart-harness-Gateway-Setup-0.1.0.exe`（CI 用最新提交构建，代码与本地包一致，安装包字节不保证可复现）、VS Code 插件未变（仍 0.3.1）。
 
 ## 2026-10-23：设备语音代理与设备端知识检索（已合入 main；已打网关包、未安装）
 
