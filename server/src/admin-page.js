@@ -222,11 +222,14 @@ export function renderAdminHtml({ companyName }) {
     document.querySelectorAll('#nav a[data-page]').forEach((a) => a.classList.toggle('on', a.getAttribute('data-page') === page));
     document.querySelectorAll('#main > [data-page]').forEach((el) => { el.style.display = el.getAttribute('data-page') === page ? '' : 'none'; });
   };
+  const tabMemory = {};
   const activateTabs = (root = document) => {
     root.querySelectorAll('[data-tabs]').forEach((tabs) => {
       const buttons = [...tabs.querySelectorAll('[data-tab]')];
       const panels = [...tabs.parentElement.querySelectorAll(':scope > [data-tab-panel]')];
+      const key = tabs.dataset.tabs || 'default';
       const select = (name) => {
+        tabMemory[key] = name;
         buttons.forEach((button) => {
           const active = button.dataset.tab === name;
           button.classList.toggle('on', active);
@@ -235,7 +238,9 @@ export function renderAdminHtml({ companyName }) {
         panels.forEach((panel) => { panel.hidden = panel.dataset.tabPanel !== name; });
       };
       buttons.forEach((button) => button.addEventListener('click', () => select(button.dataset.tab)));
-      select((buttons.find((button) => button.classList.contains('on')) || buttons[0])?.dataset.tab);
+      // renderMain() 整块重绘会把「当前子标签」冲回第一个；记住上次选中的，保存/测试后停在原地。
+      const remembered = tabMemory[key] && buttons.some((button) => button.dataset.tab === tabMemory[key]) ? tabMemory[key] : null;
+      select(remembered || (buttons.find((button) => button.classList.contains('on')) || buttons[0])?.dataset.tab);
     });
   };
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -460,14 +465,15 @@ export function renderAdminHtml({ companyName }) {
   }
 
   async function renderMain() {
-    let status, channels, collections, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
+    let status, channels, collections, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, voice = { voice: { available: false, mock: false, source: null, sourceLabel: null, endpoint: null, keyConfigured: false, asrModel: 'whisper-1', ttsModel: 'tts-1', voice: 'alloy', ttsRate: 24000, asrPriceCnyPerMinute: 0, ttsPriceCnyPerMinute: 0, adminSet: false, form: { baseUrl: '', asrModel: 'whisper-1', ttsModel: 'tts-1', voice: 'alloy', ttsRate: 24000, asrPriceCnyPerMinute: 0, ttsPriceCnyPerMinute: 0 } } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
     try {
-      [status, channels, collections, client, search] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/client'), api('GET', '/api/admin/search')]);
+      [status, channels, collections, client, search, voice] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/client'), api('GET', '/api/admin/search'), api('GET', '/api/admin/voice')]);
       try { plugins = await api('GET', '/api/plugins'); } catch (e) { /* 旧网关 */ }
       try { personnel = await api('GET', '/api/personnel'); } catch (e) { /* 总监/管理员才有 */ }
       if (!me) me = (await api('GET', '/api/auth/me')).user;
     } catch (err) { if (!token) return; return renderLogin(err.message); }
     const isAdmin = me.role === 'admin';
+    const v = voice.voice || {};
     const page = pageOf();
     document.body.classList.add('ready');
     $('#nav').innerHTML = PAGES.map((x) => '<a href="#' + x.id + '" data-page="' + x.id + '" class="' + (x.id === page ? 'on' : '') + '">' + x.label + '</a>').join('');
@@ -555,8 +561,8 @@ export function renderAdminHtml({ companyName }) {
       </div>
 
       <div data-page="models">
-      <div class="page-head"><div><h1>模型设置</h1><p class="desc">接入上游模型、配置搜索密钥，并查看当前模型目录。</p></div></div>
-      <div class="subtabs" data-tabs="models" role="tablist"><button type="button" class="on" data-tab="channels" role="tab" aria-selected="true">模型通道</button><button type="button" data-tab="search" role="tab" aria-selected="false">搜索密钥</button><button type="button" data-tab="catalog" role="tab" aria-selected="false">模型目录</button></div>
+      <div class="page-head"><div><h1>模型设置</h1><p class="desc">接入上游模型、配置搜索密钥和语音通道，并查看当前模型目录。</p></div></div>
+      <div class="subtabs" data-tabs="models" role="tablist"><button type="button" class="on" data-tab="channels" role="tab" aria-selected="true">模型通道</button><button type="button" data-tab="search" role="tab" aria-selected="false">搜索密钥</button><button type="button" data-tab="voice" role="tab" aria-selected="false">语音</button><button type="button" data-tab="catalog" role="tab" aria-selected="false">模型目录</button></div>
       <div data-tab-panel="channels">
       <section id="channels">
         <h2>模型通道</h2>
@@ -597,6 +603,44 @@ export function renderAdminHtml({ companyName }) {
           <button class="primary" type="submit">保存</button>
           <button type="button" id="searchKeyClear">清除</button>
         </form>\` : ''}
+      </section>
+      </div>
+
+      <div data-tab-panel="voice" hidden>
+      <section id="voicekey">
+        <h2>语音通道</h2>
+        <p class="desc">设备语音代理（/v1/audio/*）的上游。设备只拿网关令牌，API Key 只存服务端、不回显；管理页设置整体优先于 server/config.json 的 voice 段，保存后下一次语音调用即生效，不用重启。\${isAdmin ? '' : '（总监只读）'}</p>
+        <div class="kv">
+          <div><span>状态</span>\${v.available ? '<span class="ok">可用</span>' : '<span class="muted">未配置</span>'}\${v.mock ? ' · <span class="muted">mock 演示（不是真实语音）</span>' : ''}\${v.sourceLabel ? ' · 来源：' + esc(v.sourceLabel) : ''}</div>
+          <div><span>端点</span>\${v.endpoint ? '<span class="mono">' + esc(v.endpoint) + '</span>' : '—'}</div>
+          <div><span>密钥</span>\${v.keyConfigured ? '已配置（不回显）' : '未配置'}</div>
+          <div><span>模型</span>ASR \${esc(v.asrModel)} · TTS \${esc(v.ttsModel)} · 音色 \${esc(v.voice)} · 建议 \${esc(String(v.ttsRate))} Hz</div>
+          <div><span>价目</span>识别 ¥\${esc(String(v.asrPriceCnyPerMinute))}/分钟 · 合成 ¥\${esc(String(v.ttsPriceCnyPerMinute))}/分钟（0 = 未配置，成本记 0）</div>
+          \${v.updatedAt ? '<div><span>更新</span>' + esc(String(v.updatedAt)) + (v.updatedBy ? ' · ' + esc(v.updatedBy) : '') + '</div>' : ''}
+        </div>
+        \${isAdmin ? \`<form id="voiceForm" style="margin-top:16px">
+          <div class="field"><label>端点 baseUrl</label><input name="baseUrl" type="url" placeholder="https://api.openai.com/v1" value="\${esc(v.form.baseUrl)}" /></div>
+          <div class="field"><label>API Key\${v.keyConfigured ? '（已配置；留空 = 保持不变，换端点时必须重填）' : ''}</label><input name="apiKey" type="password" placeholder="\${v.keyConfigured ? '********' : 'sk-…'}" autocomplete="off" spellcheck="false" /></div>
+          <div class="grid2">
+            <div class="field"><label>ASR 模型</label><input name="asrModel" placeholder="whisper-1" value="\${esc(v.form.asrModel)}" /></div>
+            <div class="field"><label>TTS 模型</label><input name="ttsModel" placeholder="tts-1" value="\${esc(v.form.ttsModel)}" /></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>音色（voice）</label><input name="voice" placeholder="alloy" value="\${esc(v.form.voice)}" /></div>
+            <div class="field"><label>建议采样率（Hz）</label><input name="ttsRate" type="number" placeholder="24000" value="\${esc(String(v.form.ttsRate))}" /></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>识别价目（¥/分钟，0 = 未知）</label><input name="asrPriceCnyPerMinute" type="number" step="0.01" min="0" placeholder="0" value="\${esc(String(v.form.asrPriceCnyPerMinute))}" /></div>
+            <div class="field"><label>合成价目（¥/分钟，0 = 未知）</label><input name="ttsPriceCnyPerMinute" type="number" step="0.01" min="0" placeholder="0" value="\${esc(String(v.form.ttsPriceCnyPerMinute))}" /></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="primary" type="submit">保存</button>
+            <button type="button" id="voiceTest">测试连通</button>
+            \${v.adminSet ? '<button type="button" id="voiceClear">清除管理页设置</button>' : ''}
+          </div>
+          <p class="desc">「测试连通」会用当前表单值真实调用一次 TTS 合成 + ASR 识别（产生少量上游费用，记在账本 voice-test 标签下），不会保存表单。</p>
+        </form>\` : ''}
+        <div id="voiceTestResult" style="margin-top:12px"></div>
       </section>
       </div>
 
@@ -733,6 +777,66 @@ export function renderAdminHtml({ companyName }) {
       if (!confirm('清除搜索密钥？员工将回到 AnySearch 匿名额度。')) return;
       try { await api('PUT', '/api/admin/search/anysearch', { apiKey: '' }); toast('已清除'); renderMain(); } catch (err) { toast(err.message, true); }
     });
+
+    const voiceForm = $('#voiceForm');
+    // 表单 → 请求体：数字留空时传 undefined，由服务端沿用已保存值/默认值。
+    const voiceBodyOf = (form) => {
+      const fd = new FormData(form);
+      const num = (name) => (fd.get(name) === '' || fd.get(name) == null ? undefined : Number(fd.get(name)));
+      return {
+        baseUrl: fd.get('baseUrl'),
+        apiKey: fd.get('apiKey') || '',
+        asrModel: fd.get('asrModel'),
+        ttsModel: fd.get('ttsModel'),
+        voice: fd.get('voice'),
+        ttsRate: num('ttsRate'),
+        asrPriceCnyPerMinute: num('asrPriceCnyPerMinute'),
+        ttsPriceCnyPerMinute: num('ttsPriceCnyPerMinute'),
+      };
+    };
+    if (voiceForm) voiceForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api('PUT', '/api/admin/voice', voiceBodyOf(voiceForm));
+        toast('已保存语音设置，设备下一次语音调用即生效');
+        renderMain();
+      } catch (err) { toast(err.message, true); }
+    });
+    const voiceClear = $('#voiceClear');
+    if (voiceClear) voiceClear.addEventListener('click', async () => {
+      if (!confirm('清除管理页语音设置？之后回退到 server/config.json 的 voice 段。')) return;
+      try { await api('DELETE', '/api/admin/voice'); toast('已清除管理页语音设置'); renderMain(); } catch (err) { toast(err.message, true); }
+    });
+    const voiceTest = $('#voiceTest');
+    if (voiceTest) voiceTest.addEventListener('click', async () => {
+      const resultDiv = $('#voiceTestResult');
+      if (resultDiv) resultDiv.innerHTML = '<p class="desc">测试中：TTS 合成 → ASR 识别（可能要几秒）…</p>';
+      voiceTest.disabled = true;
+      try {
+        const r = await api('POST', '/api/admin/voice/test', voiceBodyOf(voiceForm));
+        if (!resultDiv) return;
+        if (!r.ok) {
+          const label = r.error && r.error.stage === 'asr' ? '识别失败' : r.error && r.error.stage === 'tts' ? '合成失败' : '测试失败';
+          resultDiv.innerHTML = '<p class="bad">' + label + '：' + esc((r.error && r.error.message) || '未知错误') + '</p>';
+          toast(label, true);
+          return;
+        }
+        const tts = r.tts || {};
+        const asr = r.asr || {};
+        resultDiv.innerHTML = '<div class="kv">' +
+          '<div><span>合成</span>' + esc(String(tts.rate)) + ' Hz · ' + esc(String(tts.seconds)) + ' 秒 · ' + esc(String(tts.latencyMs)) + ' ms</div>' +
+          '<div><span>识别</span>' + (asr.text ? esc(asr.text) : '<span class="muted">（空）</span>') + ' · ' + esc(String(asr.latencyMs)) + ' ms</div>' +
+          '<div><span>总耗时</span>' + esc(String(r.totalMs)) + ' ms</div>' +
+          '</div>' + (r.mock ? '<p class="desc">这是 mock 通道的演示结果，不代表真实上游可用。</p>' : '');
+        toast('测试通过');
+      } catch (err) {
+        if (resultDiv) resultDiv.innerHTML = '<p class="bad">测试失败：' + esc(err.message) + '</p>';
+        toast(err.message, true);
+      } finally {
+        voiceTest.disabled = false;
+      }
+    });
+
     document.querySelectorAll('[data-cpub]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('发布 ' + b.dataset.cpub + ' 为当前客户端？员工下次启动后覆盖安装。')) return;
       try { await api('POST', '/api/admin/client/publish', { buildId: b.dataset.cpub }); toast('已发布 ' + b.dataset.cpub); renderMain(); } catch (err) { toast(err.message, true); }

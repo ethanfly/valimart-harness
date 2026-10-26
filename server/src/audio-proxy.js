@@ -18,6 +18,7 @@
  *   priceCnyPerMinute 才计成本（priceKnown=true），否则如实记 0，不假装知道成本。
  */
 import { HttpError, readBody, sendJson, parseUrl } from './http.js'
+import { configVoiceChannel } from './voice-settings.js'
 
 export const MIN_RATE = 8000
 export const MAX_RATE = 48000
@@ -28,8 +29,6 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024
 const MAX_SPEECH_BODY_BYTES = 64 * 1024
 /** 上游识别文本上限：正常就几个字，64 KiB 已是滥用。 */
 const MAX_TEXT_BYTES = 64 * 1024
-const DEFAULT_TIMEOUT_MS = 30_000
-const DEFAULT_MAX_TTS_BYTES = 20 * 1024 * 1024
 
 /** 16-bit LE 单声道 PCM 包成 WAV。 */
 export function pcmToWav(pcm, rate, channels = 1) {
@@ -57,12 +56,20 @@ export function pcmToWav(pcm, rate, channels = 1) {
  * 从 WAV 里取 fmt 参数并剥掉头；结构不对（太短 / 不是 RIFF+WAVE /
  * fmt 块缺失或在 data 之后）返回 null。fmtTag：1=PCM；Extensible WAV 需要解析
  * 子格式才可安全判为 PCM，设备协议不接受。
+ *
+ * OpenAI TTS 的 WAV 使用 0xFFFFFFFF 占位符（RIFF 和 data 块的 size 字段）：
+ * 当 RIFF size 是占位符时，end = buf.length；当 data size 是占位符时，
+ * data 取到文件尾并截断到 blockAlign 倍数（必须非空）。其他块仍严格校验。
  */
 export function splitWav(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 44) return null
   if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return null
-  const end = buf.readUInt32LE(4) + 8
-  if (end !== buf.length) return null
+  const riffSize = buf.readUInt32LE(4)
+  const streamed = riffSize === 0xFFFFFFFF || riffSize === 0
+  const end = streamed ? buf.length : riffSize + 8
+  // 非占位符时 RIFF 长度必须正好等于完整容器长度；声明比实际长 = 截断。
+  if (end > buf.length || end < 12) return null
+  if (!streamed && end !== buf.length) return null
   let at = 12
   let format = null
   let pcm = null
@@ -71,10 +78,9 @@ export function splitWav(buf) {
     const id = buf.toString('ascii', at, at + 4)
     const size = buf.readUInt32LE(at + 4)
     const body = at + 8
-    const next = body + size + (size % 2)
-    if (next > end) return null
     if (id === 'fmt ') {
-      if (format || size < 16) return null
+      // 先做越界检查再读字段，否则截断的块会抛 RangeError。
+      if (format || size < 16 || body + 16 > end) return null
       const fmtTag = buf.readUInt16LE(body)
       const channels = buf.readUInt16LE(body + 2)
       const rate = buf.readUInt32LE(body + 4)
@@ -83,12 +89,29 @@ export function splitWav(buf) {
       const bits = buf.readUInt16LE(body + 14)
       if (!channels || !bits || bits % 8 || !rate ||
           blockAlign !== channels * (bits / 8) || byteRate !== rate * blockAlign) return null
+      if (body + size > end) return null
       format = { fmtTag, channels, rate, bits, blockAlign }
+      at = body + size + (size % 2)
     } else if (id === 'data') {
-      if (!format || pcm || !size || size % format.blockAlign) return null
+      if (!format || pcm) return null
+      // data 占位符（0xFFFFFFFF / 0，流式写入者常见）：只在容器本身也是流式时取到文件尾，
+      // 截断到 blockAlign 倍数且必须非空；读到 data 就结束，后面不再有块。
+      if (streamed && (size === 0xFFFFFFFF || size === 0)) {
+        const available = end - body
+        const aligned = available - (available % format.blockAlign)
+        if (aligned === 0) return null
+        pcm = buf.subarray(body, body + aligned)
+        at = end
+        continue
+      }
+      if (size === 0 || size % format.blockAlign || body + size > end) return null
       pcm = buf.subarray(body, body + size)
+      at = body + size + (size % 2)
+    } else {
+      // 其他块不认占位符：长度必须落在容器内。
+      if (size === 0xFFFFFFFF || body + size > end) return null
+      at = body + size + (size % 2)
     }
-    at = next
   }
   return pcm && format ? { pcm, ...format } : null
 }
@@ -153,11 +176,12 @@ async function readBoundedText(upstreamRes, cap) {
 }
 
 export class AudioProxy {
-  constructor({ db, cfg, ledger, proxy, fetchImpl }) {
+  constructor({ db, cfg, ledger, proxy, fetchImpl, voiceSettings }) {
     this.db = db
     this.cfg = cfg
     this.ledger = ledger
     this.proxy = proxy
+    this.voiceSettings = voiceSettings
     // 测试注入位：本地起一个假语音上游，验证真实打包/剥壳逻辑而不是 Mock 分支。
     this.fetch = fetchImpl ?? ((...args) => fetch(...args))
   }
@@ -167,19 +191,12 @@ export class AudioProxy {
     return this.proxy.authenticate(req)
   }
 
-  voiceConfig() {
-    const v = this.cfg.voice ?? {}
-    return {
-      provider: v.provider ?? '',
-      asrModel: v.asrModel ?? 'whisper-1',
-      ttsModel: v.ttsModel ?? 'tts-1',
-      voice: v.voice ?? 'alloy',
-      ttsRate: Number(v.ttsRate) || 24000,
-      timeoutMs: Math.max(1000, Number(v.timeoutMs) || DEFAULT_TIMEOUT_MS),
-      maxTtsBytes: Math.max(1024, Number(v.maxTtsBytes) || DEFAULT_MAX_TTS_BYTES),
-      asrPriceCnyPerMinute: Number(v.asrPriceCnyPerMinute) || 0,
-      ttsPriceCnyPerMinute: Number(v.ttsPriceCnyPerMinute) || 0,
-    }
+  /**
+   * 当前生效的语音通道：管理页设置 > 配置文件；都没有返回 null。
+   * 返回对象含 provider / kind / baseUrl / apiKey / 模型/音色/采样率/价目/超时。
+   */
+  channelConfig() {
+    return this.voiceSettings ? this.voiceSettings.effective() : configVoiceChannel(this.cfg)
   }
 
   /** 与文本模型共用周额度：超额时直接拒绝，避免语音绕过限额。 */
@@ -189,32 +206,29 @@ export class AudioProxy {
     }
   }
 
-  /** 语音通道必须在配置里且可用（mock 或已解析到密钥），否则一律 503。 */
-  upstreamFor(providerId) {
-    const up = providerId ? this.cfg.upstreams?.[providerId] : undefined
-    if (!up || !(['mock', 'openai-compatible'].includes(up.kind)) || (up.kind !== 'mock' && !up.resolvedKey)) {
-      throw new HttpError(
-        503,
-        '网关还没有配置可用的语音通道。请在 server/config.json 的 voice.provider 指定的上游接入 ASR/TTS 并配置密钥。',
-        'voice_not_configured',
-      )
-    }
-    return up
+  /** 通道必须可用（mock 或已解析到端点 + 密钥）；否则一律 503，不静默降级成 mock。 */
+  upstreamFor(channel) {
+    if (channel?.kind === 'mock') return channel
+    if (channel?.kind === 'openai-compatible' && channel.baseUrl && channel.apiKey) return channel
+    throw new HttpError(
+      503,
+      '网关还没有配置可用的语音通道。请在管理页 → 模型 → 语音 接入 ASR/TTS 上游（或在 server/config.json 配置 voice.provider）。',
+      'voice_not_configured',
+    )
   }
 
-  record(user, { provider, model, kind, status, latencyMs, audioSeconds = 0 }) {
-    const v = this.voiceConfig()
-    const perMinute = kind === 'asr' ? v.asrPriceCnyPerMinute : v.ttsPriceCnyPerMinute
+  record(user, channel, { model, kind, status, latencyMs, audioSeconds = 0, tag }) {
+    const perMinute = kind === 'asr' ? channel.asrPriceCnyPerMinute : channel.ttsPriceCnyPerMinute
     const seconds = Number(audioSeconds) || 0
     const priced = perMinute > 0
     this.ledger.record({
       userId: user.id,
       username: user.username,
-      provider,
+      provider: channel.provider,
       model,
       stream: false,
       status,
-      tag: kind === 'asr' ? 'voice-asr' : 'voice-tts',
+      tag: tag ?? (kind === 'asr' ? 'voice-asr' : 'voice-tts'),
       latencyMs,
       promptTokens: 0,
       completionTokens: 0,
@@ -263,16 +277,15 @@ export class AudioProxy {
   /** GET /v1/audio/config —— 设备开机时问一次：有没有语音、是不是 mock、用什么参数播。 */
   handleConfig(req, res) {
     this.authenticate(req)
-    const v = this.voiceConfig()
-    const up = v.provider ? this.cfg.upstreams?.[v.provider] : undefined
-    const available = !!up && (up.kind === 'mock' || (up.kind === 'openai-compatible' && !!up.resolvedKey))
+    const ch = this.channelConfig()
+    const available = ch?.kind === 'mock' || (ch?.kind === 'openai-compatible' && !!ch.baseUrl && !!ch.apiKey)
     sendJson(res, 200, {
-      available,
+      available: Boolean(available),
       // 显式 mock 标记：设备开机必须区分「本地演示音」和「真语音」，不许静默混淆。
-      mock: !!(available && up.kind === 'mock'),
-      asrModel: v.asrModel,
-      ttsModel: v.ttsModel,
-      ttsRate: v.ttsRate,
+      mock: Boolean(available && ch.kind === 'mock'),
+      asrModel: ch?.asrModel ?? 'whisper-1',
+      ttsModel: ch?.ttsModel ?? 'tts-1',
+      ttsRate: ch?.ttsRate ?? 24000,
       ttsChannels: 1,
       ttsBits: 16,
     })
@@ -285,10 +298,10 @@ export class AudioProxy {
    */
   async handleTranscriptions(req, res) {
     const { user } = this.authenticate(req)
-    const v = this.voiceConfig()
-    const up = this.upstreamFor(v.provider)
+    const ch = this.channelConfig()
+    const up = this.upstreamFor(ch)
     const started = Date.now()
-    this.assertQuota(user, v.provider)
+    this.assertQuota(user, ch.provider)
 
     const url = parseUrl(req)
     const ctype = String(req.headers['content-type'] ?? '')
@@ -345,9 +358,8 @@ export class AudioProxy {
     const seconds = pcm.length / (effectiveRate * effectiveChannels * 2)
 
     if (up.kind === 'mock') {
-      this.record(user, {
-        provider: v.provider,
-        model: v.asrModel,
+      this.record(user, ch, {
+        model: ch.asrModel,
         kind: 'asr',
         status: 'ok',
         latencyMs: Date.now() - started,
@@ -358,21 +370,21 @@ export class AudioProxy {
     }
 
     const boundary = '----valimart' + Date.now().toString(16)
-    const body = multipart({ model: v.asrModel, response_format: 'json' }, boundary, {
+    const body = multipart({ model: ch.asrModel, response_format: 'json' }, boundary, {
       name: 'speech.wav',
       type: 'audio/wav',
       data: pcmToWav(pcm, effectiveRate, effectiveChannels),
     })
     const origin = String(up.baseUrl ?? '').replace(/\/+$/, '')
 
-    const arm = this.armUpstream(res, v.timeoutMs)
+    const arm = this.armUpstream(res, ch.timeoutMs)
     try {
       let upstreamRes
       try {
         upstreamRes = await this.fetch(`${origin}/audio/transcriptions`, {
           method: 'POST',
           headers: {
-            authorization: `Bearer ${up.resolvedKey}`,
+            authorization: `Bearer ${up.apiKey}`,
             'content-type': `multipart/form-data; boundary=${boundary}`,
           },
           body,
@@ -399,7 +411,7 @@ export class AudioProxy {
       } catch {
         transcript = text.trim()
       }
-      this.record(user, { provider: v.provider, model: v.asrModel, kind: 'asr', status: 'ok', latencyMs: Date.now() - started, audioSeconds: seconds })
+      this.record(user, ch, { model: ch.asrModel, kind: 'asr', status: 'ok', latencyMs: Date.now() - started, audioSeconds: seconds })
       sendJson(res, 200, { text: transcript })
     } catch (err) {
       const status = arm.reason === 'timeout'
@@ -407,7 +419,7 @@ export class AudioProxy {
         : arm.reason === 'client'
           ? 'client_aborted'
           : err.ledgerStatus ?? (err instanceof HttpError ? err.code : 'upstream_unreachable')
-      this.record(user, { provider: v.provider, model: v.asrModel, kind: 'asr', status, latencyMs: Date.now() - started })
+      this.record(user, ch, { model: ch.asrModel, kind: 'asr', status, latencyMs: Date.now() - started })
       if (arm.reason === 'client') return // 设备已断开，无处可回
       throw this.upstreamFailure(arm, err, '识别')
     } finally {
@@ -422,10 +434,10 @@ export class AudioProxy {
    */
   async handleSpeech(req, res) {
     const { user } = this.authenticate(req)
-    const v = this.voiceConfig()
-    const up = this.upstreamFor(v.provider)
+    const ch = this.channelConfig()
+    const up = this.upstreamFor(ch)
     const started = Date.now()
-    this.assertQuota(user, v.provider)
+    this.assertQuota(user, ch.provider)
 
     const raw = await readBody(req, MAX_SPEECH_BODY_BYTES)
     let body
@@ -468,23 +480,23 @@ export class AudioProxy {
         const s = Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000)
         pcm.writeInt16LE(s, i * 2)
       }
-      this.record(user, { provider: v.provider, model: v.ttsModel, kind: 'tts', status: 'ok', latencyMs: Date.now() - started, audioSeconds: 0.7 })
+      this.record(user, ch, { model: ch.ttsModel, kind: 'tts', status: 'ok', latencyMs: Date.now() - started, audioSeconds: 0.7 })
       sendPcm(pcm, rate, { 'x-audio-mock': '1' })
       return
     }
 
     const origin = String(up.baseUrl ?? '').replace(/\/+$/, '')
-    const arm = this.armUpstream(res, v.timeoutMs)
+    const arm = this.armUpstream(res, ch.timeoutMs)
     try {
       let upstreamRes
       try {
         upstreamRes = await this.fetch(`${origin}/audio/speech`, {
           method: 'POST',
-          headers: { authorization: `Bearer ${up.resolvedKey}`, 'content-type': 'application/json' },
+          headers: { authorization: `Bearer ${up.apiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify({
-            model: v.ttsModel,
+            model: ch.ttsModel,
             input,
-            voice: v.voice,
+            voice: ch.voice,
             // 一律向上游要 wav：头里带真实采样率，网关可以如实转告设备。
             response_format: 'wav',
           }),
@@ -501,7 +513,7 @@ export class AudioProxy {
         err.ledgerStatus = `upstream_${upstreamRes.status}`
         throw err
       }
-      const audio = await readBounded(upstreamRes, v.maxTtsBytes)
+      const audio = await readBounded(upstreamRes, ch.maxTtsBytes)
       const wav = splitWav(audio)
       // 上游没按约定回 WAV：宁可明确失败，也不能把 mp3/opus 字节当 PCM 骗设备去播。
       if (!wav) throw new HttpError(502, '语音上游没有返回 WAV（网关统一向上游要 wav）', 'bad_upstream_audio')
@@ -512,9 +524,8 @@ export class AudioProxy {
           'unsupported_audio',
         )
       }
-      this.record(user, {
-        provider: v.provider,
-        model: v.ttsModel,
+      this.record(user, ch, {
+        model: ch.ttsModel,
         kind: 'tts',
         status: 'ok',
         latencyMs: Date.now() - started,
@@ -527,11 +538,165 @@ export class AudioProxy {
         : arm.reason === 'client'
           ? 'client_aborted'
           : err.ledgerStatus ?? (err instanceof HttpError ? err.code : 'upstream_unreachable')
-      this.record(user, { provider: v.provider, model: v.ttsModel, kind: 'tts', status, latencyMs: Date.now() - started })
+      this.record(user, ch, { model: ch.ttsModel, kind: 'tts', status, latencyMs: Date.now() - started })
       if (arm.reason === 'client') return
       throw this.upstreamFailure(arm, err, '合成')
     } finally {
       arm.done()
+    }
+  }
+
+  /**
+   * 管理页「测试」：用候选通道跑一次 TTS → ASR 往返，真实验证端点、密钥、模型名、
+   * 回包格式和采样率能不能串起来。与设备路径共用同一套上游请求（redirect:'error'、
+   * 超时、断连取消、回包上限、WAV 校验）；失败只回阶段 + 稳定错误码 + 中文摘要，
+   * 不透传上游原文——有的提供商会把请求细节甚至密钥片段回显在错误体里。
+   *
+   * 测试调用照样记账（tag=voice-test），但不查额度：诊断不该被自己的周额度卡住。
+   * 返回 200 + { ok, mock, totalMs, tts, asr, error }，由管理页展示，不抛 HTTP 错误。
+   */
+  async testChannel(ch, res, user) {
+    const started = Date.now()
+    const out = { ok: false, mock: ch.kind === 'mock', totalMs: 0, tts: null, asr: null, error: null }
+    const finish = () => {
+      out.totalMs = Date.now() - started
+      return out
+    }
+    if (ch.kind === 'mock') {
+      out.ok = true
+      out.tts = { rate: 16000, seconds: 0.7, latencyMs: 0 }
+      out.asr = { text: '（离线演示）mock 通道不会真的合成或识别语音。', latencyMs: 0 }
+      return finish()
+    }
+    const origin = String(ch.baseUrl ?? '').replace(/\/+$/, '')
+    const text = '你好，这是一条语音通道测试。'
+    const recordTest = (kind, model, t0, status, audioSeconds = 0) => {
+      if (!user) return
+      this.record(user, ch, {
+        model,
+        kind,
+        status,
+        latencyMs: Date.now() - t0,
+        audioSeconds,
+        tag: 'voice-test',
+      })
+    }
+    const fail = (stage, err, arm, t0, kind, model) => {
+      const timedOut = arm?.reason === 'timeout'
+      const code = timedOut ? 'timeout' : err instanceof HttpError ? err.code : 'upstream_unreachable'
+      const message = timedOut
+        ? `语音上游超时（${stage === 'tts' ? '合成' : '识别'}）`
+        : err instanceof HttpError
+          ? err.message
+          : '语音上游不可达'
+      recordTest(kind, model, t0, code)
+      out.error = { stage, code, message }
+      return finish()
+    }
+
+    // 第一段：TTS → WAV（顺便验证上游采样率和设备可播性）。
+    let pcm = null
+    let rate = ch.ttsRate
+    {
+      const t0 = Date.now()
+      const arm = this.armUpstream(res, ch.timeoutMs)
+      try {
+        let upstreamRes
+        try {
+          upstreamRes = await this.fetch(`${origin}/audio/speech`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${ch.apiKey}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ model: ch.ttsModel, input: text, voice: ch.voice, response_format: 'wav' }),
+            signal: arm.ac.signal,
+            redirect: 'error',
+          })
+        } catch (err) {
+          throw this.upstreamFailure(arm, err, '合成')
+        }
+        if (!upstreamRes.ok) {
+          await readBoundedText(upstreamRes, MAX_TEXT_BYTES)
+          throw new HttpError(502, `上游合成失败（HTTP ${upstreamRes.status}）`, 'upstream_error')
+        }
+        const audio = await readBounded(upstreamRes, ch.maxTtsBytes)
+        const wav = splitWav(audio)
+        if (!wav) throw new HttpError(502, '上游没有返回 WAV（网关统一向上游要 wav）', 'bad_upstream_audio')
+        if (!isPlayablePcmWav(wav)) {
+          throw new HttpError(
+            502,
+            `上游音频设备播不了（${wav.bits}-bit / ${wav.channels} 声道 / ${wav.rate} Hz，需要 16-bit 单声道 ${MIN_RATE}–${MAX_RATE} Hz）`,
+            'unsupported_audio',
+          )
+        }
+        pcm = wav.pcm
+        rate = wav.rate
+        out.tts = {
+          rate: wav.rate,
+          seconds: Math.round((wav.pcm.length / (wav.rate * 2)) * 1000) / 1000,
+          latencyMs: Date.now() - t0,
+        }
+        recordTest('tts', ch.ttsModel, t0, 'ok', out.tts.seconds)
+      } catch (err) {
+        if (arm.reason === 'client') {
+          out.error = { stage: 'tts', code: 'client_closed', message: '管理页已关闭，测试取消' }
+          return finish()
+        }
+        return fail('tts', err, arm, t0, 'tts', ch.ttsModel)
+      } finally {
+        arm.done()
+      }
+    }
+
+    // 第二段：把刚合成的 PCM 重新封 WAV 送去识别 —— 完整走一遍设备链路。
+    {
+      const t0 = Date.now()
+      const arm = this.armUpstream(res, ch.timeoutMs)
+      const boundary = '----valimart' + Date.now().toString(16)
+      const body = multipart({ model: ch.asrModel, response_format: 'json' }, boundary, {
+        name: 'speech.wav',
+        type: 'audio/wav',
+        data: pcmToWav(pcm, rate, 1),
+      })
+      try {
+        let upstreamRes
+        try {
+          upstreamRes = await this.fetch(`${origin}/audio/transcriptions`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${ch.apiKey}`,
+              'content-type': `multipart/form-data; boundary=${boundary}`,
+            },
+            body,
+            signal: arm.ac.signal,
+            redirect: 'error',
+          })
+        } catch (err) {
+          throw this.upstreamFailure(arm, err, '识别')
+        }
+        if (!upstreamRes.ok) {
+          await readBoundedText(upstreamRes, MAX_TEXT_BYTES)
+          throw new HttpError(502, `上游识别失败（HTTP ${upstreamRes.status}）`, 'upstream_error')
+        }
+        const raw = await readBoundedText(upstreamRes, MAX_TEXT_BYTES)
+        let transcript = ''
+        try {
+          const json = JSON.parse(raw)
+          transcript = String(json.text ?? json.output?.text ?? '')
+        } catch {
+          transcript = raw.trim()
+        }
+        out.asr = { text: transcript.slice(0, 2000), latencyMs: Date.now() - t0 }
+        recordTest('asr', ch.asrModel, t0, 'ok', out.tts.seconds)
+        out.ok = true
+        return finish()
+      } catch (err) {
+        if (arm.reason === 'client') {
+          out.error = { stage: 'asr', code: 'client_closed', message: '管理页已关闭，测试取消' }
+          return finish()
+        }
+        return fail('asr', err, arm, t0, 'asr', ch.asrModel)
+      } finally {
+        arm.done()
+      }
     }
   }
 }

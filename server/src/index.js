@@ -19,6 +19,7 @@ import { LlmProxy } from './llm-proxy.js'
 import { AudioProxy } from './audio-proxy.js'
 import { Channels } from './channels.js'
 import { SearchSettings } from './search-settings.js'
+import { VoiceSettings } from './voice-settings.js'
 import { OAuthSubscribe } from './oauth-subscribe.js'
 import { Knowledge } from './knowledge.js'
 import { registerApi } from './api.js'
@@ -46,12 +47,13 @@ export function createGateway(overrides = {}) {
   tasksRef.current = tasks
   const channels = new Channels(cfg, cfg.dataDir) // 界面上接入的通道合并进 cfg.upstreams
   const searchSettings = new SearchSettings(cfg, cfg.dataDir) // 管理页设置的搜索密钥（AnySearch），优先于配置文件
+  const voiceSettings = new VoiceSettings(cfg, cfg.dataDir) // 管理页设置的语音通道（端点 + 参数），优先于配置文件
   const knowledge = new Knowledge({ drive, tasks, db }) // 第四层通道：检索「公司里有没有人做过」
   const catalog = () => modelCatalog(cfg)
   const oauth = new OAuthSubscribe({ cfg, channels })
   const proxy = new LlmProxy({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution })
   // 语音与知识检索都挂在网关令牌下：设备只保存一个令牌，吊销/过期行为一致。
-  const audio = new AudioProxy({ db, cfg, ledger, proxy, fetchImpl: fetchAudio })
+  const audio = new AudioProxy({ db, cfg, ledger, proxy, voiceSettings, fetchImpl: fetchAudio })
   applyOutboundProxy().then((outbound) => {
     if (outbound) console.log(`[gateway] 上游走代理 ${outbound}`)
   }).catch((err) => console.warn(`[gateway] 出站代理未启用：${err.message}`))
@@ -86,6 +88,8 @@ export function createGateway(overrides = {}) {
     presence,
     channels,
     searchSettings,
+    voiceSettings,
+    audio,
     knowledge,
     startedAt,
     oauth,
@@ -157,6 +161,7 @@ export function createGateway(overrides = {}) {
     proxy,
     channels,
     searchSettings,
+    voiceSettings,
     oauth,
     knowledge,
     server,

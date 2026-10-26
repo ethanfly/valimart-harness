@@ -60,4 +60,11 @@ console.log('\n=== AnySearch 搜索密钥 ===')
 const s = raw('search.json')
 console.log('  ' + (s ? (JSON.parse(s).anysearch?.apiKey ? '已配置 ' + String(JSON.parse(s).anysearch.apiKey).slice(0, 12) + '…' : '未配置') : '(无)'))
 
+console.log('\n=== 管理页语音通道 ===')
+const vs = raw('voice.json')
+const vch = vs ? JSON.parse(vs).channel : null
+console.log('  ' + (vch
+  ? `${vch.baseUrl} · ASR ${vch.asrModel} · TTS ${vch.ttsModel} · 密钥 ${vch.apiKey ? '已配置' : '缺失'}`
+  : '(未在管理页设置，走 config 的 voice 段)'))
+
 db.close()

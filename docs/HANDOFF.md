@@ -2,6 +2,18 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-26：管理页「模型 → 语音」接入 ASR/TTS（已改 WAV 占位符兼容）
+
+- **为什么**：上一轮的语音通道只能改 `server/config.local.json` 再重启网关，管理员在管理页里看不到也改不了。现在管理页「模型」下多一个「语音」子标签：填端点 `baseUrl`、API Key、ASR/TTS 模型、音色、建议采样率、可选每分钟价目；保存即生效（下一次语音请求就用新通道，**不用重启**），「清除管理页设置」回退到 `config.voice`。
+- **实现分层**：新增 `server/src/voice-settings.js`（持久化 `voice.json` 集合；`effective()` 统一解析「管理页 > 配置」；`view()` 只回状态/来源/端点/`keyConfigured`，**绝不回 key**；`update/testChannel` 做全部校验）。`AudioProxy` 改成从 `VoiceSettings.effective()` 取单一通道对象（`channelConfig()`），provider 只有管理页通道才记 `voice-admin`，配置通道仍记 `voice.provider`，额度/账本归属不再混淆。
+- **密钥规则（别推翻）**：留空 = 沿用已保存的 key，**但仅当端点规范化后相同**；换端点必须重填，否则 400 `need_api_key`——防止把旧密钥发到新地址。首次保存必须填 key（不会自动从 config 借）。key 只接受可见 ASCII、≤400 字符；模型/音色拒绝换行、引号、反斜杠（会写进上游 multipart 头）。
+- **测试连通**：`POST /api/admin/voice/test` 不保存表单，用候选通道跑一次 TTS → ASR 往返，复用设备路径的 `fetch`（`redirect:'error'`）、超时、断连取消、回包上限和 WAV 校验。固定回 `200 {ok, mock, totalMs, tts, asr, error}`；失败只给阶段 + 稳定错误码 + 中文摘要，**不透传上游错误原文**（提供商会回显密钥片段）。测试调用记 `tag: voice-test`，不查周额度。
+- **WAV 占位符**：真实 OpenAI TTS 在 RIFF/data 长度里写 `0xFFFFFFFF`。`splitWav` 现在只在**容器本身也是流式**（RIFF 为占位符/0）时把 data 读到文件尾并截断到 blockAlign 倍数，读到 data 即结束；`fmt` 的越界检查移到读字段之前（截断块不再抛 RangeError）；只出现单个占位符或长度矛盾仍拒绝。
+- **顺带修**：管理页子标签会记住上次选中项（保存/测试后 `renderMain()` 不再跳回「模型通道」）；`/v1/audio/config` 的 `available` 之前会被赋成密钥字符串（既有测试抓到过），现在严格布尔。
+- **验证**：新增 `server/test/voice-admin.test.js` **7 pass**（权限、校验、保存即生效、密钥沿用/换端点拒绝、测试往返与错误体脱敏、清除回退、HTML 入口）；`audio.test.js` **20 pass**（新增占位符端到端与结构用例）；全量 `npm test` **629 tests：628 pass / 0 fail / 1 skip**（skip 仍是缺 `kernel.tar` 的 `preparePackaged`）。测试用临时数据目录 + 本机 HTTP stub，未用真实语音供应商。
+- 文档：`docs/device-voice-api.md` 的「配置语音通道」改为推荐管理页、config 作后备，并补管理接口表、占位符说明、账本 provider/tag；`scripts/verify-migrated-data.mjs` 增加 `voice.json` 检查（只报是否已配置，不打印 key）。
+- **未做**：真实供应商联调（OpenAI/通义等端点和模型名要按实际填）、安装版网关未装、e2e 未跑。
+
 ## 2026-10-23：设备语音代理与设备端知识检索（已合入 main；已打网关包、未安装）
 
 - **新增设备专用 `/v1` 端点**（都用 `gatewayToken`，同 `LlmProxy.authenticate` 的吊销/停用检查）：

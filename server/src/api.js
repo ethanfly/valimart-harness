@@ -37,7 +37,7 @@ function throwCatalog(err) {
 }
 
 export function registerApi(router, ctx) {
-  const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, mixedAttribution } = ctx
+  const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, voiceSettings, audio, mixedAttribution } = ctx
   const fetchUsage = ctx.fetchUsage ?? fetch
   const clients = ctx.clients ?? openClientCatalog(cfg.dataDir)
   const org = ctx.org ?? openOrg(db)
@@ -323,6 +323,37 @@ export function registerApi(router, ctx) {
     const value = raw.trim()
     if (value.length > 200 || /\s/.test(value)) throw new HttpError(400, 'key 里不能有空白字符，且不超过 200 字', 'bad_key')
     sendJson(res, 200, searchSettings.setAnysearchKey(value))
+  })
+
+  // ---------- 语音通道设置 ----------
+  // 管理页配置语音端点 + 模型参数，优先于 config.voice；总监只读，员工 403。
+  // 校验、密钥沿用规则和「不见 key」的视图都在 VoiceSettings 里，这里只做鉴权和转发。
+  router.get('/api/admin/voice', async (req, res) => {
+    const { user } = auth(req)
+    if (user.role === 'employee') throw new HttpError(403, '语音设置仅总监/管理员可见', 'forbidden')
+    sendJson(res, 200, voiceSettings.view())
+  })
+  router.put('/api/admin/voice', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    const body = await readJson(req)
+    sendJson(res, 200, voiceSettings.update({ ...body, user }))
+  })
+  router.delete('/api/admin/voice', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    sendJson(res, 200, voiceSettings.clear())
+  })
+  // 管理页「测试」：不保存表单，用候选通道跑一次 TTS → ASR 往返；上游请求/超时/取消/限额
+  // 全部复用 AudioProxy 的设备路径。结果固定 200 + {ok,...}，由页面展示失败阶段。
+  router.post('/api/admin/voice/test', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!audio) throw new HttpError(503, '语音代理未启用', 'voice_disabled')
+    const body = await readJson(req)
+    const channel = voiceSettings.testChannel(body)
+    const result = await audio.testChannel(channel, res, user)
+    if (!res.writableEnded && !res.destroyed) sendJson(res, 200, result)
   })
 
   // ---------- 模型目录 ----------

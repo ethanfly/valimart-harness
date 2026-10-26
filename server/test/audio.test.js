@@ -539,6 +539,43 @@ test('WAV 结构：容器长度、块长度、采样对齐和空数据严格校�
   assert.equal(splitWav(trailer), null)
 })
 
+test('WAV 结构：OpenAI 流式占位符（0xFFFFFFFF）能解析，但矛盾/截断容器仍拒绝', () => {
+  const base = makeWav({ rate: 24000, frames: 64 })
+  const streamed = Buffer.from(base)
+  streamed.writeUInt32LE(0xFFFFFFFF, 4)
+  streamed.writeUInt32LE(0xFFFFFFFF, 40)
+  const wav = splitWav(streamed)
+  assert.ok(wav, 'RIFF + data 都是占位符时要能剥出 PCM')
+  assert.equal(wav.rate, 24000)
+  assert.equal(wav.pcm.length, 128)
+
+  // 只有 RIFF 是占位符（data 长度真实）
+  const riffOnly = Buffer.from(base)
+  riffOnly.writeUInt32LE(0xFFFFFFFF, 4)
+  assert.equal(splitWav(riffOnly).pcm.length, 128)
+
+  // data 占位但 RIFF 长度是严格的：容器自相矛盾，拒绝
+  const dataOnly = Buffer.from(base)
+  dataOnly.writeUInt32LE(0xFFFFFFFF, 40)
+  assert.equal(splitWav(dataOnly), null)
+
+  // 流式容器尾部多一个字节：截到 blockAlign 倍数，不留半个采样
+  const odd = Buffer.concat([streamed, Buffer.from([0])])
+  odd.writeUInt32LE(0xFFFFFFFF, 4)
+  assert.equal(splitWav(odd).pcm.length, 128)
+
+  // 流式容器里 data 为空：拒绝
+  const empty = Buffer.from(base).subarray(0, 44)
+  empty.writeUInt32LE(0xFFFFFFFF, 4)
+  empty.writeUInt32LE(0, 40)
+  assert.equal(splitWav(empty), null)
+
+  // 其他块的长度不能是占位符
+  const withJunk = Buffer.concat([base.subarray(0, 36), Buffer.from('LIST'), Buffer.from([0xff, 0xff, 0xff, 0xff]), base.subarray(36)])
+  withJunk.writeUInt32LE(withJunk.length - 8, 4)
+  assert.equal(splitWav(withJunk), null)
+})
+
 test('语音上游发完响应头后停住：ASR/TTS 都返回 504', async () => {
   setStub((req, res) => {
     res.writeHead(200, { 'content-type': req.url.endsWith('/speech') ? 'audio/wav' : 'application/json' })
@@ -663,4 +700,24 @@ test('设备知识检索：网关令牌、limit 生效、用户之间权限隔�
   assert.equal(anon.status, 401)
   const sessionOnly = await api(baseA, 'GET', '/v1/knowledge/search?q=x', { token: ctx.emp.sessionToken })
   assert.equal(sessionOnly.status, 401)
+})
+
+test('语音合成：上游用 OpenAI 风格占位符长度的 WAV 也能剥出裸 PCM', async () => {
+  // 真实 OpenAI TTS 的 WAV 在 RIFF/data 长度里写 0xFFFFFFFF（流式写入，不知道总长）。
+  setStub((req) => {
+    if (req.url.endsWith('/audio/speech')) {
+      const pcm = Buffer.alloc(400 * 2)
+      for (let i = 0; i < 400; i++) pcm.writeInt16LE(i * 5, i * 2)
+      const buf = pcmToWav(pcm, 24000, 1)
+      buf.writeUInt32LE(0xFFFFFFFF, 4)
+      buf.writeUInt32LE(0xFFFFFFFF, 40)
+      return { status: 200, headers: { 'content-type': 'audio/wav' }, body: buf }
+    }
+    return jsonOut(200, { text: 'x' })
+  })
+  const r = await api(baseB, 'POST', '/v1/audio/speech', { token: ctx.empB.gatewayToken, body: { input: '占位符', format: 'pcm' } })
+  assert.equal(r.status, 200)
+  assert.equal(r.headers.get('x-audio-rate'), '24000')
+  assert.equal(r.buf.length, 800)
+  assert.equal(gwB.ledger.entriesSince(0, (e) => e.tag === 'voice-tts').at(-1).status, 'ok')
 })

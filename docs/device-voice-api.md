@@ -15,11 +15,24 @@ Authorization: Bearer <gatewayToken>
 
 ## 配置语音通道
 
+**推荐：管理页 → 模型 → 语音**（管理员可写，总监只读）。填端点 `baseUrl`、
+API Key、ASR/TTS 模型、音色和可选价目，保存即生效，设备下一次语音调用就会用上新通道，
+不需要重启网关。管理页设置**整体优先**于 `config.local.json` 的 `voice` 段；点「清除管理页设置」
+即回退到配置。
+
+- API Key 只存服务端库，页面和接口只回「是否已配置」，任何响应都不回显 key 值。
+- 同一端点保存时 key 留空 = 沿用上次的 key；**换端点必须重填 key**，网关不会把旧密钥发到新地址。
+- 「测试连通」会用当前表单值真实跑一次 TTS 合成 → ASR 识别（不保存表单），显示采样率、
+  识别文本和两段延迟；失败时只回阶段（合成/识别）和稳定错误码，不透传上游错误原文
+  （有的提供商会把请求细节和密钥片段回显在错误体里）。测试调用同样记账，`tag: voice-test`，
+  但不受周额度拦截。
+- 端点和模型参数存在网关数据库（`voice.json` 集合），随 `server/data` 一起备份。
+
 开发配置默认走 `mock`，会返回模拟识别文本与 700 ms 测试音，响应会显式标明
 `mock: true` / `x-audio-mock: 1`。设备不得把 mock 当成真实语音可用性。
 
-接真实语音时，在**本地、不入库的** `server/config.local.json` 里追加一个上游，
-再把 `voice.provider` 指过去：
+没有管理页时（例如首次部署还没登录），也可以在**本地、不入库的**
+`server/config.local.json` 里追加一个上游，再把 `voice.provider` 指过去：
 
 ```json
 {
@@ -49,8 +62,12 @@ Authorization: Bearer <gatewayToken>
 真实上游需要兼容这些端点，且 TTS 必须能返回 **16-bit PCM 单声道 WAV，
 8–48 kHz**。网关拒绝重定向，避免把上游 Authorization 带到别处。
 
-语音价目是可选的每分钟人民币估算。未配置价目时账本记录
+语音价目是可选的每分钟人民币估算，管理页或 `config.local.json`
+（`asrPriceCnyPerMinute` / `ttsPriceCnyPerMinute`）都可配置。未配置价目时账本记录
 `costCny: 0, priceKnown: false`，这不代表供应商免费。
+
+超时 `timeoutMs` 和 TTS 回包上限 `maxTtsBytes` 属于运维参数，只在配置文件里调，
+管理页不暴露。
 
 ## 查看能力
 
@@ -133,7 +150,10 @@ body 是裸 PCM16LE 单声道。设备应先校验 `x-audio-channels: 1` 与
 网关拒绝上游返回的非 WAV、非 16-bit、非单声道或采样率不在 8–48 kHz 的 WAV，
 不会把 MP3/Opus/立体声字节伪装成 PCM。RIFF 长度必须与完整容器一致；逐块检查
 边界、填充、fmt/data 唯一性和顺序、非空数据，以及 byteRate/blockAlign 与样本
-格式的一致性。TTS 上游响应上限可用 `voice.maxTtsBytes` 配置（默认 20 MiB）。
+格式的一致性。例外是流式写入者常用的占位符长度：RIFF 与 data 的长度字段同时为
+`0xFFFFFFFF`（或 0）时，网关按「data 一直到文件尾」处理并截断到完整采样；
+只出现一处占位、其余长度矛盾或声明长度大于实际字节数，仍按坏 WAV 拒绝。
+TTS 上游响应上限可用 `voice.maxTtsBytes` 配置（默认 20 MiB）。
 ASR 与 TTS 的超时覆盖上游响应头及响应体读取，超时统一返回 `504 timeout`。
 
 ## 企业知识检索
@@ -166,13 +186,25 @@ ASR 与 TTS 的超时覆盖上游响应头及响应体读取，超时统一返�
 - 语音请求记入账本，附带 `tag: voice-asr|voice-tts` 和
   `voice:{kind,audioSeconds}`。可配置每分钟价目后才有 `priceKnown: true`；
   不改变既有文本/媒体账本的语义。
+- 账本 `provider` 是实际用的通道：管理页设置的通道固定记 `voice-admin`，
+  配置文件的通道记 `voice.provider`。周额度按 provider 分别累计。
+- 管理页「测试连通」的调用记 `tag: voice-test`，不参与周额度判断。
 
 ## 本地验证
 
 ```powershell
-node --test server/test/audio.test.js
+node --test server/test/audio.test.js server/test/voice-admin.test.js
 npm --prefix E:/orcaWorkspace/company-harness test
 ```
 
 测试使用临时数据目录和本机 HTTP stub 上游，不调用真实语音服务。真实供应商的
 协议兼容性以及设备麦克风/扬声器表现仍需要单独联调；没有部署或重打网关安装包。
+
+管理页用的接口（`Bearer` 登录会话令牌）：
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/admin/voice` | 总监 / 管理员 | 状态、来源、端点、是否已配置密钥、表单初值 |
+| PUT | `/api/admin/voice` | 管理员 | 保存管理页通道（立即生效） |
+| DELETE | `/api/admin/voice` | 管理员 | 清除管理页通道，回退到配置 |
+| POST | `/api/admin/voice/test` | 管理员 | TTS → ASR 往返测试，固定 200 + `{ok,...}` |
