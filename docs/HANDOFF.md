@@ -10,6 +10,7 @@
 - **测试连通**：`POST /api/admin/voice/test` 不保存表单，用候选通道跑一次 TTS → ASR 往返，复用设备路径的 `fetch`（`redirect:'error'`）、超时、断连取消、回包上限和 WAV 校验。固定回 `200 {ok, mock, totalMs, tts, asr, error}`；失败只给阶段 + 稳定错误码 + 中文摘要，**不透传上游错误原文**（提供商会回显密钥片段）。测试调用记 `tag: voice-test`，不查周额度。
 - **WAV 占位符**：真实 OpenAI TTS 在 RIFF/data 长度里写 `0xFFFFFFFF`。`splitWav` 现在只在**容器本身也是流式**（RIFF 为占位符/0）时把 data 读到文件尾并截断到 blockAlign 倍数，读到 data 即结束；`fmt` 的越界检查移到读字段之前（截断块不再抛 RangeError）；只出现单个占位符或长度矛盾仍拒绝。
 - **顺带修**：管理页子标签会记住上次选中项（保存/测试后 `renderMain()` 不再跳回「模型通道」）；`/v1/audio/config` 的 `available` 之前会被赋成密钥字符串（既有测试抓到过），现在严格布尔。
+- **同轮追加（默认模型）**：模型 → 模型目录 增加「默认模型」卡片，管理员可选**默认模型**和**快速推理模型**，复用已有 `PATCH /api/company`；保存后 `/api/models`、登录载荷和员工客户端下次同步即用新值。服务端只接受当前目录里的模型 id（否则 `400 unknown_model`），`null` 表示回退配置文件；页面只提交**真正改过**的字段——另一个下拉可能还留着配置里暂时下架的 id，原样回传会被拒，挡住本来没问题的保存。总监只读（不渲染表单）。
 - **验证**：新增 `server/test/voice-admin.test.js` **7 pass**（权限、校验、保存即生效、密钥沿用/换端点拒绝、测试往返与错误体脱敏、清除回退、HTML 入口）；`audio.test.js` **20 pass**（新增占位符端到端与结构用例）；全量 `npm test` **629 tests：628 pass / 0 fail / 1 skip**（skip 仍是缺 `kernel.tar` 的 `preparePackaged`）。测试用临时数据目录 + 本机 HTTP stub，未用真实语音供应商。
 - 文档：`docs/device-voice-api.md` 的「配置语音通道」改为推荐管理页、config 作后备，并补管理接口表、占位符说明、账本 provider/tag；`scripts/verify-migrated-data.mjs` 增加 `voice.json` 检查（只报是否已配置，不打印 key）。
 - **UI 冒烟（Playwright / 本机 Edge）**：临时脚本起真网关 + 本机 stub 语音上游，走完整页面流程——登录管理页 → 模型 → 语音：初始状态显示「mock 演示」，填入端点/key/模型保存后状态变「管理页设置」且**停在语音子标签**、页面源码里搜不到 key；「测试连通」显示 `合成 16000 Hz · 1 秒 · 19 ms / 识别 UI 冒烟识别成功`；「清除管理页设置」回退到配置。全程无 pageerror。脚本跑完已删，未入库。

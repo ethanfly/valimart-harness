@@ -319,6 +319,33 @@ test('快速推理与订阅信息', async () => {
   assert.equal(patched.json.company.seats, 30)
 })
 
+test('默认模型：只能选当前目录里的 id；保存后公司视图与 /api/models 立即生效', async () => {
+  const catalog = await api('GET', '/api/models', { token: ctx.emp.sessionToken })
+  assert.equal(catalog.status, 200)
+  assert.ok(catalog.json.models.some((m) => m.id === 'mock-echo'))
+
+  const saved = await api('PATCH', '/api/company', { token: ctx.boss.sessionToken, body: { defaultModel: 'mock-echo', quickInferenceModel: 'mock-echo' } })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.json.company.defaultModel, 'mock-echo')
+  assert.equal(saved.json.company.quickInferenceModel, 'mock-echo')
+
+  const models = await api('GET', '/api/models', { token: ctx.emp.sessionToken })
+  assert.equal(models.json.defaultModel, 'mock-echo')
+
+  const unknown = await api('PATCH', '/api/company', { token: ctx.boss.sessionToken, body: { defaultModel: 'no-such-model' } })
+  assert.equal(unknown.status, 400)
+  assert.equal(unknown.json.error.code, 'unknown_model')
+  const still = await api('GET', '/api/company', { token: ctx.emp.sessionToken })
+  assert.equal(still.json.company.defaultModel, 'mock-echo', '被拒绝的保存不能改掉现有默认值')
+
+  const cleared = await api('PATCH', '/api/company', { token: ctx.boss.sessionToken, body: { defaultModel: null } })
+  assert.equal(cleared.status, 200)
+  assert.equal(cleared.json.company.defaultModel, 'mock-echo', 'null 表示回退配置，这里配置本身就是 mock-echo')
+
+  const denied = await api('PATCH', '/api/company', { token: ctx.dir.sessionToken, body: { defaultModel: 'mock-echo' } })
+  assert.equal(denied.status, 403)
+})
+
 test('通道：管理员加入订阅 → 全员模型目录更新；凭据不外泄；断开即下架', async () => {
   const secret = 'xai-secret-token-should-never-leak'
   const empView = await api('GET', '/api/channels', { token: ctx.emp.sessionToken })
@@ -485,6 +512,10 @@ test('服务器管理页 /admin 可达；/api/status 仅总监/管理员', async
   for (const id of ['channels', 'search', 'catalog', 'query', 'collections', 'people', 'positions', 'departments']) {
     assert.ok(html.includes(`data-tab="${id}"`), `管理页应有 ${id} 子页面`)
   }
+  assert.ok(html.includes('id="voicekey"'), '模型页应有语音通道卡片')
+  assert.ok(html.includes('id="modeldefaults"'), '模型目录应有默认模型卡片')
+  assert.ok(html.includes('id="modelDefaultsForm"'), '管理员应能选择默认模型')
+  assert.ok(html.includes('/api/company'), '默认模型保存走公司设置接口')
   assert.ok(html.includes('id="nav"'), '管理页应有侧栏菜单')
   assert.ok(html.includes('class="fold"'), '知识/工具合集应折叠')
   assert.ok(html.includes('data-export='), '管理页应有导出')

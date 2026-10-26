@@ -1069,7 +1069,16 @@ export function registerApi(router, ctx) {
     requireAdmin(user)
     const body = await readJson(req)
     const patch = {}
-    for (const key of ['name', 'plan', 'seats', 'weeklyQuotaCny', 'quotaAnchor', 'defaultModel', 'quickInferenceModel']) if (body[key] !== undefined) patch[key] = body[key]
+    for (const key of ['name', 'plan', 'seats', 'weeklyQuotaCny', 'quotaAnchor']) if (body[key] !== undefined) patch[key] = body[key]
+    // 模型默认值必须来自当前目录：写错 id 客户端会静默退回第一个模型，管理员看不出问题。
+    for (const key of ['defaultModel', 'quickInferenceModel']) {
+      if (body[key] === undefined) continue
+      const value = body[key] === null || body[key] === '' ? null : String(body[key])
+      if (value !== null && !models().some((m) => m.id === value)) {
+        throw new HttpError(400, `模型 ${value} 不在当前目录中`, 'unknown_model')
+      }
+      patch[key] = value
+    }
     if (body.quotaByRole) patch.quotaByRole = { ...(db.companySettings().quotaByRole ?? {}), ...body.quotaByRole }
     if (patch.quotaAnchor !== undefined && !Number.isFinite(Date.parse(patch.quotaAnchor))) throw new HttpError(400, '额度刷新锚点不是合法时间')
     db.updateCompanySettings(patch)

@@ -65,6 +65,26 @@
 - 全量 `npm test`：629 tests，628 pass / 0 fail / 1 skip（缺 `kernel.tar` 的
   `preparePackaged`，预期）。PowerShell 下跑，`TEMP`/`TMP` 指向仓库外。
 
+## 同轮追加：管理页选择默认模型
+
+用户在同一天追加「并支持网关管理页选择默认模型」。后端本来就有
+`PATCH /api/company`（接受 `defaultModel` / `quickInferenceModel`），缺的是服务端校验和
+管理页入口：
+
+- **管理页**：「模型 → 模型目录」顶部加「默认模型」卡片：当前值、可用模型数、两个下拉
+  （默认模型 / 快速推理）和保存。只列当前目录里真实可用的模型；已保存但暂时下架的 id
+  仍保留一项「（当前不可用）」，避免悄悄改掉配置。总监只读。
+- **只提交改过的字段**：冒烟时发现，配置里的 `quickInferenceModel`（`deepseek-v4-flash`）
+  在只接了 mock 通道的网关里不在目录中；如果原样回传，服务端按「不在目录中」拒绝，
+  连默认模型都保存不了。现在前端比较初始值，只发变化的字段。
+- **服务端校验**：`defaultModel` / `quickInferenceModel` 必须是 `models()` 里的 id，
+  否则 `400 unknown_model`；`null`/空串表示回退配置文件（`companyView()` 的 `??` 链）。
+  之前这里完全不校验，写错 id 会让客户端静默退回第一个模型。
+- **验证**：`gateway.test.js` 增加 1 项（默认值保存后 `/api/models` 生效、未知 id 400、
+  `null` 回退、总监 403）与 HTML 断言；Playwright 冒烟：从 mock-echo 切到 mock-fast →
+  卡片与 `/api/models` 都变、停在模型目录子标签、总监页面没有表单；全量
+  `npm test` **630 tests / 629 pass / 0 fail / 1 skip**。
+
 ## 没做 / 留给下次
 
 - 真实供应商联调（端点、模型名、音色按供应商实际填；`whisper-1`/`tts-1`/`alloy`

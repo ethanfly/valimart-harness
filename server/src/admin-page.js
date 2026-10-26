@@ -498,6 +498,13 @@ export function renderAdminHtml({ companyName }) {
     };
     const posOpts = (selected) => '<option value="">未派岗位</option>' + (personnel.positions || []).map((p) => '<option value="' + esc(p.id) + '"' + (p.id === selected ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
     const roleOpts = (selected) => (personnel.roles || []).map((r) => '<option value="' + esc(r.id) + '"' + (r.id === selected ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('');
+    // 默认模型下拉：只列当前目录里真实可用的模型；已保存但暂时下架的 id 也保留一项，避免把配置悄悄改掉。
+    const modelOpts = (selected) => {
+      const list = status.models || [];
+      const opts = list.map((m) => '<option value="' + esc(m.id) + '"' + (m.id === selected ? ' selected' : '') + '>' + esc(m.name) + ' · ' + esc(m.providerLabel) + '</option>');
+      if (selected && !list.some((m) => m.id === selected)) opts.unshift('<option value="' + esc(selected) + '" selected>' + esc(selected) + '（当前不可用）</option>');
+      return opts.join('') || '<option value="">（还没有可用模型）</option>';
+    };
     const impexpBtn = (kinds, label) => '<button type="button" data-export="' + kinds + '">导出' + label + '</button><label class="btn" style="display:inline-flex;align-items:center">导入' + label + '<input type="file" accept="application/json" hidden data-import="' + kinds + '" /></label>';
     const impexp = (kinds, label) => isAdmin ? '<div class="row impexp">' + impexpBtn(kinds, label) + '</div>' : '';
     const impexpMany = (items) => isAdmin ? '<div class="row impexp">' + items.map((x) => impexpBtn(x[0], x[1])).join('') + '</div>' : '';
@@ -645,6 +652,20 @@ export function renderAdminHtml({ companyName }) {
       </div>
 
       <div data-tab-panel="catalog" hidden>
+      <section id="modeldefaults">
+        <h2>默认模型</h2>
+        <p class="desc">新会话默认使用的模型；快速推理用于标题、摘要这类短任务。保存后写入公司设置，员工客户端下次同步 / 启动生效。\${isAdmin ? '' : '（总监只读）'}</p>
+        <div class="kv">
+          <div><span>默认模型</span>\${esc(status.company.defaultModel || '—')}</div>
+          <div><span>快速推理</span>\${esc(status.company.quickInferenceModel || '—')}</div>
+          <div><span>可用模型</span>\${status.models.length} 个</div>
+        </div>
+        \${isAdmin ? \`<form id="modelDefaultsForm" class="row" style="margin-top:12px">
+          <div class="field" style="flex:1;min-width:220px"><label>默认模型</label><select name="defaultModel">\${modelOpts(status.company.defaultModel)}</select></div>
+          <div class="field" style="flex:1;min-width:220px"><label>快速推理模型</label><select name="quickInferenceModel">\${modelOpts(status.company.quickInferenceModel)}</select></div>
+          <button class="primary" type="submit">保存</button>
+        </form>\` : ''}
+      </section>
       <section>
         <h2>模型目录</h2>
         <p class="desc">当前对全员分发的模型（客户端模型菜单按厂商分组显示）。</p>
@@ -835,6 +856,25 @@ export function renderAdminHtml({ companyName }) {
       } finally {
         voiceTest.disabled = false;
       }
+    });
+
+    const modelDefaultsForm = $('#modelDefaultsForm');
+    if (modelDefaultsForm) modelDefaultsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(modelDefaultsForm);
+      // 只提交真正改过的字段：另一个下拉里可能还留着配置里暂时下架的模型 id，
+      // 原样回传会被服务端按「不在目录中」拒绝，挡住本来没问题的保存。
+      const body = {};
+      for (const key of ['defaultModel', 'quickInferenceModel']) {
+        const value = String(fd.get(key) || '');
+        if (value && value !== String(status.company[key] || '')) body[key] = value;
+      }
+      if (!Object.keys(body).length) { toast('默认模型没有改动'); return; }
+      try {
+        await api('PATCH', '/api/company', body);
+        toast('已保存默认模型，员工客户端下次同步 / 启动生效');
+        renderMain();
+      } catch (err) { toast(err.message, true); }
     });
 
     document.querySelectorAll('[data-cpub]').forEach((b) => b.addEventListener('click', async () => {
