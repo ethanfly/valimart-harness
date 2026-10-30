@@ -30,3 +30,10 @@
 ## 结论 / 待办
 
 - gzip 缓解了问题，但没有根治：31KB 仍有一半以上失败。根因在 `192.168.100.1` 到 `10.25.128.25` 之间的设备（像 WAN 优化或代理类设备，突发超过约 10KB 就卡住），需要网管处理。
+
+## 后续：发布客户端，网关改为安装包部署
+
+- CI run 41032992273 成功。客户端从办公网直接 POST 到网关时，传到约 200MB 报 408（上传慢）。改成 scp 到服务器后在本机调发布接口，返回 200。
+- 用 `buildGatewayLinux({ extractedRuntime: <glibc-217 Node 22.14> })` 打 `dist/valimart-harness-Gateway-linux-x64-0.1.0.tar.gz`（46MB）。
+- 切换步骤：停旧服务并 disable → 旧目录改名 `.src-bak-20261030` → 预置 `server/config.local.json` 和 `state/data` → `DEST/STATE/LOGS` 指向原目录跑 `install.sh`。
+- 坑：开发机工作区的 `install.sh` 是 CRLF，`set -eu` 报错，在服务器上 `sed` 去掉 CR 后才装上。已把本地三个文件恢复为 LF。

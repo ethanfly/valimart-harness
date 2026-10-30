@@ -2,6 +2,16 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-30：测试机网关改为安装包部署 + 客户端已发布
+
+- **客户端**：CI 产物 `valimart-harness-Setup-0.1.0-20261030.0926.exe`（490MB）已发布为测试机网关当前版本，buildId `0.1.0+0.2.1-rc.5.20261030-0926.bd38e6f6`。从办公网直接 POST 到网关，传到约 200MB 时报 408 超时，原因是经过中间设备上传太慢。改成 scp 到服务器，再在服务器上调 `127.0.0.1:8790/api/admin/client/publish`。以后发布也这样做。
+- **网关**：源码部署已换成 `dist:gateway:linux` 安装包。CentOS 7 跑不了官方 Node 25，打包时把 `extractedRuntime` 换成 unofficial-builds 的 `node-v22.14.0-linux-x64-glibc-217`（包内 README 仍写 Node 25.2.1）。安装命令：`DEST=/data/server/valimart-harness-getaway STATE=$DEST/state LOGS=$DEST/logs sh install.sh`。
+  - 服务 `TheDivaGateway`，运行用户 `thediva-gateway`，数据在 `state/data`（从旧 `server/data` 拷来），`server/config.local.json` 原样保留。
+  - systemd 219 忽略 `StandardOutput=append:`，日志在 `journalctl -u TheDivaGateway`。
+  - 旧源码部署改名为 `/data/server/valimart-harness-getaway.src-bak-20261030`，旧服务 `valimart-harness-gateway` 已 disable，确认无误后可删。
+  - 验证：`/health` 通过，instanceId 不变；`/admin` 200；原登录令牌和已发布客户端都在。
+- **换行**：开发机工作区的 `installer/gateway/{install.sh,init-linux.mjs,TheDivaGateway.service.tpl}` 一度是 CRLF（git 显示无改动），打出的 Linux 包里 `install.sh` 报 `set: -: 无效选项`。已恢复为 LF。打 Linux 包前先 `file installer/gateway/*` 确认是 LF。
+
 ## 2026-10-30：内核升到 0.2.1-rc.5，网关只留测试机
 
 - **网关**：本机（开发机 `10.56.41.39`）的用户级服务 `valimart-gateway.service` 已 `disable --now`，8790 不再监听。公司网关只跑在 `192.168.100.71:8790`（见下一条）。本机开发客户端的登录态已经指向测试机。要恢复本机网关：`systemctl --user enable --now valimart-gateway`。
