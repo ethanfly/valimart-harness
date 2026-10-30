@@ -18,7 +18,7 @@
  *   priceCnyPerMinute 才计成本（priceKnown=true），否则如实记 0，不假装知道成本。
  */
 import { HttpError, readBody, sendJson, parseUrl } from './http.js'
-import { configVoiceChannel } from './voice-settings.js'
+import { configVoiceChannel, isLocalEndpoint } from './voice-settings.js'
 
 export const MIN_RATE = 8000
 export const MAX_RATE = 48000
@@ -176,12 +176,13 @@ async function readBoundedText(upstreamRes, cap) {
 }
 
 export class AudioProxy {
-  constructor({ db, cfg, ledger, proxy, fetchImpl, voiceSettings }) {
+  constructor({ db, cfg, ledger, proxy, fetchImpl, voiceSettings, voiceRuntime }) {
     this.db = db
     this.cfg = cfg
     this.ledger = ledger
     this.proxy = proxy
     this.voiceSettings = voiceSettings
+    this.voiceRuntime = voiceRuntime
     // 测试注入位：本地起一个假语音上游，验证真实打包/剥壳逻辑而不是 Mock 分支。
     this.fetch = fetchImpl ?? ((...args) => fetch(...args))
   }
@@ -206,10 +207,14 @@ export class AudioProxy {
     }
   }
 
-  /** 通道必须可用（mock 或已解析到端点 + 密钥）；否则一律 503，不静默降级成 mock。 */
-  upstreamFor(channel) {
+  /** 通道必须可用（mock，或这一端已解析到端点 + 密钥）；否则一律 503，不静默降级成 mock。 */
+  upstreamFor(channel, kind) {
+    const baseUrl = kind === 'asr' ? channel?.asrBaseUrl : channel?.ttsBaseUrl
+    const apiKey = kind === 'asr' ? channel?.asrApiKey : channel?.ttsApiKey
+    // 本机端点优先：哪怕配置通道是 mock，管理页改用本机模型也要落到运行时。
+    if (isLocalEndpoint(baseUrl) && apiKey) return { baseUrl, apiKey }
     if (channel?.kind === 'mock') return channel
-    if (channel?.kind === 'openai-compatible' && channel.baseUrl && channel.apiKey) return channel
+    if (channel?.kind === 'openai-compatible' && baseUrl && apiKey) return { baseUrl, apiKey }
     throw new HttpError(
       503,
       '网关还没有配置可用的语音通道。请在管理页 → 模型 → 语音 接入 ASR/TTS 上游（或在 server/config.json 配置 voice.provider）。',
@@ -278,7 +283,7 @@ export class AudioProxy {
   handleConfig(req, res) {
     this.authenticate(req)
     const ch = this.channelConfig()
-    const available = ch?.kind === 'mock' || (ch?.kind === 'openai-compatible' && !!ch.baseUrl && !!ch.apiKey)
+    const available = ch?.kind === 'mock' || (ch?.kind === 'openai-compatible' && !!ch.asrBaseUrl && !!ch.asrApiKey && !!ch.ttsBaseUrl && !!ch.ttsApiKey)
     sendJson(res, 200, {
       available: Boolean(available),
       // 显式 mock 标记：设备开机必须区分「本地演示音」和「真语音」，不许静默混淆。
@@ -299,7 +304,7 @@ export class AudioProxy {
   async handleTranscriptions(req, res) {
     const { user } = this.authenticate(req)
     const ch = this.channelConfig()
-    const up = this.upstreamFor(ch)
+    const up = this.upstreamFor(ch, 'asr')
     const started = Date.now()
     this.assertQuota(user, ch.provider)
 
@@ -356,6 +361,20 @@ export class AudioProxy {
     }
 
     const seconds = pcm.length / (effectiveRate * effectiveChannels * 2)
+
+    // 本机运行时优先于 mock：配置通道是 mock 时，管理页改用本机模型也不能被演示分支截走。
+    if (isLocalEndpoint(up.baseUrl)) {
+      if (!this.voiceRuntime) throw new HttpError(503, '本机语音运行时未启用', 'voice_not_configured')
+      try {
+        const text = await this.voiceRuntime.transcribe(pcmToWav(pcm, effectiveRate, effectiveChannels))
+        this.record(user, ch, { model: ch.asrModel, kind: 'asr', status: 'ok', latencyMs: Date.now() - started, audioSeconds: seconds })
+        sendJson(res, 200, { text })
+      } catch (err) {
+        this.record(user, ch, { model: ch.asrModel, kind: 'asr', status: err instanceof HttpError ? err.code : 'local_asr_failed', latencyMs: Date.now() - started })
+        throw err instanceof HttpError ? err : new HttpError(502, '本机识别失败', 'local_asr_failed')
+      }
+      return
+    }
 
     if (up.kind === 'mock') {
       this.record(user, ch, {
@@ -435,7 +454,7 @@ export class AudioProxy {
   async handleSpeech(req, res) {
     const { user } = this.authenticate(req)
     const ch = this.channelConfig()
-    const up = this.upstreamFor(ch)
+    const up = this.upstreamFor(ch, 'tts')
     const started = Date.now()
     this.assertQuota(user, ch.provider)
 
@@ -469,6 +488,21 @@ export class AudioProxy {
         ...extraHeaders,
       })
       res.end(pcm)
+    }
+
+    if (isLocalEndpoint(up.baseUrl)) {
+      if (!this.voiceRuntime) throw new HttpError(503, '本机语音运行时未启用', 'voice_not_configured')
+      try {
+        const audio = await this.voiceRuntime.speak(input, ch.voice)
+        const wav = splitWav(audio)
+        if (!wav || !isPlayablePcmWav(wav)) throw new HttpError(502, '本机合成没有返回可播放的 WAV', 'local_tts_failed')
+        this.record(user, ch, { model: ch.ttsModel, kind: 'tts', status: 'ok', latencyMs: Date.now() - started, audioSeconds: wav.pcm.length / (wav.rate * 2) })
+        sendPcm(wav.pcm, wav.rate)
+      } catch (err) {
+        this.record(user, ch, { model: ch.ttsModel, kind: 'tts', status: err instanceof HttpError ? err.code : 'local_tts_failed', latencyMs: Date.now() - started })
+        throw err instanceof HttpError ? err : new HttpError(502, '本机合成失败', 'local_tts_failed')
+      }
+      return
     }
 
     if (up.kind === 'mock') {
@@ -573,8 +607,8 @@ export class AudioProxy {
       out.error = { stage: 'tts', code: 'client_closed', message: '管理页已关闭，测试取消' }
       return finish()
     }
-    const origin = String(ch.baseUrl ?? '').replace(/\/+$/, '')
     const text = '你好，这是一条语音通道测试。'
+    // 必须在本机分支之前声明：const 没有提升，本机路径里提前调用会 ReferenceError。
     const recordTest = (kind, model, t0, status, audioSeconds = 0) => {
       if (!user) return
       this.record(user, ch, {
@@ -586,6 +620,32 @@ export class AudioProxy {
         tag: 'voice-test',
       })
     }
+    if (isLocalEndpoint(ch.ttsBaseUrl) || isLocalEndpoint(ch.asrBaseUrl)) {
+      if (!this.voiceRuntime) {
+        out.error = { stage: 'tts', code: 'voice_not_configured', message: '本机语音运行时未启用' }
+        return finish()
+      }
+      const t0 = Date.now()
+      try {
+        const audio = await this.voiceRuntime.speak(text, ch.voice)
+        const wav = splitWav(audio)
+        if (!wav || !isPlayablePcmWav(wav)) throw new HttpError(502, '本机合成没有返回可播放的 WAV', 'local_tts_failed')
+        out.tts = { rate: wav.rate, seconds: Math.round((wav.pcm.length / (wav.rate * 2)) * 1000) / 1000, latencyMs: Date.now() - t0 }
+        recordTest('tts', ch.ttsModel, t0, 'ok', out.tts.seconds)
+        const a0 = Date.now()
+        const recognized = await this.voiceRuntime.transcribe(pcmToWav(wav.pcm, wav.rate, 1))
+        out.asr = { text: String(recognized).slice(0, 2000), latencyMs: Date.now() - a0 }
+        recordTest('asr', ch.asrModel, a0, 'ok', out.tts.seconds)
+        out.ok = true
+      } catch (err) {
+        const stage = out.tts ? 'asr' : 'tts'
+        out.error = { stage, code: err instanceof HttpError ? err.code : 'local_tts_failed', message: err instanceof HttpError ? err.message : '本机语音失败' }
+        recordTest(stage, stage === 'tts' ? ch.ttsModel : ch.asrModel, t0, out.error.code)
+      }
+      return finish()
+    }
+    const ttsOrigin = String(ch.ttsBaseUrl ?? '').replace(/\/+$/, '')
+    const asrOrigin = String(ch.asrBaseUrl ?? '').replace(/\/+$/, '')
     const fail = (stage, err, arm, t0, kind, model) => {
       const timedOut = arm?.reason === 'timeout'
       const code = timedOut ? 'timeout' : err instanceof HttpError ? err.code : 'upstream_unreachable'
@@ -608,9 +668,9 @@ export class AudioProxy {
       try {
         let upstreamRes
         try {
-          upstreamRes = await this.fetch(`${origin}/audio/speech`, {
+          upstreamRes = await this.fetch(`${ttsOrigin}/audio/speech`, {
             method: 'POST',
-            headers: { authorization: `Bearer ${ch.apiKey}`, 'content-type': 'application/json' },
+            headers: { authorization: `Bearer ${ch.ttsApiKey}`, 'content-type': 'application/json' },
             body: JSON.stringify({ model: ch.ttsModel, input: text, voice: ch.voice, response_format: 'wav' }),
             signal: arm.ac.signal,
             redirect: 'error',
@@ -664,10 +724,10 @@ export class AudioProxy {
       try {
         let upstreamRes
         try {
-          upstreamRes = await this.fetch(`${origin}/audio/transcriptions`, {
+          upstreamRes = await this.fetch(`${asrOrigin}/audio/transcriptions`, {
             method: 'POST',
             headers: {
-              authorization: `Bearer ${ch.apiKey}`,
+              authorization: `Bearer ${ch.asrApiKey}`,
               'content-type': `multipart/form-data; boundary=${boundary}`,
             },
             body,

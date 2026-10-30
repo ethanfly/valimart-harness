@@ -37,7 +37,7 @@ function throwCatalog(err) {
 }
 
 export function registerApi(router, ctx) {
-  const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, voiceSettings, audio, mixedAttribution } = ctx
+  const { db, cfg, ledger, tasks, drive, proxy, catalog, instanceId, presence, channels, knowledge, startedAt, oauth, searchSettings, voiceSettings, voiceRuntime, audio, mixedAttribution } = ctx
   const fetchUsage = ctx.fetchUsage ?? fetch
   const clients = ctx.clients ?? openClientCatalog(cfg.dataDir)
   const org = ctx.org ?? openOrg(db)
@@ -346,6 +346,25 @@ export function registerApi(router, ctx) {
   })
   // 管理页「测试」：不保存表单，用候选通道跑一次 TTS → ASR 往返；上游请求/超时/取消/限额
   // 全部复用 AudioProxy 的设备路径。结果固定 200 + {ok,...}，由页面展示失败阶段。
+  // 本机语音运行时：下载 sherpa-onnx + 模型到数据目录，接成当前语音通道。总监只读。
+  router.get('/api/admin/voice/runtime', async (req, res) => {
+    const { user } = auth(req)
+    if (user.role === 'employee') throw new HttpError(403, '语音设置仅总监/管理员可见', 'forbidden')
+    if (!voiceRuntime) throw new HttpError(503, '本机语音运行时未启用', 'voice_disabled')
+    sendJson(res, 200, { runtime: await voiceRuntime.view() })
+  })
+  router.post('/api/admin/voice/runtime/install', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!voiceRuntime) throw new HttpError(503, '本机语音运行时未启用', 'voice_disabled')
+    sendJson(res, 200, { runtime: await voiceRuntime.install() })
+  })
+  router.post('/api/admin/voice/runtime/activate', async (req, res) => {
+    const { user } = auth(req)
+    requireAdmin(user)
+    if (!voiceRuntime) throw new HttpError(503, '本机语音运行时未启用', 'voice_disabled')
+    sendJson(res, 200, await voiceRuntime.activate(user))
+  })
   router.post('/api/admin/voice/test', async (req, res) => {
     const { user } = auth(req)
     requireAdmin(user)

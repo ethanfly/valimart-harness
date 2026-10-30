@@ -64,7 +64,7 @@ console.log('\n=== 管理页语音通道 ===')
 const vs = raw('voice.json')
 const vch = vs ? JSON.parse(vs).channel : null
 console.log('  ' + (vch
-  ? `${vch.baseUrl} · ASR ${vch.asrModel} · TTS ${vch.ttsModel} · 密钥 ${vch.apiKey ? '已配置' : '缺失'}`
+  ? `ASR ${vch.asrBaseUrl ?? vch.baseUrl} · TTS ${vch.ttsBaseUrl ?? vch.asrBaseUrl ?? vch.baseUrl} · 模型 ${vch.asrModel}/${vch.ttsModel} · 密钥 ${(vch.asrApiKey ?? vch.apiKey) ? '已配置' : '缺失'}`
   : '(未在管理页设置，走 config 的 voice 段)'))
 
 db.close()

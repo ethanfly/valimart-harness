@@ -2,8 +2,9 @@
  * 语音通道设置（管理页 → 模型 → 语音）。
  *
  * 设备语音代理（/v1/audio/*）的上游通道有两种来源：
- * - 管理页设置：端点 baseUrl + API Key + 模型/音色/价目，存在服务端库（gateway.sqlite 的
- *   voice.json 集合，与通道凭据同一原则：只落服务端、不写进配置下发）。
+ * - 管理页设置：ASR 与 TTS 各有端点 + API Key，外加模型/音色/价目，存在服务端库
+ *   （gateway.sqlite 的 voice.json 集合，与通道凭据同一原则：只落服务端、不写进配置下发）。
+ *   TTS 端点留空 = 与 ASR 同一个地址和密钥。旧记录只有一个 baseUrl，读取时两边共用。
  * - config.local.json / 环境变量：`voice.provider` 指向一个上游，密钥由 config.js 解析。
  *
  * 生效优先级：管理页设置 > 配置。管理页一旦保存就整体生效（端点和参数一起），清空后回退到配置。
@@ -31,10 +32,20 @@ const DEFAULTS = {
   maxTtsBytes: 20 * 1024 * 1024,
 }
 
-/** 规范化端点：只接受 http(s)、不带账号/查询串/锚点；去掉尾部斜杠。无效返回 null。 */
+/** 本机语音运行时的端点。不是真实地址，设备请求由 VoiceRuntime 在进程内处理。 */
+export function localEndpoint(kind) {
+  return kind === 'tts' ? 'local://tts' : 'local://asr'
+}
+
+export function isLocalEndpoint(value) {
+  return value === 'local://asr' || value === 'local://tts'
+}
+
+/** 规范化端点：http(s)，或本机运行时的 local://。不带账号/查询串/锚点；去掉尾部斜杠。 */
 export function normalizeBaseUrl(raw) {
   if (typeof raw !== 'string') return null
   const value = raw.trim()
+  if (isLocalEndpoint(value)) return value
   if (!value || value.length > 500) return null
   let u
   try {
@@ -65,8 +76,10 @@ export function configVoiceChannel(cfg) {
     source: VOICE_SOURCE_CONFIG,
     provider: v.provider,
     kind: up.kind,
-    baseUrl: normalizeBaseUrl(up.baseUrl),
-    apiKey: up.kind === 'mock' ? null : (up.resolvedKey ?? null),
+    asrBaseUrl: normalizeBaseUrl(up.baseUrl),
+    asrApiKey: up.kind === 'mock' ? null : (up.resolvedKey ?? null),
+    ttsBaseUrl: normalizeBaseUrl(up.baseUrl),
+    ttsApiKey: up.kind === 'mock' ? null : (up.resolvedKey ?? null),
     asrModel: v.asrModel ?? DEFAULTS.asrModel,
     ttsModel: v.ttsModel ?? DEFAULTS.ttsModel,
     voice: v.voice ?? DEFAULTS.voice,
@@ -117,9 +130,13 @@ export class VoiceSettings {
     const data = this.store.load()
     const ch = data && typeof data === 'object' ? data.channel : null
     if (!ch || typeof ch !== 'object') return null
-    const baseUrl = normalizeBaseUrl(ch.baseUrl)
-    if (!baseUrl) return null
-    return { ...ch, baseUrl }
+    // 旧记录只有 baseUrl/apiKey：两边共用，升级后第一次保存才拆开。
+    const asrBaseUrl = normalizeBaseUrl(ch.asrBaseUrl ?? ch.baseUrl)
+    if (!asrBaseUrl) return null
+    const ttsBaseUrl = normalizeBaseUrl(ch.ttsBaseUrl) || asrBaseUrl
+    const asrApiKey = typeof (ch.asrApiKey ?? ch.apiKey) === 'string' ? (ch.asrApiKey ?? ch.apiKey) : ''
+    const ttsApiKey = typeof ch.ttsApiKey === 'string' && ch.ttsApiKey ? ch.ttsApiKey : asrApiKey
+    return { ...ch, asrBaseUrl, ttsBaseUrl, asrApiKey, ttsApiKey }
   }
 
   /** 实际生效的通道：管理页优先，否则配置；都没有返回 null。 */
@@ -131,8 +148,10 @@ export class VoiceSettings {
         source: VOICE_SOURCE_ADMIN,
         provider: VOICE_ADMIN_PROVIDER,
         kind: 'openai-compatible',
-        baseUrl: admin.baseUrl,
-        apiKey: typeof admin.apiKey === 'string' && admin.apiKey ? admin.apiKey : null,
+        asrBaseUrl: admin.asrBaseUrl,
+        asrApiKey: admin.asrApiKey || null,
+        ttsBaseUrl: admin.ttsBaseUrl,
+        ttsApiKey: admin.ttsApiKey || null,
         asrModel: admin.asrModel || DEFAULTS.asrModel,
         ttsModel: admin.ttsModel || DEFAULTS.ttsModel,
         voice: admin.voice || DEFAULTS.voice,
@@ -147,11 +166,11 @@ export class VoiceSettings {
     return configVoiceChannel(this.cfg)
   }
 
-  /** 通道是否真的能用：mock，或 openai-compatible + 端点 + 密钥。 */
+  /** 通道是否真的能用：mock，或 openai-compatible 且 ASR、TTS 两端都有地址和密钥。 */
   static usable(ch) {
     if (!ch) return false
     if (ch.kind === 'mock') return true
-    return ch.kind === 'openai-compatible' && !!ch.baseUrl && !!ch.apiKey
+    return ch.kind === 'openai-compatible' && !!ch.asrBaseUrl && !!ch.asrApiKey && !!ch.ttsBaseUrl && !!ch.ttsApiKey
   }
 
   /** 管理页视图：状态 + 来源 + 端点（不含密钥）+ 表单初值。 */
@@ -163,7 +182,8 @@ export class VoiceSettings {
     // 表单初值：已保存的管理页通道 > 配置里的真实通道 > 内置默认（mock 的模型名不要带进表单）。
     const form = admin
       ? {
-          baseUrl: admin.baseUrl,
+          asrBaseUrl: admin.asrBaseUrl,
+          ttsBaseUrl: admin.ttsBaseUrl === admin.asrBaseUrl ? '' : admin.ttsBaseUrl,
           asrModel: admin.asrModel || DEFAULTS.asrModel,
           ttsModel: admin.ttsModel || DEFAULTS.ttsModel,
           voice: admin.voice || DEFAULTS.voice,
@@ -173,7 +193,8 @@ export class VoiceSettings {
         }
       : config && config.kind === 'openai-compatible'
         ? {
-            baseUrl: config.baseUrl ?? '',
+            asrBaseUrl: config.asrBaseUrl ?? '',
+            ttsBaseUrl: '',
             asrModel: config.asrModel,
             ttsModel: config.ttsModel,
             voice: config.voice,
@@ -182,7 +203,8 @@ export class VoiceSettings {
             ttsPriceCnyPerMinute: config.ttsPriceCnyPerMinute,
           }
         : {
-            baseUrl: '',
+            asrBaseUrl: '',
+            ttsBaseUrl: '',
             asrModel: DEFAULTS.asrModel,
             ttsModel: DEFAULTS.ttsModel,
             voice: DEFAULTS.voice,
@@ -197,8 +219,11 @@ export class VoiceSettings {
         source: eff?.source ?? null,
         sourceLabel: eff ? SOURCE_LABELS[eff.source] : null,
         provider: eff?.provider ?? null,
-        endpoint: eff?.baseUrl ?? null,
-        keyConfigured: !!eff?.apiKey,
+        asrEndpoint: eff?.asrBaseUrl ?? null,
+        ttsEndpoint: eff?.ttsBaseUrl ?? null,
+        endpointsSplit: !!eff && eff.asrBaseUrl !== eff.ttsBaseUrl,
+        asrKeyConfigured: !!eff?.asrApiKey,
+        ttsKeyConfigured: !!eff?.ttsApiKey,
         asrModel: eff?.asrModel ?? DEFAULTS.asrModel,
         ttsModel: eff?.ttsModel ?? DEFAULTS.ttsModel,
         voice: eff?.voice ?? DEFAULTS.voice,
@@ -214,22 +239,41 @@ export class VoiceSettings {
   }
 
   /**
-   * 保存管理页通道。留空 key = 沿用已保存的 key（仅端点未变时允许，避免把旧密钥发到新地址）。
-   * 返回新的状态视图。
+   * 解析一端的地址和密钥。地址必填（除非 allowEmpty，用于「TTS 留空 = 跟 ASR」）；
+   * 密钥留空只在地址与已保存的相同端点一致时沿用，换地址必须重填。
+   */
+  resolveEndpoint(input, { urlField, keyField, existingUrl, existingKey, label, allowEmpty }) {
+    const raw = typeof input[urlField] === 'string' ? input[urlField].trim() : ''
+    if (!raw && allowEmpty) return { baseUrl: '', apiKey: '' }
+    const baseUrl = normalizeBaseUrl(raw)
+    if (!baseUrl) throw new HttpError(400, `${label}端点必须是 http(s) 地址（不能带账号、查询串或锚点）`, 'bad_base_url')
+    let apiKey = cleanApiKey(input[keyField])
+    if (!apiKey && existingKey && existingUrl === baseUrl) apiKey = existingKey
+    if (!apiKey) throw new HttpError(400, `请填写${label} API Key；更换端点地址时必须重新填写`, 'need_api_key')
+    return { baseUrl, apiKey }
+  }
+
+  /**
+   * 保存管理页通道。TTS 端点留空 = 与 ASR 同一地址和密钥。
+   * 留空 key = 沿用已保存的 key（仅端点未变时允许，避免把旧密钥发到新地址）。
    */
   update(input = {}) {
-    const baseUrl = normalizeBaseUrl(input.baseUrl)
-    if (!baseUrl) throw new HttpError(400, 'baseUrl 必须是 http(s) 地址（不能带账号、查询串或锚点）', 'bad_base_url')
     const existing = this.stored()
-    const typedKey = cleanApiKey(input.apiKey)
-    let apiKey = typedKey
-    if (!apiKey) {
-      if (existing?.apiKey && existing.baseUrl === baseUrl) apiKey = existing.apiKey
-      else throw new HttpError(400, '请填写 API Key；更换端点地址时必须重新填写', 'need_api_key')
-    }
+    const asr = this.resolveEndpoint(input, {
+      urlField: 'asrBaseUrl', keyField: 'asrApiKey',
+      existingUrl: existing?.asrBaseUrl, existingKey: existing?.asrApiKey, label: 'ASR',
+    })
+    const ttsOwn = this.resolveEndpoint(input, {
+      urlField: 'ttsBaseUrl', keyField: 'ttsApiKey',
+      existingUrl: existing?.ttsBaseUrl, existingKey: existing?.ttsApiKey,
+      label: 'TTS', allowEmpty: true,
+    })
+    const tts = ttsOwn.baseUrl ? ttsOwn : { baseUrl: asr.baseUrl, apiKey: asr.apiKey }
     const channel = {
-      baseUrl,
-      apiKey,
+      asrBaseUrl: asr.baseUrl,
+      asrApiKey: asr.apiKey,
+      ttsBaseUrl: tts.baseUrl,
+      ttsApiKey: tts.apiKey,
       asrModel: cleanOption(input.asrModel, existing?.asrModel || DEFAULTS.asrModel, 'ASR 模型'),
       ttsModel: cleanOption(input.ttsModel, existing?.ttsModel || DEFAULTS.ttsModel, 'TTS 模型'),
       voice: cleanOption(input.voice, existing?.voice || DEFAULTS.voice, '音色'),
@@ -254,31 +298,43 @@ export class VoiceSettings {
   }
 
   /**
-   * 「测试」用的候选通道：表单端点优先；端点没填就测当前生效的通道。
+   * 「测试」用的候选通道：表单里填了哪一端就测哪一端，没填的沿用当前生效通道。
    * 密钥沿用顺序：表单 > 已保存（端点相同）> 配置（端点相同）；换了地址必须重新填。
    */
   testChannel(input = {}) {
-    const rawBase = typeof input.baseUrl === 'string' ? input.baseUrl.trim() : ''
-    const baseUrl = normalizeBaseUrl(rawBase)
-    // 填了但填错（ftp://、带查询串…）要明确报错，不能悄悄去测当前生效的通道。
-    if (rawBase && !baseUrl) throw new HttpError(400, 'baseUrl 必须是 http(s) 地址（不能带账号、查询串或锚点）', 'bad_base_url')
-    if (!baseUrl) {
-      const eff = this.effective()
-      if (!eff) throw new HttpError(400, '请先填写端点 baseUrl（或先在 config 里配置 voice.provider）', 'bad_base_url')
-      return eff
-    }
     const existing = this.stored()
     const config = configVoiceChannel(this.cfg)
-    let apiKey = cleanApiKey(input.apiKey)
-    if (!apiKey && existing?.apiKey && existing.baseUrl === baseUrl) apiKey = existing.apiKey
-    if (!apiKey && config?.apiKey && config.baseUrl === baseUrl) apiKey = config.apiKey
-    if (!apiKey) throw new HttpError(400, '请填写 API Key（端点与已保存的不一致时不能沿用旧密钥）', 'need_api_key')
+    const eff = this.effective()
+    const side = (urlField, keyField, effUrl, effKey) => {
+      const raw = typeof input[urlField] === 'string' ? input[urlField].trim() : ''
+      if (!raw) return { baseUrl: effUrl ?? '', apiKey: effKey ?? '' }
+      const baseUrl = normalizeBaseUrl(raw)
+      if (!baseUrl) throw new HttpError(400, '端点必须是 http(s) 地址（不能带账号、查询串或锚点）', 'bad_base_url')
+      let apiKey = cleanApiKey(input[keyField])
+      if (!apiKey && existing?.[keyField] && existing[urlField] === baseUrl) apiKey = existing[keyField]
+      if (!apiKey && config?.[keyField] && config[urlField] === baseUrl) apiKey = config[keyField]
+      if (!apiKey) throw new HttpError(400, '请填写 API Key（端点与已保存的不一致时不能沿用旧密钥）', 'need_api_key')
+      return { baseUrl, apiKey }
+    }
+    if (!eff && !(typeof input.asrBaseUrl === 'string' && input.asrBaseUrl.trim())) {
+      throw new HttpError(400, '请先填写 ASR 端点（或先在 config 里配置 voice.provider）', 'bad_base_url')
+    }
+    const asr = side('asrBaseUrl', 'asrApiKey', eff?.asrBaseUrl, eff?.asrApiKey)
+    const ttsRaw = typeof input.ttsBaseUrl === 'string' ? input.ttsBaseUrl.trim() : ''
+    const tts = ttsRaw
+      ? side('ttsBaseUrl', 'ttsApiKey', eff?.ttsBaseUrl, eff?.ttsApiKey)
+      : { baseUrl: asr.baseUrl, apiKey: asr.apiKey }
+    if (!asr.baseUrl || !asr.apiKey || !tts.baseUrl || !tts.apiKey) {
+      throw new HttpError(400, '请先填写端点和 API Key（或先在 config 里配置 voice.provider）', 'need_api_key')
+    }
     return {
       source: VOICE_SOURCE_ADMIN,
       provider: VOICE_ADMIN_PROVIDER,
       kind: 'openai-compatible',
-      baseUrl,
-      apiKey,
+      asrBaseUrl: asr.baseUrl,
+      asrApiKey: asr.apiKey,
+      ttsBaseUrl: tts.baseUrl,
+      ttsApiKey: tts.apiKey,
       asrModel: cleanOption(input.asrModel, existing?.asrModel || DEFAULTS.asrModel, 'ASR 模型'),
       ttsModel: cleanOption(input.ttsModel, existing?.ttsModel || DEFAULTS.ttsModel, 'TTS 模型'),
       voice: cleanOption(input.voice, existing?.voice || DEFAULTS.voice, '音色'),

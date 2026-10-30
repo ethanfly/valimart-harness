@@ -467,7 +467,7 @@ export function renderAdminHtml({ companyName }) {
   }
 
   async function renderMain() {
-    let status, channels, collections, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, voice = { voice: { available: false, mock: false, source: null, sourceLabel: null, endpoint: null, keyConfigured: false, asrModel: 'whisper-1', ttsModel: 'tts-1', voice: 'alloy', ttsRate: 24000, asrPriceCnyPerMinute: 0, ttsPriceCnyPerMinute: 0, adminSet: false, form: { baseUrl: '', asrModel: 'whisper-1', ttsModel: 'tts-1', voice: 'alloy', ttsRate: 24000, asrPriceCnyPerMinute: 0, ttsPriceCnyPerMinute: 0 } } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
+    let status, channels, collections, client, search = { anysearch: { configured: false, source: null, sourceLabel: null } }, voice = { voice: { available: false, mock: false, source: null, sourceLabel: null, asrEndpoint: null, ttsEndpoint: null, endpointsSplit: false, asrKeyConfigured: false, ttsKeyConfigured: false, asrModel: 'whisper-1', ttsModel: 'tts-1', voice: 'alloy', ttsRate: 24000, asrPriceCnyPerMinute: 0, ttsPriceCnyPerMinute: 0, adminSet: false, form: { asrBaseUrl: '', ttsBaseUrl: '', asrModel: 'whisper-1', ttsModel: 'tts-1', voice: 'alloy', ttsRate: 24000, asrPriceCnyPerMinute: 0, ttsPriceCnyPerMinute: 0 } } }, plugins = { entries: [] }, personnel = { departments: [], positions: [], departmentCatalog: [] };
     try {
       [status, channels, collections, client, search, voice] = await Promise.all([api('GET', '/api/status'), api('GET', '/api/channels'), api('GET', '/api/knowledge/collections'), api('GET', '/api/admin/client'), api('GET', '/api/admin/search'), api('GET', '/api/admin/voice')]);
       try { plugins = await api('GET', '/api/plugins'); } catch (e) { /* 旧网关 */ }
@@ -621,15 +621,21 @@ export function renderAdminHtml({ companyName }) {
         <p class="desc">设备语音代理（/v1/audio/*）的上游。设备只拿网关令牌，API Key 只存服务端、不回显；管理页设置整体优先于 server/config.json 的 voice 段，保存后下一次语音调用即生效，不用重启。\${isAdmin ? '' : '（总监只读）'}</p>
         <div class="kv">
           <div><span>状态</span>\${v.available ? '<span class="ok">可用</span>' : '<span class="muted">未配置</span>'}\${v.mock ? ' · <span class="muted">mock 演示（不是真实语音）</span>' : ''}\${v.sourceLabel ? ' · 来源：' + esc(v.sourceLabel) : ''}</div>
-          <div><span>端点</span>\${v.endpoint ? '<span class="mono">' + esc(v.endpoint) + '</span>' : '—'}</div>
-          <div><span>密钥</span>\${v.keyConfigured ? '已配置（不回显）' : '未配置'}</div>
+          <div><span>ASR 端点</span>\${v.asrEndpoint ? '<span class="mono">' + esc(v.asrEndpoint) + '</span>' : '—'} · 密钥 \${v.asrKeyConfigured ? '已配置' : '未配置'}</div>
+          <div><span>TTS 端点</span>\${v.ttsEndpoint ? '<span class="mono">' + esc(v.ttsEndpoint) + '</span>' : '—'}\${v.endpointsSplit ? '' : ' <span class="muted">（与 ASR 相同）</span>'} · 密钥 \${v.ttsKeyConfigured ? '已配置' : '未配置'}</div>
           <div><span>模型</span>ASR \${esc(v.asrModel)} · TTS \${esc(v.ttsModel)} · 音色 \${esc(v.voice)} · 建议 \${esc(String(v.ttsRate))} Hz</div>
           <div><span>价目</span>识别 ¥\${esc(String(v.asrPriceCnyPerMinute))}/分钟 · 合成 ¥\${esc(String(v.ttsPriceCnyPerMinute))}/分钟（0 = 未配置，成本记 0）</div>
           \${v.updatedAt ? '<div><span>更新</span>' + esc(String(v.updatedAt)) + (v.updatedBy ? ' · ' + esc(v.updatedBy) : '') + '</div>' : ''}
         </div>
         \${isAdmin ? \`<form id="voiceForm" style="margin-top:16px">
-          <div class="field"><label>端点 baseUrl</label><input name="baseUrl" type="url" placeholder="https://api.openai.com/v1" value="\${esc(v.form.baseUrl)}" /></div>
-          <div class="field"><label>API Key\${v.keyConfigured ? '（已配置；留空 = 保持不变，换端点时必须重填）' : ''}</label><input name="apiKey" type="password" placeholder="\${v.keyConfigured ? '********' : 'sk-…'}" autocomplete="off" spellcheck="false" /></div>
+          <div class="grid2">
+            <div class="field"><label>ASR 端点 baseUrl</label><input name="asrBaseUrl" type="url" placeholder="http://127.0.0.1:8000/v1" value="\${esc(v.form.asrBaseUrl)}" /></div>
+            <div class="field"><label>ASR API Key\${v.asrKeyConfigured ? '（已配置；留空 = 保持不变）' : ''}</label><input name="asrApiKey" type="password" placeholder="\${v.asrKeyConfigured ? '********' : '本地服务不校验就填 local'}" autocomplete="off" spellcheck="false" /></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>TTS 端点 baseUrl（留空 = 与 ASR 相同）</label><input name="ttsBaseUrl" type="url" placeholder="http://127.0.0.1:9880/v1" value="\${esc(v.form.ttsBaseUrl)}" /></div>
+            <div class="field"><label>TTS API Key\${v.endpointsSplit ? '（留空 = 保持不变；换端点必须重填）' : '（端点留空时用 ASR 的密钥）'}</label><input name="ttsApiKey" type="password" placeholder="\${v.endpointsSplit ? '********' : 'sk-…'}" autocomplete="off" spellcheck="false" /></div>
+          </div>
           <div class="grid2">
             <div class="field"><label>ASR 模型</label><input name="asrModel" placeholder="whisper-1" value="\${esc(v.form.asrModel)}" /></div>
             <div class="field"><label>TTS 模型</label><input name="ttsModel" placeholder="tts-1" value="\${esc(v.form.ttsModel)}" /></div>
@@ -650,6 +656,15 @@ export function renderAdminHtml({ companyName }) {
           <p class="desc">「测试连通」会用当前表单值真实调用一次 TTS 合成 + ASR 识别（产生少量上游费用，记在账本 voice-test 标签下），不会保存表单。</p>
         </form>\` : ''}
         <div id="voiceTestResult" style="margin-top:12px"></div>
+        \${isAdmin ? \`<div id="voiceRuntime" style="margin-top:18px">
+          <h2>本机运行</h2>
+          <p class="desc">不接外部服务：网关按本机平台下载 sherpa-onnx（Windows x64、Linux x64 或 Linux arm64）和两个模型到数据目录，识别用 SenseVoice Small（中英日韩粤），合成用 Kokoro（中英）。约 540 MB，下载校验 sha256。装好后点「改用本机模型」，设备请求就不再出这台机器。</p>
+          <div class="kv" id="voiceRuntimeStatus"><div><span>状态</span><span class="muted">读取中…</span></div></div>
+          <div class="row" style="margin-top:12px">
+            <button type="button" id="voiceRuntimeInstall">下载并安装</button>
+            <button type="button" id="voiceRuntimeActivate">改用本机模型</button>
+          </div>
+        </div>\` : ''}
       </section>
       </div>
 
@@ -807,8 +822,10 @@ export function renderAdminHtml({ companyName }) {
       const fd = new FormData(form);
       const num = (name) => (fd.get(name) === '' || fd.get(name) == null ? undefined : Number(fd.get(name)));
       return {
-        baseUrl: fd.get('baseUrl'),
-        apiKey: fd.get('apiKey') || '',
+        asrBaseUrl: fd.get('asrBaseUrl'),
+        asrApiKey: fd.get('asrApiKey') || '',
+        ttsBaseUrl: fd.get('ttsBaseUrl') || '',
+        ttsApiKey: fd.get('ttsApiKey') || '',
         asrModel: fd.get('asrModel'),
         ttsModel: fd.get('ttsModel'),
         voice: fd.get('voice'),
@@ -822,6 +839,39 @@ export function renderAdminHtml({ companyName }) {
       try {
         await api('PUT', '/api/admin/voice', voiceBodyOf(voiceForm));
         toast('已保存语音设置，设备下一次语音调用即生效');
+        renderMain();
+      } catch (err) { toast(err.message, true); }
+    });
+    const runtimeBox = $('#voiceRuntimeStatus');
+    const runtimeLine = (label, on) => '<div><span>' + label + '</span>' + (on ? '<span class="ok">已就绪</span>' : '<span class="muted">未安装</span>') + '</div>';
+    const refreshRuntime = async () => {
+      if (!runtimeBox) return;
+      try {
+        const r = await api('GET', '/api/admin/voice/runtime');
+        const rt = r.runtime || {};
+        runtimeBox.innerHTML = runtimeLine('运行库', rt.runtime) + runtimeLine('识别模型 SenseVoice', rt.asr) + runtimeLine('合成模型 Kokoro', rt.tts) +
+          '<div><span>当前通道</span>' + (rt.active ? '<span class="ok">本机模型</span>' : '外部端点') + '</div>' +
+          '<div><span>平台</span>' + (rt.supported ? esc(rt.platform) : '<span class="bad">不支持（仅 Windows x64、Linux x64、Linux arm64）</span>') + '</div>';
+        const installBtn = $('#voiceRuntimeInstall');
+        if (installBtn) installBtn.disabled = !!rt.ready;
+      } catch (err) { runtimeBox.innerHTML = '<div><span>状态</span><span class="bad">' + esc(err.message) + '</span></div>'; }
+    };
+    refreshRuntime();
+    const runtimeInstall = $('#voiceRuntimeInstall');
+    if (runtimeInstall) runtimeInstall.addEventListener('click', async () => {
+      runtimeInstall.disabled = true;
+      if (runtimeBox) runtimeBox.innerHTML = '<div><span>状态</span>下载中（约 540 MB，请勿关闭页面）…</div>';
+      try {
+        await api('POST', '/api/admin/voice/runtime/install');
+        toast('本机语音运行时已安装');
+        refreshRuntime();
+      } catch (err) { toast(err.message, true); runtimeInstall.disabled = false; refreshRuntime(); }
+    });
+    const runtimeActivate = $('#voiceRuntimeActivate');
+    if (runtimeActivate) runtimeActivate.addEventListener('click', async () => {
+      try {
+        await api('POST', '/api/admin/voice/runtime/activate');
+        toast('已改用本机模型，设备下一次语音请求即生效');
         renderMain();
       } catch (err) { toast(err.message, true); }
     });

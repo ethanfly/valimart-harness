@@ -142,7 +142,7 @@ async function speechDevice(input = '你好') {
 
 test('权限：员工 403；总监可读不可写；视图不含密钥', async () => {
   assert.equal((await call('GET', '/api/admin/voice', { t: tok.emp })).status, 403)
-  assert.equal((await call('PUT', '/api/admin/voice', { t: tok.emp, body: { baseUrl: stubBase, apiKey: 'sk-hack' } })).status, 403)
+  assert.equal((await call('PUT', '/api/admin/voice', { t: tok.emp, body: { asrBaseUrl: stubBase, asrApiKey: 'sk-hack' } })).status, 403)
 
   const view = await call('GET', '/api/admin/voice', { t: tok.director })
   assert.equal(view.status, 200)
@@ -151,30 +151,30 @@ test('权限：员工 403；总监可读不可写；视图不含密钥', async (
   assert.equal(v.mock, false)
   assert.equal(v.source, 'config')
   assert.equal(v.sourceLabel, '服务端配置 / 环境变量')
-  assert.equal(v.endpoint, stubBase)
-  assert.equal(v.keyConfigured, true)
+  assert.equal(v.asrEndpoint, stubBase)
+  assert.equal(v.asrKeyConfigured, true)
   assert.equal(v.asrModel, 'cfg-asr')
   assert.equal(v.ttsRate, 22050)
   assert.equal(v.adminSet, false)
   assert.doesNotMatch(JSON.stringify(view.json), /sk-config-key/)
 
-  assert.equal((await call('PUT', '/api/admin/voice', { t: tok.director, body: { baseUrl: stubBase, apiKey: 'sk-dir' } })).status, 403)
+  assert.equal((await call('PUT', '/api/admin/voice', { t: tok.director, body: { asrBaseUrl: stubBase, asrApiKey: 'sk-dir' } })).status, 403)
 })
 
 test('校验：端点/密钥/模型名/数值非法一律 400，且不落库', async () => {
   const bads = [
-    [{ baseUrl: 'ftp://example.test/v1', apiKey: 'sk-1' }, 'bad_base_url'],
-    [{ baseUrl: 'https://example.test/v1?q=1', apiKey: 'sk-1' }, 'bad_base_url'],
-    [{ baseUrl: 'https://user:pw@example.test/v1', apiKey: 'sk-1' }, 'bad_base_url'],
-    [{ baseUrl: 'not a url', apiKey: 'sk-1' }, 'bad_base_url'],
-    [{ baseUrl: stubBase, apiKey: 'sk with space' }, 'bad_key'],
-    [{ baseUrl: stubBase, apiKey: 'sk-ok', ttsModel: 'a"b' }, 'bad_field'],
-    [{ baseUrl: stubBase, apiKey: 'sk-ok', asrModel: 'a\r\n--x' }, 'bad_field'],
-    [{ baseUrl: stubBase, apiKey: 'sk-ok', ttsRate: 100 }, 'bad_field'],
-    [{ baseUrl: stubBase, apiKey: 'sk-ok', ttsRate: 24000.5 }, 'bad_field'],
-    [{ baseUrl: stubBase, apiKey: 'sk-ok', ttsPriceCnyPerMinute: -1 }, 'bad_field'],
+    [{ asrBaseUrl: 'ftp://example.test/v1', asrApiKey: 'sk-1' }, 'bad_base_url'],
+    [{ asrBaseUrl: 'https://example.test/v1?q=1', asrApiKey: 'sk-1' }, 'bad_base_url'],
+    [{ asrBaseUrl: 'https://user:pw@example.test/v1', asrApiKey: 'sk-1' }, 'bad_base_url'],
+    [{ asrBaseUrl: 'not a url', asrApiKey: 'sk-1' }, 'bad_base_url'],
+    [{ asrBaseUrl: stubBase, asrApiKey: 'sk with space' }, 'bad_key'],
+    [{ asrBaseUrl: stubBase, asrApiKey: 'sk-ok', ttsModel: 'a"b' }, 'bad_field'],
+    [{ asrBaseUrl: stubBase, asrApiKey: 'sk-ok', asrModel: 'a\r\n--x' }, 'bad_field'],
+    [{ asrBaseUrl: stubBase, asrApiKey: 'sk-ok', ttsRate: 100 }, 'bad_field'],
+    [{ asrBaseUrl: stubBase, asrApiKey: 'sk-ok', ttsRate: 24000.5 }, 'bad_field'],
+    [{ asrBaseUrl: stubBase, asrApiKey: 'sk-ok', ttsPriceCnyPerMinute: -1 }, 'bad_field'],
     // 首次保存必须填密钥：不能把 config 里的旧密钥自动带过来。
-    [{ baseUrl: stubBase }, 'need_api_key'],
+    [{ asrBaseUrl: stubBase }, 'need_api_key'],
   ]
   for (const [body, code] of bads) {
     const r = await call('PUT', '/api/admin/voice', { t: tok.boss, body })
@@ -190,8 +190,8 @@ test('保存：立即覆盖 config（不重启），账本 provider=voice-admin�
   calls.length = 0
   const saved = await call('PUT', '/api/admin/voice', {
     body: {
-      baseUrl: stubBase,
-      apiKey: 'sk-admin-page-key',
+      asrBaseUrl: stubBase,
+      asrApiKey: 'sk-admin-page-key',
       asrModel: 'admin-asr',
       ttsModel: 'admin-tts',
       voice: 'admin-voice',
@@ -206,8 +206,10 @@ test('保存：立即覆盖 config（不重启），账本 provider=voice-admin�
   assert.equal(v.adminSet, true)
   assert.equal(v.source, 'admin-page')
   assert.equal(v.sourceLabel, '管理页设置')
-  assert.equal(v.endpoint, stubBase)
-  assert.equal(v.keyConfigured, true)
+  assert.equal(v.asrEndpoint, stubBase)
+  assert.equal(v.ttsEndpoint, stubBase, '没填 TTS 端点时与 ASR 共用')
+  assert.equal(v.endpointsSplit, false)
+  assert.equal(v.asrKeyConfigured, true)
   assert.equal(v.asrModel, 'admin-asr')
   assert.equal(v.ttsModel, 'admin-tts')
   assert.equal(v.voice, 'admin-voice')
@@ -244,9 +246,9 @@ test('保存：立即覆盖 config（不重启），账本 provider=voice-admin�
 
 test('密钥沿用：同端点留空保留旧 key；换端点留空必须重填', async () => {
   // 同端点 + 空 key：沿用已保存的 key
-  const same = await call('PUT', '/api/admin/voice', { body: { baseUrl: `${stubBase}/`, apiKey: '', ttsRate: 22050 } })
+  const same = await call('PUT', '/api/admin/voice', { body: { asrBaseUrl: `${stubBase}/`, asrApiKey: '', ttsRate: 22050 } })
   assert.equal(same.status, 200)
-  assert.equal(same.json.voice.keyConfigured, true)
+  assert.equal(same.json.voice.asrKeyConfigured, true)
   assert.equal(same.json.voice.ttsRate, 22050)
   assert.doesNotMatch(JSON.stringify(same.json), /sk-admin-page-key/)
 
@@ -256,18 +258,18 @@ test('密钥沿用：同端点留空保留旧 key；换端点留空必须重填'
   assert.equal(calls.at(-1).headers.authorization, 'Bearer sk-admin-page-key', '同端点留空保存应保留旧密钥')
 
   // 换端点 + 空 key：拒绝，避免把旧密钥发到新地址
-  const other = await call('PUT', '/api/admin/voice', { body: { baseUrl: 'https://voice.example.test/v1', apiKey: '' } })
+  const other = await call('PUT', '/api/admin/voice', { body: { asrBaseUrl: 'https://voice.example.test/v1', asrApiKey: '' } })
   assert.equal(other.status, 400)
   assert.equal(other.json.error.code, 'need_api_key')
   const view = await call('GET', '/api/admin/voice')
-  assert.equal(view.json.voice.endpoint, stubBase, '被拒绝的保存不能改掉现有端点')
+  assert.equal(view.json.voice.asrEndpoint, stubBase, '被拒绝的保存不能改掉现有端点')
 
   // 换端点 + 新 key：允许
-  const moved = await call('PUT', '/api/admin/voice', { body: { baseUrl: 'https://voice.example.test/v1', apiKey: 'sk-new-place' } })
+  const moved = await call('PUT', '/api/admin/voice', { body: { asrBaseUrl: 'https://voice.example.test/v1', asrApiKey: 'sk-new-place' } })
   assert.equal(moved.status, 200)
-  assert.equal(moved.json.voice.endpoint, 'https://voice.example.test/v1')
+  assert.equal(moved.json.voice.asrEndpoint, 'https://voice.example.test/v1')
   // 换回来，后面的用例继续用本机 stub
-  const back = await call('PUT', '/api/admin/voice', { body: { baseUrl: stubBase, apiKey: 'sk-admin-page-key', ttsRate: 16000 } })
+  const back = await call('PUT', '/api/admin/voice', { body: { asrBaseUrl: stubBase, asrApiKey: 'sk-admin-page-key', ttsRate: 16000 } })
   assert.equal(back.status, 200)
 })
 
@@ -275,8 +277,8 @@ test('测试连通：真实 TTS→ASR 往返；失败只回阶段和稳定错误
   calls.length = 0
   const ok = await call('POST', '/api/admin/voice/test', {
     body: {
-      baseUrl: stubBase,
-      apiKey: '', // 与已保存端点一致 → 沿用已保存密钥
+      asrBaseUrl: stubBase,
+      asrApiKey: '', // 与已保存端点一致 → 沿用已保存密钥
       asrModel: 'admin-asr',
       ttsModel: 'admin-tts',
       voice: 'admin-voice',
@@ -300,7 +302,7 @@ test('测试连通：真实 TTS→ASR 往返；失败只回阶段和稳定错误
 
   // 上游把密钥片段回显在错误体里：网关必须丢弃
   stubHandler = () => ({ status: 401, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: { message: 'bad key sk-admin-page-key leaked' } }) })
-  const failed = await call('POST', '/api/admin/voice/test', { body: { baseUrl: stubBase, apiKey: '', ttsModel: 'admin-tts' } })
+  const failed = await call('POST', '/api/admin/voice/test', { body: { asrBaseUrl: stubBase, asrApiKey: '', ttsModel: 'admin-tts' } })
   assert.equal(failed.status, 200)
   assert.equal(failed.json.ok, false)
   assert.equal(failed.json.error.stage, 'tts')
@@ -309,11 +311,26 @@ test('测试连通：真实 TTS→ASR 往返；失败只回阶段和稳定错误
   assert.doesNotMatch(JSON.stringify(failed.json), /leaked/)
 
   // 表单填了非法端点：明确 400，而不是悄悄去测当前生效的通道
-  const rejected = await call('POST', '/api/admin/voice/test', { body: { baseUrl: 'ftp://x/v1', apiKey: 'sk-x' } })
+  const rejected = await call('POST', '/api/admin/voice/test', { body: { asrBaseUrl: 'ftp://x/v1', asrApiKey: 'sk-x' } })
   assert.equal(rejected.status, 400)
   assert.equal(rejected.json.error.code, 'bad_base_url')
 
   stubHandler = serveUpstream
+})
+
+test('本机通道测试：合成再识别，记账 tag=voice-test，不在声明前调用 recordTest', async () => {
+  gw.voiceRuntime.speak = async () => pcmToWav(Buffer.alloc(3200), 16000)
+  gw.voiceRuntime.transcribe = async () => '本机听清了'
+  const before = gw.ledger.entriesSince(0, (e) => e.tag === 'voice-test').length
+  const r = await call('POST', '/api/admin/voice/test', {
+    body: { asrBaseUrl: 'local://asr', asrApiKey: 'local', ttsBaseUrl: 'local://tts', ttsApiKey: 'local' },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.json))
+  assert.equal(r.json.ok, true)
+  assert.equal(r.json.asr.text, '本机听清了')
+  assert.equal(r.json.tts.rate, 16000)
+  const added = gw.ledger.entriesSince(0, (e) => e.tag === 'voice-test').slice(before)
+  assert.deepEqual(added.map((e) => e.voice.kind), ['tts', 'asr'])
 })
 
 test('清除：回退到 config.voice，设备侧立刻回到配置通道', async () => {
@@ -333,6 +350,52 @@ test('清除：回退到 config.voice，设备侧立刻回到配置通道', asyn
   assert.equal(JSON.parse(calls.at(-1).body).model, 'cfg-tts')
   const entry = gw.ledger.entriesSince(0, (e) => e.tag === 'voice-tts').at(-1)
   assert.equal(entry.provider, 'speech')
+})
+
+test('ASR 与 TTS 分两个端口：识别和合成分别打到各自的上游和密钥', async () => {
+  const ttsStub = http.createServer((req, res) => {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => {
+      calls.push({ url: 'tts-port' + req.url, headers: req.headers, body: Buffer.concat(chunks) })
+      const wav = toneWav(16000, 200)
+      res.writeHead(200, { 'content-type': 'audio/wav' })
+      res.end(wav)
+    })
+  })
+  const ttsBase = await new Promise((resolve) => ttsStub.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${ttsStub.address().port}/v1`)))
+  try {
+    const saved = await call('PUT', '/api/admin/voice', {
+      body: { asrBaseUrl: stubBase, asrApiKey: 'sk-asr-only', ttsBaseUrl: ttsBase, ttsApiKey: 'sk-tts-only', asrModel: 'admin-asr', ttsModel: 'admin-tts', voice: 'admin-voice' },
+    })
+    assert.equal(saved.status, 200)
+    assert.equal(saved.json.voice.endpointsSplit, true)
+    assert.equal(saved.json.voice.asrEndpoint, stubBase)
+    assert.equal(saved.json.voice.ttsEndpoint, ttsBase)
+    assert.doesNotMatch(JSON.stringify(saved.json), /sk-asr-only|sk-tts-only/)
+
+    calls.length = 0
+    const speech = await speechDevice('分开的端口')
+    assert.equal(speech.status, 200)
+    assert.equal(speech.headers.get('x-audio-rate'), '16000')
+    const ttsCall = calls.find((c) => c.url.startsWith('tts-port'))
+    assert.ok(ttsCall, '合成应打到 TTS 端口')
+    assert.equal(ttsCall.headers.authorization, 'Bearer sk-tts-only')
+
+    calls.length = 0
+    const asr = await fetch(base + '/v1/audio/transcriptions?rate=16000', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${tok.empDevice}`, 'content-type': 'audio/pcm' },
+      body: Buffer.alloc(3200),
+    })
+    assert.equal(asr.status, 200)
+    const asrCall = calls.find((c) => c.url === '/v1/audio/transcriptions')
+    assert.ok(asrCall, '识别应打到 ASR 端口')
+    assert.equal(asrCall.headers.authorization, 'Bearer sk-asr-only')
+    assert.equal(calls.some((c) => c.url.startsWith('tts-port') && c.url.includes('transcriptions')), false, '识别不能打到 TTS 端口')
+  } finally {
+    await new Promise((r) => ttsStub.close(r))
+  }
 })
 
 test('管理页 HTML：模型页有「语音」子标签，含保存/测试/清除入口', async () => {

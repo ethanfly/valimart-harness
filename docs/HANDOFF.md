@@ -280,7 +280,7 @@
 
 - **第三方插件落地：完成**。`dsh-better-sidebar@0.18.0`（改动预览/审查工作台）+ `@anweat/dsh-browser@0.1.11`（浏览器自动化，21 个 `browser_*` 工具）随内核前缀离线分发：
   - `scripts/kernel/pin.json` 新增 `profilePlugins`（名字/版本/prune 白名单）；`install-kernel.mjs` 装到 staging 再按白名单拷进内核前缀；`ensureProfile` 写进 `dsh.profile.bundles`，并把插件 + 内核 `@deepseek-ai/*` peer 链接到 `$DSH_HOME/profiles/node_modules` 与内核顶层 scope；`build-payload.mjs` 打包前 `stripKernelPeerLinks` 剥掉运行时链接（否则 tar 翻倍）。
-  - 浏览器配置在 `profile/cordis.patch.yml`：`channel: msedge` + `opencliEnabled: false`（用系统 Edge，不下载 Chromium）。
+  - 浏览器配置在 `profile/cordis.patch.yml`：`channel: msedge` + `opencliEnabled: false` + `automationMode: unrestricted`（用系统 Edge，不下载 Chromium；点击/输入/滚动/脚本/安装不再逐条审批，安全校验和调用缓冲仍在）。
   - 顺手修了 desk-ui 的 `ctx.workspaces.startSession`（内核 0.1.2-rc.1 的服务名是 `uiWorkspace`；基线也复现）。
   - 验证：`scripts/test/*.test.mjs` 178 个全绿（177 pass + 1 skip）；开发版 `desk` profile 真机启动 → better-sidebar 面板/文件树/「本轮文件」diff 正常、`browser_status` 返回 21 tools、点「新会话」0 报错；`build-payload` 出的 `kernel.tar` 232MB 含两个插件。
   - 注意：`server/test/oauth-subscribe.test.js` 有 6 个既有失败（grok-imagine 图片/视频代理、管理页源码），与本次改动无关（未动 server/）。

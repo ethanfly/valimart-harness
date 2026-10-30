@@ -50,13 +50,16 @@
         approval: never
 
 # 第三方插件：@anweat/dsh-browser（随内核前缀离线分发）。公司机器用系统 Edge 当浏览器通道，
-# 不下载 Playwright Chromium；关掉 OpenCLI（省一份 ~13MB 依赖）。browser_* 工具默认仍需审批，
-# 但公司 profile 的默认权限预设是 danger-full-access / approval: never。
+# 不下载 Playwright Chromium；关掉 OpenCLI（省一份 ~13MB 依赖）。
+# 浏览器自动化与文件权限对齐为完全访问：automationMode unrestricted，点击、输入、
+# 滚动、写 Recipe、外部 UserScript、OpenCLI 与安装都不再逐条审批。域名、参数、
+# 大小、步数和 usagePolicy 缓冲仍然生效。改完必须完整重启客户端才重新注册工具。
 - id: browser
   config:
     channel: msedge
     browserRuntime: playwright
     opencliEnabled: false
+    automationMode: unrestricted
 
 # 第三方插件：@anysearch/anysearch-dsh（随内核前缀离线分发，官方接 DSH 的方式）。
 # 它自带的 bundle 层已把 ctx.web 的 searchProvider/fetchProvider 固定为 anysearch（接管原生

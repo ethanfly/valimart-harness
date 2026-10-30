@@ -85,6 +85,30 @@
   卡片与 `/api/models` 都变、停在模型目录子标签、总监页面没有表单；全量
   `npm test` **630 tests / 629 pass / 0 fail / 1 skip**。
 
+## 同轮再追加：网关自己下载并运行语音模型
+
+用户澄清：要的是网关端自动下载、部署语音模型，不是去接一个已有的本地服务。
+
+- sherpa-onnx 官方只发命令行和 WebSocket 服务，没有 OpenAI 兼容的 HTTP 服务，第三方的
+  都是 Docker。所以网关直接 spawn 官方 Windows 命令行（v2.0.0 shared-MT，不依赖 VC 运行库），
+  模型用 SenseVoice Small int8 和 Kokoro 多语言 v1.0，sha256 写死在 `VOICE_ASSETS`。
+- 下载、解压、进程管理都在新文件 `server/src/voice-runtime.js`。解压前先 `tar -tjf` 看条目，
+  有 `..` 或逃出预期目录就整包拒绝。临时文件 `.part`，校验失败即删。
+- 通道用 `local://asr` / `local://tts` 这两个保留地址标记「走本机」，`normalizeBaseUrl` 放行，
+  `AudioProxy` 在发请求前拦截。这样不用改设备协议，也不用在本机起一个 HTTP 服务。
+- 测试全部注入 fetch / tar / 子进程，不下载 540 MB。真实下载和真实识别还没跑过。
+
+## 同轮再追加：Linux 网关也能装本机语音
+
+用户要求网关部署到 Linux 时同样支持。官方 v2.0.0 有 `linux-x64-shared` 和
+`linux-aarch64-shared-cpu` 两份 CPU 包，sha256 从 GitHub releases API 取来写进
+`VOICE_RUNTIMES`。树莓派网关是 aarch64，所以 arm64 必须单独一份，不能拿 x64 包顶。
+
+- 选择按 `process.platform` + `process.arch`，只认 win32-x64、linux-x64、linux-arm64。
+- Linux 的 `.so` 在包内 `lib/`，`run()` 给子进程加 `LD_LIBRARY_PATH`，不写系统目录。
+- 修了一个真实 bug：`upstreamFor` 看到配置通道是 mock 就提前返回，本机端点被演示分支截走，
+  设备拿到的是 700 ms 测试音。现在 `local://` 优先判断。
+
 ## 没做 / 留给下次
 
 - 真实供应商联调（端点、模型名、音色按供应商实际填；`whisper-1`/`tts-1`/`alloy`
