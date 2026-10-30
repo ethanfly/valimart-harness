@@ -2,6 +2,14 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-30：内核升到 0.2.1-rc.5，网关只留测试机
+
+- **网关**：本机（开发机 `10.56.41.39`）的用户级服务 `valimart-gateway.service` 已 `disable --now`，8790 不再监听。公司网关只跑在 `192.168.100.71:8790`（见下一条）。本机开发客户端的登录态已经指向测试机。要恢复本机网关：`systemctl --user enable --now valimart-gateway`。
+- **内核**：`pin.json` `0.2.1-rc.2` → **`0.2.1-rc.5`**（npm latest/next，10-29 发布）。补丁不用改：新打 20 处、已有 3 处，`kernel:check` 齐全；junction mklink v3/v4 仍 anchor-gone（预期）。Linux 上 dsh-browser settings 补丁报 `target-missing`，原因是 npm 前缀布局是 `lib/node_modules`，Windows 布局能命中。
+- **验证**：Linux 开发客户端（profile `desk`）在 rc.5 上启动正常，desk-host / desk-image / desk-video 就绪，登录测试机网关，公司盘同步 712 个文件，无报错。`npm test` 653 pass / 3 fail / 3 skip，失败仍是之前那 3 项（与内核无关）。
+- **发布**：推 origin/main 触发 release 工作流（Windows 上 `npm run setup` + `dist:client` + `dist:gateway`），产物挂 Release `latest`。客户端安装包随后发布到测试机网关当前版本。
+- **未带上**：`profile/cordis.patch.yml` 里未提交的 `automationMode: unrestricted` 不在这次提交里，CI 包不含它。
+
 ## 2026-10-30：网关部署到 HQT 本地测试机 + 响应压缩
 
 - **部署**：`192.168.100.71`（CentOS 7.9，glibc 2.17）`/data/server/valimart-harness-getaway`。Node 用 unofficial-builds 的 `node-v22.14.0-linux-x64-glibc-217`（自带 `node:sqlite`），放在 `runtime/`。systemd 219 不支持 `StandardOutput=append:`，由 `service/start.sh` 把日志重定向到 `logs/gateway.log`；服务名 `valimart-harness-gateway`（别名 `TheDivaGateway`）。数据是本机 `VACUUM INTO` 出来的快照。

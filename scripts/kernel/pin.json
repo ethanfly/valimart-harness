@@ -1,7 +1,7 @@
 {
-  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-10-21 从 0.2.0-rc.2 升到 npm latest/next 的 0.2.1-rc.2（2026-10-17 发布；上游 TDHarness-coding main@82c65fc 已适配 0.2.1-alpha.1，锚点对不上时可参考其 patches/apply-kernel-patches.js）。本版重审：chat markdown-slot 补丁加了 0.2.1 签名/子槽变体，删了被上游吸收的 assistant-node-render-slot（AssistantNodeView 原生带 renderSlot）。junction mklink v3/v4 仍 optional anchor-gone（预期）；company-think 预设仍 missing（预期跳过）；dsh-browser@0.1.11 的 0.1.7 settings 补丁仍命中；profile 插件兼容豁免由 setup 写进 profiles/desk/compatibility.json。0.1.5-alpha.1 仍因发布不完整勿试。",
+  "$comment": "内核锁定版本。只改这里；补丁锚点（patches.mjs）是按这个版本的源码写的，换版本前先重审补丁。2026-10-30 升到 npm latest/next 的 0.2.1-rc.5（2026-10-29 发布）：补丁不用改，新打 20 处、已有 3 处，junction mklink v3/v4 仍 anchor-gone（预期）；Linux 上 dsh-browser settings 补丁报 target-missing 是 npm 前缀布局（lib/node_modules）所致，Windows 布局正常命中。2026-10-21 从 0.2.0-rc.2 升到 npm latest/next 的 0.2.1-rc.2（2026-10-17 发布；上游 TDHarness-coding main@82c65fc 已适配 0.2.1-alpha.1，锚点对不上时可参考其 patches/apply-kernel-patches.js）。本版重审：chat markdown-slot 补丁加了 0.2.1 签名/子槽变体，删了被上游吸收的 assistant-node-render-slot（AssistantNodeView 原生带 renderSlot）。junction mklink v3/v4 仍 optional anchor-gone（预期）；company-think 预设仍 missing（预期跳过）；dsh-browser@0.1.11 的 0.1.7 settings 补丁仍命中；profile 插件兼容豁免由 setup 写进 profiles/desk/compatibility.json。0.1.5-alpha.1 仍因发布不完整勿试。",
   "package": "@deepseek-ai/dsh",
-  "version": "0.2.1-rc.2",
+  "version": "0.2.1-rc.5",
   "profilePlugins": [
     {
       "name": "@anweat/dsh-browser",
