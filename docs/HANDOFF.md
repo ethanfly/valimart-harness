@@ -2,6 +2,13 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-10-30：网关部署到 HQT 本地测试机 + 响应压缩
+
+- **部署**：`192.168.100.71`（CentOS 7.9，glibc 2.17）`/data/server/valimart-harness-getaway`。Node 用 unofficial-builds 的 `node-v22.14.0-linux-x64-glibc-217`（自带 `node:sqlite`），放在 `runtime/`。systemd 219 不支持 `StandardOutput=append:`，由 `service/start.sh` 把日志重定向到 `logs/gateway.log`；服务名 `valimart-harness-gateway`（别名 `TheDivaGateway`）。数据是本机 `VACUUM INTO` 出来的快照。
+- **网络**：办公网 `10.56.x` 到机房要经过 `10.25.128.25`（做了 NAT，并且替服务器应答 TCP 握手）。约 10KB 以内的返回稳定；更大的返回经常收不到（握手后零字节），服务器上看到 `SYN-RECV`/`FIN-WAIT-1`。服务器自身 iptables 不拦（不存在针对 `10.25.x` 的 DROP 规则）。根因在中间设备；网管改了防火墙策略后直连全部正常（`/admin` 113KB 6/6、gzip 10/10）。本机 Clash Verge 的合并配置把 `192.168.0.0/16` 排除出 TUN。
+- **代码**：`http.js` 新增 `sendBody`：客户端声明 gzip 且返回 ≥1KB 时压缩（`sendJson` 与管理页都走它，管理页启动时预压一次，113KB → 31.8KB）。不声明 `Accept-Encoding` 的 Node `http.request` 客户端不受影响。`cfg.httpKeepAlive === false` 时每个响应带 `Connection: close`（默认不变）。测试机曾临时设 `httpKeepAlive: false`，网络修好后已撤回（备份 `config.local.json.bak-keepalive`）。
+- **验证**：新增 `server/test/http-compression.test.js` 3 项；`npm test` 659 项里 653 pass，3 项失败（mixed-scheduler 工作区写锁、voice-runtime 空格路径、npm-cli PATH），本次没有对照跑原代码，推测在 Linux 上本来就过不了。已提交，未重打网关包。过程：`docs/sessions/2026-10-30-hqt-test-gateway.md`。
+
 ## 2026-10-26：Claude Code 插件 valimart-desk
 
 - **为什么**：pi 包已经能登录公司网关并在界面显示当前用户。Claude Code 没有对等插件，而且状态栏只有一条命令，oh-my-claudecode 的 HUD 会占住它。

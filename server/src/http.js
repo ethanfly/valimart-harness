@@ -2,6 +2,7 @@
  * 极简路由 + 请求/响应工具（无第三方依赖）。
  */
 import { URL } from 'node:url'
+import zlib from 'node:zlib'
 
 export class HttpError extends Error {
   constructor(status, message, code) {
@@ -76,14 +77,33 @@ export async function readJson(req) {
   }
 }
 
+// 小于这个尺寸的响应不压缩：省下的字节抵不过 gzip 头和 CPU
+const GZIP_MIN_BYTES = 1024
+
+export function acceptsGzip(req) {
+  return /\bgzip\b/i.test(String(req?.headers?.['accept-encoding'] ?? ''))
+}
+
+/**
+ * 发送完整响应体；客户端声明 Accept-Encoding: gzip 且体积够大时压缩。
+ * 跨网段的安全设备会卡住 100KB 级的大响应，压缩后通常只剩 1/4~1/5。
+ * `gzipped` 可传预先压好的同一份内容（静态页启动时压一次）。
+ */
+export function sendBody(res, status, headers, body, gzipped) {
+  const buf = Buffer.isBuffer(body) ? body : Buffer.from(body)
+  const out = { ...headers, vary: 'accept-encoding' }
+  if (buf.length >= GZIP_MIN_BYTES && acceptsGzip(res.req)) {
+    const zipped = gzipped ?? zlib.gzipSync(buf)
+    res.writeHead(status, { ...out, 'content-encoding': 'gzip', 'content-length': zipped.length })
+    res.end(zipped)
+    return
+  }
+  res.writeHead(status, { ...out, 'content-length': buf.length })
+  res.end(buf)
+}
+
 export function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload)
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store',
-  })
-  res.end(body)
+  sendBody(res, status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, JSON.stringify(payload))
 }
 
 export function sendError(res, err) {

@@ -7,7 +7,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import zlib from 'node:zlib'
 import { AGENT_TOOLS } from './agent-tools.js'
+import { sendBody } from './http.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const BRAND_MARK = 'valimart-mark.png'
@@ -45,10 +47,10 @@ function sendBrandPng(res, filePath) {
 }
 
 export function registerAdminPage(router, { cfg }) {
-  const html = renderAdminHtml({ companyName: cfg.company?.name ?? 'Company' })
+  const html = Buffer.from(renderAdminHtml({ companyName: cfg.company?.name ?? 'Company' }))
+  const htmlGz = zlib.gzipSync(html) // 页面固定，启动时压一次
   const serve = (_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(html) })
-    res.end(html)
+    sendBody(res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }, html, htmlGz)
   }
   router.get('/admin', serve)
   router.get('/admin/index.html', serve)

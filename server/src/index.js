@@ -132,6 +132,9 @@ export function createGateway(overrides = {}) {
   let beacon = null
   const server = http.createServer(async (req, res) => {
     const url = parseUrl(req)
+    // httpKeepAlive: false —— 每个响应后关闭连接。用于中间有防火墙会悄悄丢弃闲置会话的网段：
+    // 浏览器复用一条已被丢掉的连接时，请求会一直挂到超时（服务端其实已处理）。
+    if (cfg.httpKeepAlive === false) res.setHeader('connection', 'close')
     if (req.method === 'OPTIONS') {
       res.writeHead(204, corsHeaders())
       res.end()
