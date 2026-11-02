@@ -178,6 +178,7 @@
         <a href="#client">Harness 客户端</a>
         <a href="#pi">pi 包</a>
         <a href="#vscode">VS Code 插件</a>
+        <a href="#claude">Claude Code 插件</a>
         <a class="github-link" href="https://github.com/ethanfly/valimart-harness" target="_blank" rel="noopener noreferrer">
           GitHub
           <img class="github-stars" src="https://img.shields.io/github/stars/ethanfly/valimart-harness?style=flat&amp;label=stars" alt="GitHub Star 数" height="18" />
@@ -213,6 +214,12 @@
           <p>本仓库 packages/vscode，随 Releases 出 vsix。VS Code：扩展 → … → 从 VSIX 安装。</p>
           <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="vscode" data-ready-label="直接下载最新版 VSIX" data-fallback-label="前往 GitHub Releases 下载">获取最新版 VS Code 插件…</a></p>
         </article>
+        <article>
+          <h3>Claude Code 插件</h3>
+          <p>valimart claude desk：登录、公司盘镜像与 <code>company_*</code> 工具装进 Claude Code。清单就在本仓库 packages/claude-valimart-desk。</p>
+          <p class="code">/plugin marketplace add &lt;克隆目录&gt;/packages/claude-valimart-desk</p>
+          <p class="code">/plugin install valimart-desk@valimart-harness</p>
+        </article>
       </div>
       <p id="download-status" class="download-status" role="status" aria-live="polite">正在获取最新版下载链接…</p>
       <div class="steps">
@@ -222,6 +229,7 @@
           <li>员工安装客户端 exe；启动后填网关地址（或等局域网自动发现）并用公司账号登录。</li>
           <li>只要 CLI：<code>pi install npm:pi-valimart-desk</code>，然后 <code>/desk-login</code>。</li>
           <li>VS Code：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="vscode" data-ready-label="直接下载最新版 VSIX" data-fallback-label="前往 GitHub Releases 下载">获取最新版 VS Code 插件…</a>，扩展 → … → 从 VSIX 安装。</li>
+          <li>Claude Code：<code>/plugin marketplace add &lt;克隆目录&gt;/packages/claude-valimart-desk</code> → <code>/plugin install valimart-desk@valimart-harness</code> → <code>/valimart-desk:desk-login</code>。</li>
           <li>源码开发：克隆仓库后 <code>npm install</code> → <code>npm run setup</code> → <code>npm run dev</code>。</li>
         </ol>
       </div>
@@ -319,6 +327,33 @@
           <h3>工程</h3>
           <p>源码在本仓库 <code>packages/vscode</code>。main 推送后 GitHub Actions 自动打 vsix 挂到 Releases。</p>
           <p class="code">npm run dist:vscode</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="claude">
+      <div class="sec-label">05 / claude code</div>
+      <h2>Claude Code 插件 · valimart claude desk</h2>
+      <p class="lead">在 Claude Code 里走公司网关：登录与额度随会话注入，公司盘镜像与任务卡验收由插件自带的 MCP 服务 <code>desk</code> 提供 14 个 <code>company_*</code> 工具。密钥仍只在网关。</p>
+      <div class="cards">
+        <article>
+          <h3>安装</h3>
+          <p>本仓库目录即 marketplace 清单，两条命令装好。已开着的会话看不到新工具，新开一个。</p>
+          <p class="code">/plugin marketplace add &lt;克隆目录&gt;/packages/claude-valimart-desk</p>
+          <p class="code">/plugin install valimart-desk@valimart-harness</p>
+        </article>
+        <article>
+          <h3>登录与模型</h3>
+          <p>/valimart-desk:desk-login 先扫本机与局域网（UDP 18790，与桌面 / pi 同一协议），密码只从环境变量读。/desk-status 看姓名、角色、本周额度。</p>
+        </article>
+        <article>
+          <h3>盘与任务</h3>
+          <p>镜像 ~/.claude/valimart-drive/，MCP 服务每 30 秒自动同步。四层知识检索、个人记忆、任务卡四格（交付物 / 提交内容 / 提交验收 / 审核）都是 Agent 工具——口头完成不算完成。</p>
+        </article>
+        <article>
+          <h3>走网关聊天</h3>
+          <p>起本机 8799 桥，Claude Code 的 Anthropic Messages 转成网关 OpenAI 兼容口，模型与记账都在网关侧。v0.2.0 起镜像索引落盘：本机旧副本不会盖掉远端新版本。</p>
+          <p class="code">node packages/claude-valimart-desk/scripts/cli.mjs serve</p>
         </article>
       </div>
     </section>
