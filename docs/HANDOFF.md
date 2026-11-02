@@ -2,6 +2,29 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-02：Claude 插件 0.2.0 带上公司盘（MCP 服务 `desk`）· 发现 pi / 桌面端镜像会用旧副本盖掉新版本
+
+- **现在**：插件根 `.mcp.json` 注册 stdio MCP 服务 `desk`（`scripts/mcp-server.mjs`），和 pi 同一套 14 个 `company_*` 工具（工具实现在 `lib/tools.mjs`，镜像与同步沿用 pi 的 `drive-mirror` / `drive-runtime` / `people-options` / `task-workflow`）。镜像目录 `~/.claude/valimart-drive`，MCP 服务登录后先同步一次，之后每 30 秒一次（`VALIMART_DRIVE_SYNC_MS=0` 关掉）。`SessionStart` 注入身份、镜像分区、任务卡规则和绑定任务卡（只读本机文件）。新命令 `/valimart-desk:desk-sync`，`cli.mjs sync`，`status` 多一行镜像目录。
+- **关键决定（别轻易推翻）**：
+  - 同步索引落盘到镜像根 `.sync-index.json`，每轮先按盘上的重新加载。原因：Claude Code 每个会话都重启 MCP 进程，内存索引一清空，本机旧副本就成了「本地新改」被回推。索引为空（新镜像或索引丢失）时**先拉后推**，以远端为准。下载和写记忆都先写同目录隐藏临时文件再改名，被杀也不会留下半截文件被当成本地修改。
+  - `deskStateBox().save()` 只写 `lastSyncAt`：登录态文件几个进程共用，整份回写会把同步期间的登出或换绑任务卡盖回去。
+  - `company_memory_write` 写完把本机镜像标成已同步，不再回推第二遍。追加时只有本机副本没被改过才在本地拼接，否则交给下次拉取。路径带 `..` 越出分区直接拒绝。
+  - 网关回 401：登录态标 `needsRelogin`，后台同步停下，等重新 `desk-login`。交付物上传超时 5 分钟（base64 走 JSON，单个最多 50MB）。
+  - MCP 服务名用 `desk` 不用 `valimart-desk`：工具全名 `mcp__plugin_valimart-desk_desk__company_memory_write` 52 字符，离 64 字符上限还有余量。
+- **pi 包和 desk-host 同样有这个问题，还没修**：两边的 `DriveMirror` 都是内存索引加「先推后拉」。用 pi 原版跑「同步 → 远端改成 v2 → 新进程再同步」，远端被改回本机旧副本 v1（新版不回推、拿到 v2）。凡是在别的电脑或别的客户端改过个人记忆，下次启动这边的客户端都可能把那次修改盖掉。要不要修、怎么修待定（直接搬这次的索引落盘方案就行，老镜像第一次启动没有索引，会走「先拉后推」）。
+- **验证**：插件测试 `node --test packages/claude-valimart-desk/test/*.test.mjs` 27 pass，新增 `test/drive-mcp.test.mjs` 14 项：旧副本不盖新版本、会话之间的本地修改照推、无索引远端优先、真实 MCP 进程起停、14 个工具与名字长度、写记忆不重复回推、日志原地追加、越出分区拒绝、任务卡挂交付物与审核人列表、协议错误码、stdout 干净、401、后台定时同步、SessionStart 注入。全量 `npm test` 673 项：667 pass / 3 fail / 3 skip，3 项失败还是 10-30 那 3 项 Linux 上过不了的（mixed-scheduler 写锁、npm-cli PATH、voice-runtime 空格路径），这次同样没有在干净代码上对照跑。`claude plugin details` 列出 MCP servers (1) desk，`claude mcp list` 显示 `plugin:valimart-desk:desk ✔ Connected`。对测试机网关真实调用：`company_whoami` 149ms；第一次同步远端 713 个文件，下载 698 个，耗时 28s（其余 15 个是 `mcp list` 健康检查时下好的，进程被杀后走了无索引恢复，没有回推）；第二次同步 0 下载 / 0 回推，409ms。
+- **注意**：已开着的 Claude Code 会话看不到新工具，要新开会话。上行网络问题（见下一条）没修好之前，`company_task_attach` 传大文件、回推个人记忆都可能在坏窗口里卡到超时（5 分钟 / 120 秒），不会永久挂死。现有斜杠命令写的是 PowerShell 的 `"$env:CLAUDE_PLUGIN_ROOT/..."`，Claude Code 只替换 `${CLAUDE_PLUGIN_ROOT}`，所以在 Linux/mac 上大概率找不到脚本（这次没改；新命令 `desk-sync` 走 MCP 工具，后备命令用 `${CLAUDE_PLUGIN_ROOT}`）。过程：`docs/sessions/2026-11-02-claude-plugin-drive.md`。
+
+## 2026-11-02：Claude 插件装到本机（Linux 开发机）· pi 发消息无反应——网关上行大流量又被中间设备按流卡死（10-30 同类问题复发，方向反了）
+
+- **Claude 插件本机安装**：`claude plugin marketplace add packages/claude-valimart-desk`（directory 源，直接读仓库目录）+ `claude plugin install valimart-desk@valimart-harness`（用户级，v0.1.0）。登录态从 pi 的同一网关会话同步写入 `~/.claude/valimart-desk.json`（未新签登录），`/api/auth/me` 200。`settings.json` 的 `statusLine` 指到插件 `scripts/statusline.mjs`（实测输出「valimart 冯一宸 (ethan) · admin @ValimartHarness · 额度 …」）。**没改 `ANTHROPIC_BASE_URL`**：聊天仍走 `127.0.0.1:3425`（magpie），8799 桥在上行网络问题修好前不要切——大请求会被卡死。
+- **现象**：pi 装好插件后发消息毫无反应（3 分钟零输出）；体感「进入 pi 要等半天」。桌面端 / Claude 插件桥走同一条链路，坏窗口里大概率同样中招。
+- **排除**：插件和网关都没问题。网关本身快（/health 40ms、/api/auth/me 74ms、盘快照 148KB 428ms、流式 chat 首字节 1.1s；带/不带 gzip 都正常——llm-proxy 的 SSE 走 `res.write`，不经 sendBody 压缩）。pi TUI 首屏登录态 0.65s / 未登录 0.51s，插件 session_start（fetchMe + 盘同步）不阻塞首屏，「进入慢」是发消息卡死后反复重开的整体体感。
+- **根因**：办公网（10.56.x）→ 机房的中间设备 `10.25.128.25`（全流量 NAT）对**客户端→服务器方向的大请求体**随机丢包、按流卡死：裸 curl 发 360KB 也挂；服务器侧实测该流只收到 250B 的 HTTP 头，body 一个字节没到，客户端 send-Q 374KB 堵死、无限重传；同尺寸重试失败率约 25-50%，且**时间上呈窗口性**（坏窗口里连 SSH 隧道内的请求 3/5、3/3 全挂，好窗口又 8/8 全过；满包 DF ping 始终通——是按流卡死，不是 MTU 黑洞）。
+- **为什么 pi 最明显**：pi 每条消息带 300-400KB 请求体（系统提示 + 公司盘提示词 + 十几个 company_* 工具 schema），坏窗口几乎必中；pi（undici fetch）请求无超时，卡住即永久无反应。小请求（登录校验、盘同步都是 GET）不受影响，所以登录/同步正常、就聊天挂。
+- **SSH 隧道不是可靠绕行**（外层 TCP 流同样会被卡）。需要网管再看 `10.25.128.25`：上次（10-30）修的是下行大返回，这次上行大请求复发，怀疑同一台设备的流处理/ policer 问题。修好后 pi、桌面端一起恢复。
+- 临时用法：坏窗口里直接重试（新流约 50-75% 能过）；pi 无请求超时，卡死的会话只能杀进程。
+
 ## 2026-10-30：测试机网关改为安装包部署 + 客户端已发布
 
 - **客户端**：CI 产物 `valimart-harness-Setup-0.1.0-20261030.0926.exe`（490MB）已发布为测试机网关当前版本，buildId `0.1.0+0.2.1-rc.5.20261030-0926.bd38e6f6`。从办公网直接 POST 到网关，传到约 200MB 时报 408 超时，原因是经过中间设备上传太慢。改成 scp 到服务器，再在服务器上调 `127.0.0.1:8790/api/admin/client/publish`。以后发布也这样做。

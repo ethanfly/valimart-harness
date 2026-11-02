@@ -1,9 +1,10 @@
 /**
- * SessionStart：把当前登录用户附加到本会话上下文。
- * 不写 settings.json，不碰 OMC 的 hook。超时由 hooks.json 限在 5 秒。
+ * SessionStart：把当前登录用户、公司盘镜像和绑定的任务卡附加到本会话上下文。
+ * 不写 settings.json，不碰 OMC 的 hook，不走网络（同步由 MCP 服务在后台做）。超时由 hooks.json 限在 5 秒。
  */
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { companyDrivePrompt } from '../lib/company-prompt.mjs'
 import { statuslineOwner } from '../lib/omc.mjs'
 import { claudeHome, loadState } from '../lib/state.mjs'
 import { statusText, userLine } from '../lib/whoami.mjs'
@@ -23,6 +24,8 @@ if (owner.owner === 'omc') {
   lines.push(`状态栏还空着。可把 command 指到 node "${root.replace(/\\/g, '/')}/scripts/statusline.mjs"（只在没有 OMC 时）。`)
 }
 if (!state.sessionToken) lines.push('尚未登录公司网关。用 /valimart-desk:desk-login。')
+const drive = companyDrivePrompt(state)
+if (drive) lines.push('', drive)
 
 process.stdout.write(`${JSON.stringify({
   hookSpecificOutput: {

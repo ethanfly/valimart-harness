@@ -107,6 +107,19 @@ async function doRoute() {
   if (state.defaultModel) console.log(`export ANTHROPIC_MODEL=${state.defaultModel}`)
 }
 
+async function doSync() {
+  const { syncDrive } = await import('../lib/drive-runtime.mjs')
+  const r = await syncDrive()
+  console.log(`公司盘已同步：远端 ${r.files} 个，下载 ${r.pulled}，回推 ${r.pushed}`)
+  console.log(`本机镜像 ${loadState().driveDir}`)
+}
+
+function doStatus() {
+  const state = loadState()
+  console.log(statusText(state))
+  if (state.sessionToken) console.log(`公司盘镜像 ${state.driveDir}（${state.lastSyncAt ? `上次同步 ${state.lastSyncAt}` : '尚未同步'}）`)
+}
+
 async function doServe() {
   const { startBridge } = await import('../lib/bridge-server.mjs')
   const port = listenPort() || 8799
@@ -120,7 +133,8 @@ try {
   else if (cmd === 'logout') {
     await logout()
     console.log(userLine(loadState()))
-  } else if (cmd === 'status') console.log(statusText(loadState()))
+  } else if (cmd === 'status') doStatus()
+  else if (cmd === 'sync') await doSync()
   else if (cmd === 'whoami' || cmd === 'hud') console.log(cmd === 'hud' ? hudLine(loadState()) : userLine(loadState()))
   else if (cmd === 'discover') {
     const found = gatewayChoices(await discoverGateways())
@@ -134,7 +148,7 @@ try {
   else if (cmd === 'route') await doRoute()
   else if (cmd === 'serve') await doServe()
   else {
-    console.error('用法：login | logout | status | whoami | hud | discover | tasks | task | task-submit | task-review | task-final | route | serve')
+    console.error('用法：login | logout | status | sync | whoami | hud | discover | tasks | task | task-submit | task-review | task-final | route | serve')
     process.exit(2)
   }
 } catch (err) {

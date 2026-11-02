@@ -178,4 +178,31 @@ export async function taskAction(id, action, body = {}) {
   return request('POST', `/api/tasks/${encodeURIComponent(id)}/${action}`, { token, baseUrl, body })
 }
 
+/** 给 DriveMirror 用的会话令牌客户端（与桌面端 desk-host 同一套 /api）。 */
+export function makeApiClient() {
+  const auth = () => sessionAuth()
+  return {
+    get: (p, o) => request('GET', p, { ...auth(), ...o }),
+    post: (p, body, o) => request('POST', p, { ...auth(), ...o, body }),
+    patch: (p, body, o) => request('PATCH', p, { ...auth(), ...o, body }),
+    put: (p, body, o) => request('PUT', p, { ...auth(), ...o, body, raw: o?.raw ?? Buffer.isBuffer(body), timeoutMs: o?.timeoutMs ?? 120_000 }),
+  }
+}
+
+export async function patchTask(id, body) {
+  const { token, baseUrl } = sessionAuth()
+  return request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, { token, baseUrl, body })
+}
+
+export async function listPeople() {
+  const { token, baseUrl } = sessionAuth()
+  return request('GET', '/api/people', { token, baseUrl })
+}
+
+/** 交付物整包 base64 走 JSON，单个最大 50MB：给足 5 分钟，不用默认 30 秒。 */
+export async function addDeliverables(id, files) {
+  const { token, baseUrl } = sessionAuth()
+  return request('POST', `/api/tasks/${encodeURIComponent(id)}/deliverables`, { token, baseUrl, body: { files }, timeoutMs: 300_000 })
+}
+
 export { isLoggedIn, loadState }

@@ -15,6 +15,10 @@ export function statePath() {
   return process.env.VALIMART_DESK_STATE || path.join(claudeHome(), 'valimart-desk.json')
 }
 
+export function defaultDriveDir() {
+  return path.join(claudeHome(), 'valimart-drive')
+}
+
 export function defaults() {
   return {
     gatewayUrl: process.env.DESK_GATEWAY_URL || 'http://127.0.0.1:8790',
@@ -28,6 +32,8 @@ export function defaults() {
     loggedInAt: null,
     lastError: null,
     needsRelogin: false,
+    driveDir: defaultDriveDir(),
+    lastSyncAt: null,
     currentTaskId: null,
   }
 }
@@ -66,6 +72,8 @@ export function publicView(state = loadState()) {
     loggedInAt: state.loggedInAt,
     needsRelogin: !!state.needsRelogin,
     lastError: state.lastError,
+    driveDir: state.driveDir || defaultDriveDir(),
+    lastSyncAt: state.lastSyncAt ?? null,
     currentTaskId: state.currentTaskId || null,
   }
 }
