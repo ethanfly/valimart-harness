@@ -95,3 +95,46 @@ test('DriveMirror pull + personal push + tomb + task card', async () => {
   assert.ok(fs.existsSync(path.join(root, 'projects', 'inbox', 'tk-test', '_task-card.md')))
   fs.rmSync(root, { recursive: true, force: true })
 })
+
+test('新进程不把本机旧副本盖掉别处的新版本，本机改过的照样回推', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-mir-idx-'))
+  const rel = '_office/emp-a/_memory/02-methods/note.md'
+  const remote = new Map([[rel, Buffer.from('v1')]])
+  const puts = []
+  const gw = {
+    async get(apiPath) {
+      if (apiPath === '/api/drive/snapshot') {
+        return { files: [...remote].map(([p, buf]) => ({ path: p, sha256: sha(buf), size: buf.length })), memoryLayers: [] }
+      }
+      const p = new URLSearchParams(apiPath.split('?')[1] ?? '').get('path')
+      if (!remote.has(p)) throw new Error('missing ' + p)
+      return remote.get(p)
+    },
+    async put(apiPath, buf) {
+      const p = new URLSearchParams(apiPath.split('?')[1] ?? '').get('path')
+      puts.push(p)
+      remote.set(p, Buffer.from(buf))
+      return { file: { path: p, size: buf.length } }
+    },
+  }
+  const state = { data: { user: { username: 'emp-a' } }, save() {} }
+  try {
+    await new DriveMirror({ root, gateway: gw, state }).sync()
+    assert.deepEqual(puts, [])
+    assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), 'v1')
+
+    remote.set(rel, Buffer.from('v2 来自另一台电脑'))
+    const again = await new DriveMirror({ root, gateway: gw, state }).sync()
+    assert.deepEqual(puts, [])
+    assert.equal(again.pulled, 1)
+    assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), 'v2 来自另一台电脑')
+
+    fs.writeFileSync(path.join(root, rel), '本地改过')
+    const pushed = await new DriveMirror({ root, gateway: gw, state }).sync()
+    assert.deepEqual(puts, [rel])
+    assert.equal(pushed.pushed, 1)
+    assert.equal(remote.get(rel).toString(), '本地改过')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

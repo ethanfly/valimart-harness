@@ -2,6 +2,20 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-03：pi 启动后回车要等一两分钟 · pi / 桌面端 / VS Code 的公司盘镜像会用旧副本盖掉新版本（两处都已修）
+
+- **现象**：pi 界面 0.3 秒就出来，也能打字，但第一条消息回车后要等一两分钟才开始处理。会话 JSONL 里「session 头 → 第一条 user 消息」间隔 146s（11-02 那次 284s；10-30 时只有 24~32s）。
+- **根因有两层**：
+  1. pi 要等所有扩展的 `session_start` 处理完才处理用户提交的输入（`!` 命令不受影响，所以容易误判成没卡）。探针扩展 `session_start` sleep 8s，1.7s 回车的输入到 8.5s 才进 `input` 事件。
+  2. `pi-valimart-desk` 的 `session_start` 里 `await` 了一次完整公司盘同步；而 `DriveMirror` 的索引只在内存里、且先推后拉，新进程索引为空就把 `_office/<账号>/` 全部当成「本地改过」逐个 PUT。本机 555 个文件 / 59 MB，实测 111s。网关本身不慢（`/api/auth/me` 0.07s，快照 0.5s）。
+- **第二个问题（11-02 交接里标的「待定」，这次一并修了）**：同样因为索引不落盘，pi 没开期间在别处（Claude 插件 / 别的电脑）改过的个人记忆，下次开 pi 会被本机旧副本覆盖。
+- **修法**：
+  - `packages/pi-valimart-desk/extensions/index.ts`：`session_start` 只设状态栏和 30s 定时器；网关刷新和首次同步丢后台（`refreshAfterStart`），用 `sessionGen`（`session_shutdown` 时加一）判断会话是否已被替换——文档写明旧 `pi` / `ctx` 被替换后一用就抛错。
+  - 同步索引落盘抽成 `scripts/lib/drive-mirror-index.mjs`（`persistedIndexMethods`），pi、`plugins/desk-host`、`packages/vscode` 三份 `DriveMirror` 都挂上它。做法与 Claude 插件 0.2.0 一致：索引写镜像根 `.sync-index.json`，每轮先按盘上的重新加载；索引为空（新镜像或索引丢失）时先拉后推，以远端为准；下载先写同目录隐藏临时文件再改名。Claude 插件那份仍是自己的实现，没改。
+  - pi 包版本 `0.1.11` → `0.1.12`（**还没 `npm publish`**，本机 pi 直接读仓库路径，重开即生效）。
+- **关键决定（别轻易推翻）**：无同步记录时先拉后推。这改变了 desk-host 原有的「先推后拉」，`scripts/test/drive-mirror.test.mjs` 的排队测试已按新顺序改。老镜像第一次升级后的启动会走一次「先拉后推」，本机独有、远端没有的个人文件仍然会上传。
+- **验证**：`node --test packages/pi-valimart-desk/test/*.test.mjs packages/vscode/test/drive-mirror.test.js packages/claude-valimart-desk/test/*.test.mjs scripts/test/drive-mirror.test.mjs` **61 pass**。真实 pi + 真实网关：资源列表 0.6s，回车立即处理，首次同步 1.2s、0 个重传（修复前 111s）；远端改一个文件后新进程 pulled=1、pushed=0，本地拿到新版本。过程：`docs/sessions/2026-11-03-pi-startup-drive-index.md`。
+
 ## 2026-11-02：Claude 插件 0.2.0 带上公司盘（MCP 服务 `desk`）· 发现 pi / 桌面端镜像会用旧副本盖掉新版本
 
 - **现在**：插件根 `.mcp.json` 注册 stdio MCP 服务 `desk`（`scripts/mcp-server.mjs`），和 pi 同一套 14 个 `company_*` 工具（工具实现在 `lib/tools.mjs`，镜像与同步沿用 pi 的 `drive-mirror` / `drive-runtime` / `people-options` / `task-workflow`）。镜像目录 `~/.claude/valimart-drive`，MCP 服务登录后先同步一次，之后每 30 秒一次（`VALIMART_DRIVE_SYNC_MS=0` 关掉）。`SessionStart` 注入身份、镜像分区、任务卡规则和绑定任务卡（只读本机文件）。新命令 `/valimart-desk:desk-sync`，`cli.mjs sync`，`status` 多一行镜像目录。

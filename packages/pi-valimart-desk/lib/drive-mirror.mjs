@@ -1,13 +1,13 @@
 /**
  * 公司盘本机镜像：把本人可见的公司盘同步到本机，Agent 用普通文件工具即可读；个人记忆可回推网关。
  * 行为对齐 plugins/desk-host/lib/drive-mirror.js。
+ * 同步索引落盘（.sync-index.json）：pi 每次启动都是新进程，内存索引一清空，本机旧副本就会被当成
+ * 「本地新改」整盘回推（几百个文件、几十 MB，启动要等一两分钟），还会盖掉别的电脑 / 别的客户端刚写的新版本。
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { assertInside } from './drive-paths.mjs'
-
-const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
+import { persistedIndexMethods } from '../../../scripts/lib/drive-mirror-index.mjs'
 
 export class DriveMirror {
   constructor({ root, gateway, state, log }) {
@@ -15,11 +15,30 @@ export class DriveMirror {
     this.gateway = gateway
     this.state = state
     this.log = log ?? (() => {})
-    this.index = new Map()
     fs.mkdirSync(root, { recursive: true })
+    this.initPersistedIndex()
     this.tombPath = path.join(root, '.deleted-remote.json')
     this.tomb = new Set(this.loadTomb())
   }
+
+  /** 排队门闩：push / pull / sync 共享 index 与 tomb，并发会双写。后到的操作等当前结束再跑。 */
+  async runExclusive(fn) {
+    const prev = this.syncBusy ?? Promise.resolve()
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const next = prev.then(() => gate)
+    this.syncBusy = next
+    await prev.catch(() => {})
+    try {
+      return await fn()
+    } finally {
+      release()
+      if (this.syncBusy === next) this.syncBusy = null
+    }
+  }
+
 
   loadTomb() {
     try {
@@ -39,122 +58,6 @@ export class DriveMirror {
 
   abs(rel) {
     return assertInside(this.root, rel)
-  }
-
-  async runExclusive(fn) {
-    const prev = this.syncBusy ?? Promise.resolve()
-    let release
-    const gate = new Promise((resolve) => {
-      release = resolve
-    })
-    const next = prev.then(() => gate)
-    this.syncBusy = next
-    await prev.catch(() => {})
-    try {
-      return await fn()
-    } finally {
-      release()
-      if (this.syncBusy === next) this.syncBusy = null
-    }
-  }
-
-  async pull() {
-    return this.runExclusive(() => this.pullNow())
-  }
-
-  async pullNow() {
-    const snap = await this.gateway.get('/api/drive/snapshot')
-    let downloaded = 0
-    const remote = new Set()
-    for (const f of snap.files ?? []) {
-      remote.add(f.path)
-      const full = this.abs(f.path)
-      let localSha
-      try {
-        localSha = sha256(fs.readFileSync(full))
-      } catch {
-        localSha = undefined
-      }
-      if (localSha === f.sha256) {
-        this.index.set(f.path, f.sha256)
-        continue
-      }
-      if (localSha !== undefined && this.index.get(f.path) === f.sha256) continue
-      const buf = await this.gateway.get(`/api/drive/file?path=${encodeURIComponent(f.path)}`)
-      fs.mkdirSync(path.dirname(full), { recursive: true })
-      fs.writeFileSync(full, buf)
-      this.index.set(f.path, f.sha256)
-      downloaded++
-    }
-    const me = this.state.data.user?.username
-    const myPrefix = `_office/${me}/`
-    for (const rel of [...this.index.keys()]) {
-      if (remote.has(rel)) {
-        if (this.tomb.delete(rel)) this.saveTomb()
-        continue
-      }
-      if (me && rel.startsWith(myPrefix)) {
-        this.tomb.add(rel)
-        this.saveTomb()
-      }
-      this.index.delete(rel)
-    }
-    this.ensureLayout(snap)
-    if (downloaded || !this.everSynced) this.log(`公司盘同步完成：${(snap.files ?? []).length} 个文件，下载 ${downloaded} 个`)
-    this.everSynced = true
-    return { files: (snap.files ?? []).length, downloaded }
-  }
-
-  async pushPersonal() {
-    return this.runExclusive(() => this.pushPersonalNow())
-  }
-
-  async pushPersonalNow() {
-    const me = this.state.data.user?.username
-    if (!me) return { pushed: 0 }
-    const base = `_office/${me}`
-    const dir = this.abs(base)
-    if (!fs.existsSync(dir)) return { pushed: 0 }
-    let pushed = 0
-    const pending = []
-    const walk = (rel, tomb) => {
-      for (const d of fs.readdirSync(this.abs(rel), { withFileTypes: true })) {
-        if (d.name.startsWith('.')) continue
-        const childRel = `${rel}/${d.name}`
-        if (d.isDirectory()) walk(childRel, tomb)
-        else {
-          if (tomb.has(childRel)) continue
-          const buf = fs.readFileSync(this.abs(childRel))
-          if (buf.length > 20 * 1024 * 1024) continue
-          const sha = sha256(buf)
-          if (this.index.get(childRel) === sha) continue
-          pushed++
-          pending.push({ rel: childRel, buf, sha })
-        }
-      }
-    }
-    const liveTomb = new Set([...this.tomb].filter((r) => r.startsWith(`${base}/`)))
-    walk(base, liveTomb)
-    for (const p of pending) {
-      await this.gateway.put(`/api/drive/file?path=${encodeURIComponent(p.rel)}`, p.buf, {
-        raw: true,
-        headers: { 'content-type': 'application/octet-stream' },
-      })
-      this.index.set(p.rel, p.sha)
-      if (this.tomb.delete(p.rel)) this.saveTomb()
-    }
-    if (pushed) this.log(`个人记忆回推 ${pushed} 个文件`)
-    return { pushed }
-  }
-
-  async sync() {
-    return this.runExclusive(async () => {
-      const { pushed } = await this.pushPersonalNow()
-      const r = await this.pullNow()
-      this.state.data.lastSyncAt = new Date().toISOString()
-      this.state.save()
-      return { ...r, pulled: r.downloaded, pushed }
-    })
   }
 
   ensureLayout(snap) {
@@ -231,3 +134,5 @@ export class DriveMirror {
     return dir
   }
 }
+
+Object.assign(DriveMirror.prototype, persistedIndexMethods)

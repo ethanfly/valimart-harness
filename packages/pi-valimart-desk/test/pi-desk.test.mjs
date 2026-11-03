@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -11,6 +12,7 @@ import { assertInside, zoneRoot } from '../lib/drive-paths.mjs'
 import { peopleOptions, personIdFromChoice } from '../lib/people-options.mjs'
 import { assertDecision, canFinalize, canReview, canSubmit, hasDeliverables, reviewerOptions, workflowHint } from '../lib/task-workflow.mjs'
 import { driveLog, setDriveLogSink } from '../lib/drive-runtime.mjs'
+import { DriveMirror } from '../lib/drive-mirror.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
 
 describe('parseDeskLoginArgs', () => {
@@ -302,5 +304,87 @@ describe('drive log sink', () => {
     driveLog('个人记忆回推 203 个文件')
     assert.deepEqual(got, ['公司盘同步完成：256 个文件，下载 0 个'])
     setDriveLogSink(null)
+  })
+})
+
+describe('DriveMirror', () => {
+  function fakeGateway(remote) {
+    const puts = []
+    return {
+      puts,
+      async get(p) {
+        if (p === '/api/drive/snapshot') return { files: [...remote].map(([path, buf]) => ({ path, sha256: crypto.createHash('sha256').update(buf).digest('hex') })) }
+        const rel = new URLSearchParams(p.split('?')[1]).get('path')
+        if (!remote.has(rel)) throw new Error(`远端没有 ${rel}`)
+        return remote.get(rel)
+      },
+      async put(p, buf) {
+        const rel = new URLSearchParams(p.split('?')[1]).get('path')
+        puts.push(rel)
+        remote.set(rel, Buffer.from(buf))
+        return {}
+      },
+    }
+  }
+
+  it('新进程不再整盘重传，本机旧副本也不盖掉别处的新版本', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-desk-drive-'))
+    const rel = '_office/alice/_memory/02-methods/note.md'
+    const remote = new Map([[rel, Buffer.from('v1')]])
+    const gw = fakeGateway(remote)
+    const state = { data: { user: { username: 'alice' } }, save() {} }
+    try {
+      const first = await new DriveMirror({ root, gateway: gw, state }).sync()
+      assert.deepEqual(gw.puts, [])
+      assert.equal(first.pulled, 1)
+      assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), 'v1')
+
+      // 别的电脑改成 v2 后，新开一个 pi（新实例）：靠落盘索引认出本机这份是旧副本，不回推
+      remote.set(rel, Buffer.from('v2'))
+      const again = await new DriveMirror({ root, gateway: gw, state }).sync()
+      assert.deepEqual(gw.puts, [])
+      assert.equal(again.pulled, 1)
+      assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), 'v2')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('会话之间在本机改过的文件照样回推', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-desk-drive-'))
+    const rel = '_office/alice/_memory/02-methods/note.md'
+    const remote = new Map([[rel, Buffer.from('v1')]])
+    const gw = fakeGateway(remote)
+    const state = { data: { user: { username: 'alice' } }, save() {} }
+    try {
+      await new DriveMirror({ root, gateway: gw, state }).sync()
+      fs.writeFileSync(path.join(root, rel), '本地改过')
+      const r = await new DriveMirror({ root, gateway: gw, state }).sync()
+      assert.deepEqual(gw.puts, [rel])
+      assert.equal(r.pushed, 1)
+      assert.equal(remote.get(rel).toString(), '本地改过')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('没有同步记录时以远端为准，只在本机的文件仍然上传', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-desk-drive-'))
+    const rel = '_office/alice/_memory/02-methods/note.md'
+    const only = '_office/alice/_memory/02-methods/local-only.md'
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
+    fs.writeFileSync(path.join(root, rel), '来路不明的旧副本')
+    fs.writeFileSync(path.join(root, only), '只在本机')
+    const remote = new Map([[rel, Buffer.from('远端新版')]])
+    const gw = fakeGateway(remote)
+    const state = { data: { user: { username: 'alice' } }, save() {} }
+    try {
+      await new DriveMirror({ root, gateway: gw, state }).sync()
+      assert.deepEqual(gw.puts, [only])
+      assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), '远端新版')
+      assert.equal(remote.get(only).toString(), '只在本机')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })

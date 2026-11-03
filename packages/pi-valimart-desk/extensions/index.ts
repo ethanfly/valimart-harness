@@ -208,6 +208,28 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
   registerGatewayProvider(pi);
   registerDrive(pi);
   let driveTimer: ReturnType<typeof setInterval> | undefined;
+  /** 每次 session_shutdown 加一：后台任务靠它判断 ctx / pi 是否已被替换（旧对象一用就抛错）。 */
+  let sessionGen = 0;
+
+  /**
+   * 启动后的网关刷新 + 第一次公司盘同步，放后台跑。
+   * pi 要等所有 session_start 处理完才处理第一条输入：这里 await 的话，网关慢或公司盘大时，
+   * 界面能打字、回车却没反应，一等就是一两分钟。
+   */
+  async function refreshAfterStart(gen: number, ui: DriveUi) {
+    const live = () => gen === sessionGen;
+    let next;
+    try {
+      next = await fetchMe();
+    } catch (err) {
+      saveState({ needsRelogin: true, lastError: errText(err) });
+    }
+    if (!live()) return;
+    if (next) registerGatewayProvider(pi);
+    ui.setStatus("valimart", formatStatus(next));
+    const sync = await syncDriveQuiet();
+    if (live()) applyDriveSync(ui, sync);
+  }
 
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode === "tui") {
@@ -221,16 +243,7 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
     }
     ctx.ui.setStatus("valimart", formatStatus());
     if (!isLoggedIn()) return;
-    try {
-      const next = await fetchMe();
-      registerGatewayProvider(pi);
-      ctx.ui.setStatus("valimart", formatStatus(next));
-    } catch (err) {
-      saveState({ needsRelogin: true, lastError: errText(err) });
-      ctx.ui.setStatus("valimart", formatStatus());
-    }
-    const sync = await syncDriveQuiet();
-    applyDriveSync(ctx.ui, sync);
+    refreshAfterStart(sessionGen, ctx.ui).catch(() => {});
     if (driveTimer) clearInterval(driveTimer);
     driveTimer = setInterval(() => {
       syncDriveQuiet()
@@ -240,6 +253,7 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", () => {
+    sessionGen++;
     if (driveTimer) {
       clearInterval(driveTimer);
       driveTimer = undefined;

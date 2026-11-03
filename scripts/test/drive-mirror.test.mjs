@@ -59,7 +59,7 @@ test('pushPersonal：非墓碑的本地新文件会回推', async () => {
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-test('sync 的 pushPersonal 未结束时，后到的 pull 必须排队', async () => {
+test('没有同步记录时 sync 先拉后推；pushPersonal 未结束时，后到的 pull 必须排队', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'drive-mirror-lock-'))
   const rel = '_office/alice/_memory/note.txt'
   fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
@@ -97,12 +97,16 @@ test('sync 的 pushPersonal 未结束时，后到的 pull 必须排队', async (
   }
   const pullP = mirror.pull()
   await new Promise((r) => setTimeout(r, 30))
-  assert.ok(!events.includes('snapshot'), 'pull 不得在 pushPersonal 进行中抢跑')
+  assert.equal(events.filter((e) => e === 'snapshot').length, 1, 'pull 不得在 pushPersonal 进行中抢跑')
   releasePut()
   await Promise.all([syncP, pullP])
   assert.ok(events.includes('put-end'))
   assert.ok(events.includes('snapshot'))
+  // 索引为空（新镜像）时先拉后推，以远端为准：snapshot 在 put 之前
   const snapAt = events.indexOf('snapshot')
-  assert.ok(snapAt > events.indexOf('put-end'), '首次 snapshot 必须排在 put 之后')
+  assert.ok(snapAt >= 0 && snapAt < events.indexOf('put-start'), '无同步记录时先拉后推')
+  // 后到的 pull 排在整轮 sync 之后，所以第二次 snapshot 在 put 结束之后
+  const snap2 = events.indexOf('snapshot', snapAt + 1)
+  assert.ok(snap2 > events.indexOf('put-end'), '排队的 pull 必须排在 put 之后')
   fs.rmSync(root, { recursive: true, force: true })
 })
