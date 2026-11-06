@@ -5,8 +5,10 @@
 ## 2026-11-06：任务卡可选的改动提交并发版（客户端 + 插件）
 
 - **版本**：Claude 插件 `0.2.0` → `0.2.1`，pi 包 `0.1.12` → `0.1.13`（CI 的 npm-pi 发布），VS Code 插件 `0.3.1` → `0.3.2`。客户端还是 `0.1.0`，用 buildId 区分。
-- **发布**：推 main 触发 release 工作流，产物挂 Release `latest`。客户端 exe 照 10-30 的做法 scp 到测试机，再在测试机上调 `127.0.0.1:8790/api/admin/client/publish`。结果见 `docs/sessions/2026-11-06-release-task-card-optional.md`。
-- **本机**：Claude 插件 `claude plugin update`（marketplace 是仓库目录），pi 直接读仓库路径。本机没装 VS Code，vsix 没装。
+- **发布（已完成）**：release run 42155810093（`0f26dc0`）四个 job 全过。Release `latest` 上有客户端 `valimart-harness-Setup-0.1.0-20261106.0324.exe`（513 MB）、网关 exe、`valimart-harness-0.3.2.vsix`，npm 上 pi 是 0.1.13。客户端照 10-30 的做法：本机下载并核对 sha256，scp 到测试机（约 10 分钟），在测试机上用自带的 Node 调 `127.0.0.1:8790/api/admin/client/publish`。管理员令牌经 SSH 的 stdin 传，不落盘。
+- **网关当前客户端**：**`0.1.0+0.2.1-rc.5.20261106-0324.14831d80`**，`/api/client/current` 已返回它。`previous` 是 10-30 那版，两版安装包都存在网关上。网关代码这次没改，测试机网关没重装。
+- **包里的插件核对过**：从安装包切出 electron-builder 的 7z。运行时读的是 `resources/payload`（`desktop/main.js` 的 `payloadDir`），这份 desk-host 27 个文件和 `0f26dc0` 逐个一致（去掉 CRLF 后比），新提示词在里面。`app.asar.unpacked` 里另外两份也一致。
+- **本机**：Claude 插件已 `claude plugin update` 到 0.2.1（marketplace 是仓库目录，新开 Claude Code 会话生效），pi 直接读仓库路径。开发版桌面客户端的 `~/.dsh/profiles/desk/node_modules/@company-desk/*` 是指向仓库 `plugins/*` 的符号链接，下次启动就用新的 desk-host，不用重跑 setup。本机没装 VS Code，vsix 没装。过程：`docs/sessions/2026-11-06-release-task-card-optional.md`。
 - **验证**：插件测试 55 pass，VS Code 83 pass；全量 `npm test` 677 项里 671 pass / 3 fail / 3 skip，失败的还是那 3 项 Linux 上过不了的。
 
 ## 2026-11-06：Agent Memory 已整套卸掉，知识检索回到公司盘
