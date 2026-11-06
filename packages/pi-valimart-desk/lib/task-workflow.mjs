@@ -52,7 +52,7 @@ export function assertDecision(decision) {
 
 /** 给 Agent / 状态栏看的下一步，不要说「本通道不能提交」。 */
 export function workflowHint(task) {
-  if (!task) return '没有任务卡。用 /desk-tasks 查看或 /desk-task-new 新建。'
+  if (!task) return '这次没有绑定任务卡，不走验收。用户要挂时自己手动绑定。'
   const n = hasDeliverables(task) ? task.deliverables.length : 0
   const st = task.statusLabel ?? TASK_STATUS[task.status] ?? task.status
   switch (task.status) {

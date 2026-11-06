@@ -21,7 +21,7 @@ test('package.json declares engines.vscode, chat view, and open command', () => 
   assert.ok(cmds.some((c) => c.command === 'valimartHarness.cancel'))
   assert.ok(cmds.some((c) => c.command === 'valimartHarness.syncDrive'))
   assert.ok(cmds.some((c) => c.command === 'valimartHarness.openDrive'))
-  assert.equal(pkg.version, '0.3.1')
+  assert.equal(pkg.version, '0.3.2')
 })
 
 test('webview markup has a prompt box and message list', () => {

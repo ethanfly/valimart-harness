@@ -443,8 +443,29 @@ describe('session context with the drive', () => {
     assert.match(ctx, /企业交付工作台（惠利玛）/)
     assert.match(ctx, /_office\/emp-a\/_memory/)
     assert.match(ctx, /当前绑定任务卡 tk-1/)
+    assert.match(ctx, /口头完成不算完成/)
     assert.match(ctx, /下一步：.*company_task_attach/)
     assert.match(ctx, /# 任务卡 tk-1：详情页改版/)
+    assert.equal(ctx.includes('不要提任务卡'), false)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('does not demand a task card when none is bound', () => {
+    const dir = tmpDir()
+    const claude = path.join(dir, 'claude')
+    fs.mkdirSync(claude, { recursive: true })
+    fs.writeFileSync(path.join(claude, 'valimart-desk.json'), JSON.stringify({
+      sessionToken: 's',
+      gatewayToken: 'g',
+      user: { username: 'emp-a', displayName: '陈一', role: 'employee' },
+      company: { name: '惠利玛' },
+    }))
+    const ctx = runHook(claude)
+    assert.match(ctx, /企业交付工作台（惠利玛）/)
+    assert.match(ctx, /不要提任务卡/)
+    assert.equal(ctx.includes('没有任务卡'), false)
+    assert.equal(ctx.includes('口头完成不算完成'), false)
+    assert.equal(ctx.includes('当前绑定任务卡'), false)
     fs.rmSync(dir, { recursive: true, force: true })
   })
 

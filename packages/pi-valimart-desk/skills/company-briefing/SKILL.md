@@ -16,7 +16,9 @@ description: 公司交付工作台在 pi CLI 里怎么用：登录网关、任�
 
 ## 交付（四格验收）
 
-1. 以任务卡为准。口头说做完了不算完成。`/desk-task` 绑定；`company_tasks` 看状态。
+任务卡不强制。没有手动绑定就按普通会话做，不要提醒用户去挂，也不要自己新建。用户要挂时自己用 `/desk-task` 绑定；绑上之后才走下面的四格。
+
+1. 以已绑定的任务卡为准。口头说做完了不算完成。`company_tasks` 只在用户要看列表时用。
 2. 产物放进公司盘 `projects/inbox/<任务ID>/`，用 `company_task_attach` 挂卡；结论写 `company_task_update`；过程记 `company_task_log`。
 3. 交活：`company_task_submit`（或 `/desk-task-submit`）选审核人（任意同事，不限总监，不能是自己）→ **待审**。不要让用户去桌面点按钮。没有交付物网关会拒。
 4. 初审：`company_task_review` / `/desk-task-review`（pass → 待终审，reject → 驳回）。

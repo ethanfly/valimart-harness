@@ -1,6 +1,6 @@
 {
   "name": "claude-valimart-desk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "valimart claude desk（惠利玛）：给 Claude Code 补上公司网关登录、模型转发、公司盘镜像与记忆 / 任务卡工具，并在界面显示当前登录用户",
   "type": "module",

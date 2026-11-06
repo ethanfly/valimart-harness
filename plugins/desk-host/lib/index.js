@@ -678,8 +678,8 @@ export function apply(ctx, config) {
         `- _shared/handbook/ 岗位手册 / 公司技能手册：地图上的 how 已经是结论，有就按那条做，没有就说明没有。`,
         `- _office/${u.username}/_memory/ 你的个人记忆（跟人走）。值得复用的做法、踩过的坑，用 company_memory_write 写进去。`,
         `- projects/inbox/<任务ID>/ 任务交付物；每个任务目录里的 _task-card.md / _worklog.md 是任务卡与工作日志。`,
-        `- 第四层是检索，不是知识库本身：开工前用 company_knowledge 问「公司里有没有人做过」，只拿到谁/何时/在哪，不拷贝别人的会话；细节去读那张任务卡。`,
-        `规则：口头完成不算完成——交付必须是文件，用 company_task_attach 挂到任务卡；做完把结论写进提交内容（company_task_update），过程记进工作日志（company_task_log）。`,
+        `- 第四层是检索，不是知识库本身：开工前用 company_knowledge 问「公司里有没有人做过」，只拿到谁/何时/在哪，不拷贝别人的会话。`,
+        `任务卡不强制。当前进程没有手动绑定的任务卡时，不要提任务卡，不要要求绑定，也不要调用 company_task_*。`,
       ].join('\n')
     },
   })
@@ -695,6 +695,7 @@ export function apply(ctx, config) {
       const dir = mirror.taskDir(taskId)
       const head = [
         `当前进程绑定任务卡 ${taskId}。任务格子（本机目录）：${dir}`,
+        `规则：口头完成不算完成——交付必须是文件，用 company_task_attach 挂到任务卡；做完把结论写进提交内容（company_task_update），过程记进工作日志（company_task_log）。`,
         `- 交付物文件一律写到这个目录里，再用 company_task_attach 挂到任务卡；结论写进提交内容（company_task_update），过程记进工作日志（company_task_log）。`,
         `- 可用 company_task_read 获取任务卡最新状态。`,
       ].join('\n')

@@ -35,7 +35,11 @@ npm run compile
 npm run package
 ```
 
-Install the generated `valimart-harness-0.3.1.vsix` in VS Code: **Extensions → … → Install from VSIX…**
+Install the generated `valimart-harness-0.3.2.vsix` in VS Code: **Extensions → … → Install from VSIX…**
+
+## 0.3.2 任务卡改为可选
+
+没手动绑定任务卡时当普通会话：公司上下文不再要求绑定、不再提「口头完成不算完成」。已绑定的会话照旧注入任务卡和四格验收。
 
 ## 0.3.1 公司盘本机镜像（对齐桌面客户端）
 

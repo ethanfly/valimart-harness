@@ -375,7 +375,7 @@ export function registerDrive(pi: ExtensionAPI) {
     label: "读任务卡",
     description: "读取任务卡：派单人/提交人/状态/任务内容/提交内容/交付物/关联进程/工作日志。不传 taskId 时读 /desk-task 绑定的任务。",
     promptSnippet: "Read a company task card",
-    promptGuidelines: ["Use company_task_read for the bound task or an explicit taskId."],
+    promptGuidelines: ["Only when a task card is already bound or taskId is given. Do not ask the user to bind one."],
     parameters: Type.Object({
       taskId: Type.Optional(Type.String({ description: "任务 ID，如 tk-…；缺省为当前绑定任务" })),
     }),
@@ -394,7 +394,7 @@ export function registerDrive(pi: ExtensionAPI) {
     label: "任务日志",
     description: "往任务卡工作日志追加一条。不传 taskId 时写当前绑定任务。",
     promptSnippet: "Append a work log line to a task card",
-    promptGuidelines: ["Use company_task_log to record what changed and why on the bound task."],
+    promptGuidelines: ["Only when a task card is already bound. Do not ask the user to bind one."],
     parameters: Type.Object({
       text: Type.String({ description: "日志正文（一两句话）" }),
       taskId: Type.Optional(Type.String()),
@@ -416,7 +416,7 @@ export function registerDrive(pi: ExtensionAPI) {
     label: "更新任务卡",
     description: "更新任务卡文本：submission 提交内容，content 任务内容。不传 taskId 时写当前绑定任务。",
     promptSnippet: "Update task submission or content",
-    promptGuidelines: ["Use company_task_update to write the deliverable summary into submission when work is done."],
+    promptGuidelines: ["Only when a task card is already bound. Write the summary into submission; do not ask the user to bind a card."],
     parameters: Type.Object({
       submission: Type.Optional(Type.String({ description: "提交内容（做了什么、交了什么）" })),
       content: Type.Optional(Type.String({ description: "任务内容" })),
@@ -442,7 +442,7 @@ export function registerDrive(pi: ExtensionAPI) {
     label: "挂交付物",
     description: "把本机文件作为交付物挂到任务卡（上传到公司盘 projects/inbox/<任务ID>/）。口头完成不算完成。不传 taskId 时挂到当前绑定任务。",
     promptSnippet: "Attach local files as task deliverables",
-    promptGuidelines: ["Use company_task_attach to upload real files onto the task card before claiming the work is done."],
+    promptGuidelines: ["Only when a task card is already bound or taskId is given. Do not ask the user to bind one, and do not treat an unbound session as unfinished work."],
     parameters: Type.Object({
       paths: Type.Array(Type.String(), { description: "本机文件路径（相对当前工作目录或绝对路径）" }),
       taskId: Type.Optional(Type.String()),
@@ -482,7 +482,7 @@ export function registerDrive(pi: ExtensionAPI) {
       "把任务卡提交验收，进入待审。必须先有交付物。审核人可以是任意同事，不限总监或管理员，不能是自己。不传 reviewerId 时返回可选审核人列表，再带 reviewerId 调一次。不传 taskId 时用 /desk-task 绑定的任务。",
     promptSnippet: "Submit a task card for review",
     promptGuidelines: [
-      "After attaching deliverables and writing submission, use company_task_submit to send the card to any colleague except yourself. The reviewer does not have to be a director or admin. Do not tell the user to click submit in the desktop UI.",
+      "Only when a task card is already bound. After attaching deliverables and writing submission, use company_task_submit to send the card to any colleague except yourself. The reviewer does not have to be a director or admin. Do not tell the user to click submit in the desktop UI, and do not ask them to bind a card.",
       "If reviewerId is omitted, pick one id from the returned list and call again.",
     ],
     parameters: Type.Object({
@@ -577,10 +577,14 @@ export function companyDrivePrompt() {
     `- _shared/handbook/ 岗位手册 / 公司技能手册：地图上的 how 已经是结论，有就按那条做，没有就说明没有。`,
     `- _office/${u.username}/_memory/ 你的个人记忆（跟人走）。值得复用的做法、踩过的坑，用 company_memory_write 写进去。`,
     `- projects/inbox/<任务ID>/ 任务交付物；每个任务目录里的 _task-card.md / _worklog.md 是任务卡与工作日志。`,
-    `- 第四层是检索，不是知识库本身：开工前用 company_knowledge 问「公司里有没有人做过」，只拿到谁/何时/在哪，不拷贝别人的会话；细节去读那张任务卡。`,
-    `规则：口头完成不算完成。交付必须是文件（company_task_attach）；结论写进提交内容（company_task_update）；过程记进工作日志（company_task_log）；交活用 company_task_submit 选审核人提交验收（进入待审）。初审 company_task_review，终审 company_task_final。不要让用户去桌面客户端点按钮。`,
+    `- 第四层是检索，不是知识库本身：开工前用 company_knowledge 问「公司里有没有人做过」，只拿到谁/何时/在哪，不拷贝别人的会话。`,
   ];
   const taskId = state.currentTaskId;
+  if (!taskId) {
+    lines.push("任务卡不强制。用户没有手动绑定就不要提任务卡，不要要求绑定，也不要调用 company_task_*。");
+  } else {
+    lines.push("规则：口头完成不算完成。交付必须是文件（company_task_attach）；结论写进提交内容（company_task_update）；过程记进工作日志（company_task_log）；交活用 company_task_submit 选审核人提交验收（进入待审）。初审 company_task_review，终审 company_task_final。不要让用户去桌面客户端点按钮。");
+  }
   if (taskId) {
     const dir = getMirror().taskDir(taskId);
     lines.push("", `当前绑定任务卡 ${taskId}。任务格子（本机目录）：${dir}`, `- 交付物写到这个目录，再用 company_task_attach 挂卡。`);

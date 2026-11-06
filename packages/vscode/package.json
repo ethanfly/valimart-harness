@@ -2,7 +2,7 @@
   "name": "valimart-harness",
   "displayName": "valimart harness",
   "description": "VS Code client for the company-desk gateway: login, chat, and an agent that edits the workspace.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "valimart",
   "license": "UNLICENSED",
   "type": "module",

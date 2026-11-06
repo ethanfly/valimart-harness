@@ -2,6 +2,29 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-06：任务卡可选的改动提交并发版（客户端 + 插件）
+
+- **版本**：Claude 插件 `0.2.0` → `0.2.1`，pi 包 `0.1.12` → `0.1.13`（CI 的 npm-pi 发布），VS Code 插件 `0.3.1` → `0.3.2`。客户端还是 `0.1.0`，用 buildId 区分。
+- **发布**：推 main 触发 release 工作流，产物挂 Release `latest`。客户端 exe 照 10-30 的做法 scp 到测试机，再在测试机上调 `127.0.0.1:8790/api/admin/client/publish`。结果见 `docs/sessions/2026-11-06-release-task-card-optional.md`。
+- **本机**：Claude 插件 `claude plugin update`（marketplace 是仓库目录），pi 直接读仓库路径。本机没装 VS Code，vsix 没装。
+- **验证**：插件测试 55 pass，VS Code 83 pass；全量 `npm test` 677 项里 671 pass / 3 fail / 3 skip，失败的还是那 3 项 Linux 上过不了的。
+
+## 2026-11-06：Agent Memory 已整套卸掉，知识检索回到公司盘
+
+- **为什么**：试过把公司盘灌进 TencentDB Agent Memory，再改成对话走 MemoryCore。检索和写入都离开了公司盘。决定全部回滚，仍用原来的公司盘。
+- **现在**：仓库和测试机网关都去掉了记忆后端。`server/src/{api,index,llm-proxy,admin-page}.js` 回到接入前；`memory-backend.js` 和两份测试已删。测试机 `TheDivaGateway` 已重启，`/health` 正常，`/api/admin/memory` 是 404。知识检索重新扫公司盘。
+- **容器和文件**：`tdai-memory-core`、`tdai-memory-hub`、`tdai-proxy` 已删。数据卷 `tdai-memory-core-data`、`tdai-panel-data`、安装目录 `/data/server/tdai-agent-memory`、网关 `memory-backend.json` 都已删。这台 Docker 只为它装过，`docker-ce` / `containerd.io` 和 `/var/lib/docker`、`/etc/docker` 也已卸掉。8096 / 8125 / 8420 / 8424 不再监听，iptables 放行已删。公司盘原文没有删过。`TheDivaGateway` 仍是 active，`/health` 正常。
+- **没动**：任务卡改为可选的客户端改动当时还没提交（已在 11-06 发版里提交）。重装网关包会按仓库源码覆盖，现在仓库里已经没有这套接入。公司网关不再接 Agent Memory。
+- **本机另装了一套**（2026-11-06，不进网关）：`/home/ethan/tdai-agent-memory`，容器 `tdai-memory-core` / `tdai-memory-hub` / `tdai-proxy`。面板 http://127.0.0.1:8125，代理 http://127.0.0.1:8096。上游是本机 Magpie `group/smart-split`（容器里写的是 `http://host.docker.internal:3425/v1`，因为 Magpie 只监听 127.0.0.1）。`tdai-magpie-bridge.service` 把 docker0 的 3425 转到本机 Magpie，ufw 只放行 Docker 网段访问 `172.17.0.1:3425`。`.admin-key` 不要入库。
+- 过程：`docs/sessions/2026-11-05-agent-memory.md`。
+
+## 2026-11-05：任务卡不再是每个会话的必选项
+
+- **现象**：Claude / pi / 桌面端 / VS Code 每次会话都把「必须挂任务卡、口头完成不算完成」写进系统提示。没绑定就弹出或让模型说「没有任务卡」。
+- **现在**：没手动绑定就当普通会话，提示里明确不要提任务卡、不要要求绑定、不要调 `company_task_*`。已经绑定的会话仍注入那张卡和四格验收。绑定只走原来的手动入口（`/desk-task`、任务页关联进程）。
+- **改动**：`packages/claude-valimart-desk/lib/company-prompt.mjs`（SessionStart + MCP 说明）、pi 的 `companyDrivePrompt` 与工具 guideline、`plugins/desk-host` 系统提示、VS Code 的公司上下文。`workflowHint` 在没有任务时不再催着去绑定。
+- **验证**：`node --test packages/claude-valimart-desk/test/drive-mcp.test.mjs packages/claude-valimart-desk/test/claude-desk.test.mjs` 28 pass。已开着的会话还是旧提示，新开会话才生效；桌面端要重启客户端进程。过程：`docs/sessions/2026-11-05-task-card-optional.md`。
+
 ## 2026-11-03：pi 启动后回车要等一两分钟 · pi / 桌面端 / VS Code 的公司盘镜像会用旧副本盖掉新版本（两处都已修）
 
 - **现象**：pi 界面 0.3 秒就出来，也能打字，但第一条消息回车后要等一两分钟才开始处理。会话 JSONL 里「session 头 → 第一条 user 消息」间隔 146s（11-02 那次 284s；10-30 时只有 24~32s）。

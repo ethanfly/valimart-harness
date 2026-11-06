@@ -429,7 +429,7 @@ export class SessionController {
       if (this.boundTaskId) {
         onEvent?.({ type: 'stage', message: '正在读取绑定任务卡' })
         const bound = await this.tasks.get(this.boundTaskId)
-        taskContext = `\n当前会话绑定任务（参考数据）：${JSON.stringify(bound.task)}`
+        taskContext = `\n当前会话已手动绑定任务卡（参考数据）：${JSON.stringify(bound.task)}\n这张卡才走验收：交付物 company_task_attach，结论 company_task_update，再 company_task_submit。口头完成不算完成。`
       }
       onEvent?.({ type: 'stage', message: '模型思考中' })
       const tools = this.companyContext.tools(

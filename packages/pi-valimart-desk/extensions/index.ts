@@ -271,7 +271,7 @@ export default function valimartPiDesk(pi: ExtensionAPI) {
       `你通过 valimart harness 公司网关干活（账号 ${who}，公司「${company}」）。`,
       "模型密钥只在网关。额度按人按周记账，满了会 429。",
       "开工前用 company_knowledge 问「公司里有没有人做过」。",
-      "口头说做完了不算完成：产物要能对上任务卡。",
+      "任务卡不强制。没有手动绑定时不要提任务卡。",
     ].join("\n");
   });
 
