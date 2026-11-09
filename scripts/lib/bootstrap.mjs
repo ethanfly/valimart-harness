@@ -17,7 +17,7 @@ import path from 'node:path'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { PIN, locateKernel, stampPath, missingProfilePlugins } from '../kernel/locate.mjs'
+import { PIN, locateKernel, stampPath, missingProfilePlugins, profilePluginModules } from '../kernel/locate.mjs'
 import { ALL_MARKS, KernelPatchError, applyKernelPatches, missingPatches } from '../kernel/patches.mjs'
 import { findTar } from './find-tar.mjs'
 
@@ -193,7 +193,7 @@ export function ensureFlatFallback({ kernel, dshHome, log = noop }) {
 export function pluginVersionExemptions({ kernel, plugins = PIN.profilePlugins ?? [] } = {}) {
   const runtime = kernel?.version
   if (!runtime || !kernel?.root) return {}
-  const modules = path.resolve(kernel.root, '..', '..')
+  const modules = profilePluginModules(kernel.root)
   const out = {}
   for (const plugin of plugins) {
     let manifest
@@ -251,7 +251,7 @@ export function writePluginVersionExemptions({ profileDir, kernel, log = noop })
 
 export function profilePluginBundles(kernel, plugins = PIN.profilePlugins ?? []) {
   if (!kernel?.root || !plugins.length) return []
-  const modules = path.resolve(kernel.root, '..', '..')
+  const modules = profilePluginModules(kernel.root)
   return plugins
     .filter((plugin) => fs.existsSync(path.join(modules, plugin.name, 'package.json')))
     .map((plugin) => plugin.name)
@@ -281,7 +281,7 @@ function unlinkUnpinnedProfilePlugins({ dshHome, plugins = PIN.profilePlugins ??
 export function linkProfilePlugins({ kernel, dshHome, profileDir, plugins = PIN.profilePlugins ?? [], log = noop }) {
   unlinkUnpinnedProfilePlugins({ dshHome, plugins, log })
   if (!kernel?.root || !plugins.length) return []
-  const sourceModules = path.resolve(kernel.root, '..', '..')
+  const sourceModules = profilePluginModules(kernel.root)
   const targetModules = path.join(dshHome, 'profiles', 'node_modules')
   const linked = []
   for (const plugin of plugins) {
@@ -304,17 +304,24 @@ export function linkProfilePlugins({ kernel, dshHome, profileDir, plugins = PIN.
 export function linkKernelPeers({ kernel, log = noop }) {
   const kernelRoot = kernel?.root
   if (!kernelRoot) return []
-  const scope = path.dirname(kernelRoot)
   const nested = path.join(kernelRoot, 'node_modules', '@deepseek-ai')
   if (!fs.existsSync(nested)) return []
+  // 插件从自己的真实路径往上找，只走到 <prefix>/node_modules/@deepseek-ai。
+  // Linux 上这一层和 dsh 所在的 lib/node_modules/@deepseek-ai 不是同一个目录。
+  const primary = path.resolve(path.dirname(kernelRoot))
+  const pluginScope = path.resolve(profilePluginModules(kernelRoot), '@deepseek-ai')
+  const scopes = primary === pluginScope ? [primary] : [primary, pluginScope]
   const linked = []
-  for (const name of fs.readdirSync(nested)) {
-    const target = path.join(scope, name)
-    if (fs.existsSync(target)) continue
-    linkJunction(target, path.join(nested, name))
-    linked.push(name)
+  for (const scope of scopes) {
+    fs.mkdirSync(scope, { recursive: true })
+    for (const name of fs.readdirSync(nested)) {
+      const target = path.join(scope, name)
+      if (fs.existsSync(target)) continue
+      linkJunction(target, path.join(nested, name))
+      linked.push(name)
+    }
   }
-  if (linked.length) log(`内核 peer 链接 ${linked.length} 个 → ${scope}`)
+  if (linked.length) log(`内核 peer 链接 ${linked.length} 个 → ${scopes.join(', ')}`)
   return linked
 }
 

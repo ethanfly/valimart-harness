@@ -30,6 +30,23 @@ export function kernelRootCandidates(prefix) {
   return [path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh'), path.join(prefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh')]
 }
 
+/**
+ * 第三方 profile 插件所在的 node_modules。
+ * installProfilePlugins 一律装到 `<prefix>/node_modules`。
+ * Windows 上 dsh 也在这一层；Linux / macOS 的 npm 前缀把 dsh 放在
+ * `<prefix>/lib/node_modules/@deepseek-ai/dsh`。按 kernel.root 的 `../..`
+ * 去找会落到 `lib/node_modules`，插件被当成没装，profile 就不把 anysearch
+ * 编进 bundle，web 搜索停在 dsh-base 的 deepseek-official。
+ */
+export function profilePluginModules(kernelRoot) {
+  if (!kernelRoot) return ''
+  const dshModules = path.resolve(kernelRoot, '..', '..')
+  if (path.basename(path.dirname(dshModules)) === 'lib') {
+    return path.join(path.dirname(path.dirname(dshModules)), 'node_modules')
+  }
+  return dshModules
+}
+
 /** 返回 { root, bin, version }；没装返回 null。 */
 export function locateKernel(prefix) {
   for (const root of kernelRootCandidates(prefix)) {
@@ -51,7 +68,7 @@ export const stampPath = (prefix) => path.join(prefix, '.company-desk-kernel.jso
 
 /** Offline bundles are part of the kernel's runnable closure, including their entry files. */
 export function missingProfilePlugins(kernel, plugins = PIN.profilePlugins ?? []) {
-  const modules = kernel?.root ? path.resolve(kernel.root, '..', '..') : ''
+  const modules = profilePluginModules(kernel?.root)
   return plugins.filter(({ name }) => {
     try {
       if (!modules) return true

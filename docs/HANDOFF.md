@@ -2,6 +2,13 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-09：Linux 上 anysearch 没进 profile，网页搜索仍走 DeepSeek
+
+- **现象**：`web_search` 报 `DeepSeek search has no API key`。管理页的 AnySearch key 只管密钥，不管选哪个 provider。
+- **根因**：插件装在 `<prefix>/node_modules`，Linux/macOS 的 dsh 在 `<prefix>/lib/node_modules`。按 `kernel.root` 的 `../..` 找，anysearch 被当成没装，bundle 补丁（`searchProvider: anysearch`）没编进 profile，停在 `dsh-base` 的 `deepseek-official`。Windows 布局同一层，不受影响。
+- **修法**：`profilePluginModules`（`scripts/kernel/locate.mjs`）。查找插件和给插件补 peer 都走它。本机 `~/.dsh/profiles/desk` 已刷新，bundles 含 `@anysearch/anysearch-dsh`。完整重启客户端才生效。
+- **发布**：客户端安装包走 main 的 release 工作流，打完发到测试机网关。过程：`docs/sessions/2026-11-09-anysearch-plugin-path.md`。
+
 ## 2026-11-06：任务卡可选的改动提交并发版（客户端 + 插件）
 
 - **版本**：Claude 插件 `0.2.0` → `0.2.1`，pi 包 `0.1.12` → `0.1.13`（CI 的 npm-pi 发布），VS Code 插件 `0.3.1` → `0.3.2`。客户端还是 `0.1.0`，用 buildId 区分。

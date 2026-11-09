@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { assertSafeAppDir, ensureProfile, findFreePort, needsExtract, pinSkillsRoot, pluginVersionExemptions, preparePackaged, profileNeedsSetup, profilePluginBundles, readGatewayUrl, writePluginVersionExemptions } from '../lib/bootstrap.mjs'
 import { ALL_MARKS, resolvePresetRel } from '../kernel/patches.mjs'
-import { PIN } from '../kernel/locate.mjs'
+import { PIN, missingProfilePlugins } from '../kernel/locate.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'diva-bootstrap-'))
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -129,6 +129,39 @@ test('profilePluginBundles：只把已装进内核前缀的 pin 插件加进 bun
   assert.ok(fs.lstatSync(path.join(dshHome, 'profiles', 'node_modules', pluginName)).isSymbolicLink())
   assert.equal(fs.existsSync(path.join(dshHome, 'profiles', 'node_modules', 'dsh-better-sidebar')), false)
   // 内核嵌套的 @deepseek-ai/* peer 链接到顶层 scope（插件真实路径的 import 才找得到）
+  assert.ok(fs.lstatSync(path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh-tools')).isSymbolicLink())
+})
+
+test('profilePluginBundles：Linux npm 前缀（dsh 在 lib/node_modules）仍找到 prefix/node_modules 里的插件', (t) => {
+  const dir = tmp()
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'kernel', 'lib', 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  const pluginName = '@anysearch/anysearch-dsh'
+  const pluginDir = path.join(dir, 'kernel', 'node_modules', pluginName)
+  fs.mkdirSync(path.join(pluginDir, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(pluginDir, 'package.json'), JSON.stringify({ name: pluginName, version: '0.1.4' }) + '\n')
+  fs.writeFileSync(path.join(pluginDir, 'lib', 'index.js'), 'export {}\n')
+  fs.writeFileSync(path.join(pluginDir, 'cordis.patch.yml'), '[]\n')
+  const nestedPeer = path.join(kernelRoot, 'node_modules', '@deepseek-ai', 'dsh-tools')
+  fs.mkdirSync(nestedPeer, { recursive: true })
+  fs.writeFileSync(path.join(nestedPeer, 'package.json'), '{"name":"@deepseek-ai/dsh-tools"}\n')
+  assert.deepEqual(profilePluginBundles({ root: kernelRoot }), [pluginName])
+  assert.deepEqual(missingProfilePlugins({ root: kernelRoot }, [{ name: pluginName }]), [])
+  // 旧查找（dsh 的 ../..）落到 lib/node_modules，这里必须是空的，证明测的是另一层
+  assert.equal(fs.existsSync(path.join(dir, 'kernel', 'lib', 'node_modules', pluginName)), false)
+  const dshHome = path.join(dir, 'dsh')
+  const root = path.join(dir, 'root')
+  const pluginsDir = path.join(root, 'plugins')
+  for (const p of ['desk-host', 'desk-ui', 'desk-image', 'desk-video']) fs.mkdirSync(path.join(pluginsDir, p), { recursive: true })
+  const patchFile = path.join(dir, 'cordis.patch.yml')
+  fs.writeFileSync(patchFile, "gatewayUrl: 'http://x:1'\n")
+  fs.mkdirSync(path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai'), { recursive: true })
+  const { profileDir } = ensureProfile({ profileName: 'desk-linux', dshHome, root, pluginsDir, patchFile, kernel: { root: kernelRoot }, selfHeal: false, log: () => {} })
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'))
+  assert.ok(manifest.dsh.profile.bundles.includes(pluginName))
+  assert.ok(fs.lstatSync(path.join(dshHome, 'profiles', 'node_modules', pluginName)).isSymbolicLink())
+  // peer 要出现在插件真实路径往上找的那层，而不是只在 lib/node_modules 旁边
   assert.ok(fs.lstatSync(path.join(dir, 'kernel', 'node_modules', '@deepseek-ai', 'dsh-tools')).isSymbolicLink())
 })
 
