@@ -23,3 +23,12 @@ Linux / macOS 的 npm 前缀把 dsh 放在 `<prefix>/lib/node_modules/@deepseek-
 - `node --test scripts/test/bootstrap.test.mjs scripts/test/kernel-install.test.mjs`：24 pass，含一条 Linux 布局用例。
 - 对本机前缀：`profilePluginModules` 指向 `~/.company-desk/kernel/node_modules`，bundles 含 `@anweat/dsh-browser` 和 `@anysearch/anysearch-dsh`，`missingProfilePlugins` 为空。
 - 已刷新 `~/.dsh/profiles/desk`：package.json 的 bundles 写上这两个插件，anysearch 链接到内核前缀里的真实目录。要完整重启客户端，已开着的进程不会重载 bundle。
+
+## 发布
+
+推 `d4640a6` → release run [42554297856](https://github.com/ethanfly/valimart-harness/actions/runs/42554297856)：npm-pi、installers、vscode、release 全部通过。
+
+- 安装包 `valimart-harness-Setup-0.1.0-20261109.0307.exe`，513,509,559 字节，sha256 `739acd3f92673a3f933019308691ff3e097b405d15f507221570642fca672a94`。本机与测试机上的文件、网关存档三处一致。
+- 在测试机上用自带的 `runtime/bin/node` 把安装包 POST 到 `127.0.0.1:8790/api/admin/client/publish`。管理员令牌从本机登录态经 SSH stdin 传入，不进命令行、不落盘。接口返回 200，`publishedAt` 2026-11-09T03:16:47.411Z。
+- `/api/client/current` 与 `/api/admin/client` 都是 buildId `0.1.0+0.2.1-rc.5.20261109-0307.2c130141`。`previous` 是 11-06 的 `0.1.0+0.2.1-rc.5.20261106-0324.14831d80`。网关仍留着 10-30 那版。
+- 网关代码没改，`TheDivaGateway` 仍是 active。测试机 `/tmp/vh-publish-20261109` 和本机下载的安装包已删。

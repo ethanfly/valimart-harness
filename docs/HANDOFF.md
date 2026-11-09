@@ -7,7 +7,7 @@
 - **现象**：`web_search` 报 `DeepSeek search has no API key`。管理页的 AnySearch key 只管密钥，不管选哪个 provider。
 - **根因**：插件装在 `<prefix>/node_modules`，Linux/macOS 的 dsh 在 `<prefix>/lib/node_modules`。按 `kernel.root` 的 `../..` 找，anysearch 被当成没装，bundle 补丁（`searchProvider: anysearch`）没编进 profile，停在 `dsh-base` 的 `deepseek-official`。Windows 布局同一层，不受影响。
 - **修法**：`profilePluginModules`（`scripts/kernel/locate.mjs`）。查找插件和给插件补 peer 都走它。本机 `~/.dsh/profiles/desk` 已刷新，bundles 含 `@anysearch/anysearch-dsh`。完整重启客户端才生效。
-- **发布**：客户端安装包走 main 的 release 工作流，打完发到测试机网关。过程：`docs/sessions/2026-11-09-anysearch-plugin-path.md`。
+- **发布（已完成）**：`d4640a6` 的 release run 42554297856 四个 job 全过。测试机网关当前客户端 **`0.1.0+0.2.1-rc.5.20261109-0307.2c130141`**（`valimart-harness-Setup-0.1.0-20261109.0307.exe`，513,509,559 字节，sha256 `739acd3f92673a3f933019308691ff3e097b405d15f507221570642fca672a94`）。`previous` 是 11-06 那版。网关代码没改，`TheDivaGateway` 没重启。过程：`docs/sessions/2026-11-09-anysearch-plugin-path.md`。
 
 ## 2026-11-06：任务卡可选的改动提交并发版（客户端 + 插件）
 
