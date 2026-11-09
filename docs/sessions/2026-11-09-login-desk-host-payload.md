@@ -39,4 +39,11 @@
 
 `node --test scripts/test/payload.test.mjs`：7 pass。
 
-还没提交、没发到测试机网关。
+## 发布
+
+`ea94d2c` → release run [42559488310](https://github.com/ethanfly/valimart-harness/actions/runs/42559488310) 通过。
+
+- 安装包 `valimart-harness-Setup-0.1.0-20261109.0404.exe`，513,523,607 字节，sha256 `6cf038bd090dde3bed8853f07466107bc3866a6a3ef94bf8f0af17bbf561ce54`。本机下载、测试机 `/tmp`、网关存档三处一致。
+- 在测试机上用自带的 `runtime/bin/node` 把安装包 POST 到 `127.0.0.1:8790/api/admin/client/publish`。管理员令牌从本机登录态经 SSH stdin 传入，不进命令行、不落盘。接口返回 200，`publishedAt` 2026-11-09T04:12:23.477Z。
+- `/api/admin/client` 当前是 buildId `0.1.0+0.2.1-rc.5.20261109-0404.96aeaefc`。`previous` 是早上那版 `0.1.0+0.2.1-rc.5.20261109-0307.2c130141`。
+- 网关代码没改，`TheDivaGateway` 仍是 active。测试机临时目录和本机安装包已删。

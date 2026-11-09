@@ -8,7 +8,8 @@
 - **根因**：`plugins/desk-host/lib/drive-mirror.js` 在加载时 import `scripts/lib/drive-mirror-index.mjs`（11-03 公司盘索引落盘抽出来的）。`build-payload.mjs` 没把这个文件打进安装包。安装版内核照常起来、desk-ui 照常画登录页，但 desk-host 整份 import 失败，`/desk/api` 没注册。静态服务器对 GET 回空 404、对 POST 回空 405，界面就写成「请求失败 N」。开发版插件指到仓库，文件在，所以本机看不出来。
 - **修法**：清单收进 `CLIENT_PAYLOAD_SCRIPTS`（`scripts/lib/payload.mjs`），补上 `drive-mirror-index.mjs`。测试会扫 desk-host 的 `../../../scripts/` import，漏拷就失败。
 - **验证**：按安装版目录摆一份 profile，缺这个文件时日志是 `desk-host failed to import: ... drive-mirror-index.mjs`，`GET /desk/api/state` 空 404。补上文件后 desk-host「已就绪」，state 200，登录 POST 回 JSON 而不是空 405。`node --test scripts/test/payload.test.mjs` 7 pass。
-- **还没发**。同事机器上的 11-06 / 11-09 安装包都缺这个文件，自动更新只有本机还留着登录令牌时才会在下次打开时拉新包；从没登成功过的要重装。过程：`docs/sessions/2026-11-09-login-desk-host-payload.md`。
+- **发布（已完成）**：`ea94d2c` 的 release run [42559488310](https://github.com/ethanfly/valimart-harness/actions/runs/42559488310) 通过。测试机网关当前客户端 **`0.1.0+0.2.1-rc.5.20261109-0404.96aeaefc`**（`valimart-harness-Setup-0.1.0-20261109.0404.exe`，513,523,607 字节，sha256 `6cf038bd090dde3bed8853f07466107bc3866a6a3ef94bf8f0af17bbf561ce54`）。本机、测试机文件、网关存档三处一致。`publishedAt` 2026-11-09T04:12:23.477Z。`previous` 是今天早上的 `0.1.0+0.2.1-rc.5.20261109-0307.2c130141`。网关代码没改，`TheDivaGateway` 仍是 active。测试机 `/tmp/vh-publish-20261109-login` 和本机安装包已删。
+- 同事机器上的 11-06 / 11-09 旧包装不上。本机还留着登录令牌的，下次打开会自己拉这版；从没登成功过的要重装。过程：`docs/sessions/2026-11-09-login-desk-host-payload.md`。
 
 ## 2026-11-09：Linux 上 anysearch 没进 profile，网页搜索仍走 DeepSeek
 
