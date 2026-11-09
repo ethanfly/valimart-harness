@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { digestFiles, makeBuildId, patchGatewayUrl, shouldPrune, stripKernelPeerLinks } from '../lib/payload.mjs'
+import { CLIENT_PAYLOAD_SCRIPTS, digestFiles, makeBuildId, patchGatewayUrl, shouldPrune, stripKernelPeerLinks } from '../lib/payload.mjs'
 
 test('shouldPrune：只删类型声明、source map 与其他平台的 node-pty 预编译', () => {
   assert.equal(shouldPrune('node_modules/x/lib/index.d.ts'), true)
@@ -52,11 +52,13 @@ test('makeBuildId：版本+内核版本+时间戳+摘要前 8 位', () => {
   assert.equal(id, '0.1.0+0.1.1-rc.2.20260904-0102.abcdef01')
 })
 
-test('客户端 payload 白名单含 git-head（desk-host 读工作区分支）', () => {
+test('客户端 payload 白名单含 desk-host 加载时要的脚本', () => {
+  for (const rel of ['scripts/lib/git-head.mjs', 'scripts/lib/client-update.mjs', 'scripts/lib/model-input.mjs', 'scripts/lib/drive-mirror-index.mjs']) {
+    assert.ok(CLIENT_PAYLOAD_SCRIPTS.includes(rel), rel)
+  }
   const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'build-payload.mjs'), 'utf8')
-  assert.match(src, /scripts\/lib\/git-head\.mjs/)
-  assert.match(src, /scripts\/lib\/client-update\.mjs/)
-  assert.match(src, /scripts\/lib\/model-input\.mjs/)
+  assert.match(src, /CLIENT_PAYLOAD_SCRIPTS/)
+  assert.match(src, /drive-mirror-index\.mjs/)
 })
 
 test('digestFiles：内容相同摘要相同，顺序无关', () => {
@@ -69,4 +71,30 @@ test('digestFiles：内容相同摘要相同，顺序无关', () => {
   fs.writeFileSync(b, 'C')
   assert.notEqual(digestFiles([a, b]), digestFiles([a, a]))
   assert.match(digestFiles([a]), /^[0-9a-f]{40}$/)
+})
+
+test('CLIENT_PAYLOAD_SCRIPTS：desk-host 加载时 import 的 scripts 都在安装包清单里', () => {
+  const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const host = path.join(repo, 'plugins', 'desk-host')
+  const missing = []
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name)
+      if (ent.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!/\.(js|mjs)$/.test(ent.name)) continue
+      const text = fs.readFileSync(full, 'utf8')
+      for (const spec of text.matchAll(/['"](\.\.\/(?:\.\.\/)+scripts\/[^'"]+)['"]/g)) {
+        const abs = path.resolve(path.dirname(full), spec[1])
+        const rel = path.relative(repo, abs).replace(/\\/g, '/')
+        if (!CLIENT_PAYLOAD_SCRIPTS.includes(rel)) missing.push(`${path.relative(repo, full)} → ${rel}`)
+      }
+    }
+  }
+  walk(host)
+  assert.deepEqual(missing, [])
+  assert.ok(CLIENT_PAYLOAD_SCRIPTS.includes('scripts/lib/drive-mirror-index.mjs'))
+  for (const rel of CLIENT_PAYLOAD_SCRIPTS) assert.equal(fs.existsSync(path.join(repo, rel)), true, rel)
 })

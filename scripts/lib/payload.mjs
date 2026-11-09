@@ -36,6 +36,24 @@ export function stripKernelPeerLinks(prefix) {
   return removed
 }
 
+/**
+ * 安装包 payload/scripts 必须带上的文件。
+ * desk-host 用 `../../../scripts/...` 在加载时 import 它们。漏拷一个，插件整份加载失败，
+ * 内核仍会把登录页开起来，但 /desk/api 没有注册，静态服务器对 GET 回空 404、对 POST 回空 405。
+ */
+export const CLIENT_PAYLOAD_SCRIPTS = [
+  'scripts/kernel/patches.mjs',
+  'scripts/kernel/locate.mjs',
+  'scripts/kernel/pin.json',
+  'scripts/lib/bootstrap.mjs',
+  'scripts/lib/find-tar.mjs',
+  'scripts/lib/lan-protocol.mjs',
+  'scripts/lib/git-head.mjs',
+  'scripts/lib/model-input.mjs',
+  'scripts/lib/client-update.mjs',
+  'scripts/lib/drive-mirror-index.mjs',
+]
+
 /** 把 cordis.patch.yml 里 desk-host 的 gatewayUrl 换成公司地址；url 为空则不改。 */
 export function patchGatewayUrl(yamlText, url) {
   if (!url) return yamlText
