@@ -15,7 +15,10 @@
   5. 沙箱里 `CI=true` / `TERM=dumb` 会让 1.0 直接走 headless（exit 42）；测 TUI 要用 `env -u CI TERM=xterm-256color`。
   6. 文件夹信任（`permissions.trustDirectories`）不通过时 TUI 先弹信任框，输入会被吞。
 - **已验证**（本机 linux-x64，从归档解压安装）：`valimart login`（非交互）/`status`/`discover`/`sync`；`-p` 对话经网关；`-p /desk-status`；`/auth` 提示；TUI 起得来（状态栏 `员工A (emp-a)`、`/desk-status` 输出）；MCP `desk` 显示 Connected（宿主 `BUN_BE_BUN` 跑 desk-mcp）。包测试 4/4。
-- **未验证**：Windows / macOS 归档（本机只编了 linux；CI 用三平台原生 runner，未跑过）；TUI 内任务卡四格流转（0.27 版已验证，1.0 只验到 `/desk-status`）。
+- **CI 首跑（`01f9d25`）两个失败，已在 `5b5961e` 修**：
+  1. Windows job：`shell: bash` 是 Git Bash，setup-node 只把 npm 加进 PowerShell 的 PATH，`spawnSync('npm')` 得 ENOENT。`build.mjs` 的 `run('npm', …)` 改成优先用 node 安装目录旁的 `npm-cli.js`（`process.execPath/../lib/node_modules/npm/bin/npm-cli.js`），找不到才退回 `npm.cmd`/`npm`。
+  2. macOS job：`macos-14` runner 排队 1 秒即被取消（无 runner 分配）。改成 `macos-latest`（arm64，正是 darwin-arm64 目标）。
+- **未验证**：Windows / macOS 归档（等 `5b5961e` 的 CI）；TUI 内任务卡四格流转（0.27 版已验证，1.0 只验到 `/desk-status`）。
 
 ## 2026-11-13：valimart code（Qwen Code 二次开发的终端客户端）
 
