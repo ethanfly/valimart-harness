@@ -1,0 +1,7 @@
+{
+  "upstream": "@qwen-code/qwen-code",
+  "version": "0.27.3",
+  "integrity": "sha512-hr8qGa7p5sbhP0HjryNimCvkOFdO5+FXzZcUKPDVt2e+y2fohzyEOLAXzOA6FyD1r4WTIgqkkymZh9W//UL9vg==",
+  "repository": "https://github.com/QwenLM/qwen-code",
+  "tag": "v0.27.3"
+}

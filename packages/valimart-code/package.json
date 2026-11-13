@@ -1,0 +1,19 @@
+{
+  "name": "valimart-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "valimart code（惠利玛）：基于 Qwen Code 二次开发的公司网关终端客户端",
+  "type": "module",
+  "license": "UNLICENSED",
+  "author": "ethanfly",
+  "homepage": "https://ethanfly.github.io/valimart-harness/#valimart-code",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ethanfly/valimart-harness.git",
+    "directory": "packages/valimart-code"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
