@@ -1,7 +1,9 @@
 {
-  "upstream": "@qwen-code/qwen-code",
-  "version": "0.27.3",
-  "integrity": "sha512-hr8qGa7p5sbhP0HjryNimCvkOFdO5+FXzZcUKPDVt2e+y2fohzyEOLAXzOA6FyD1r4WTIgqkkymZh9W//UL9vg==",
+  "upstream": "QwenLM/qwen-code",
   "repository": "https://github.com/QwenLM/qwen-code",
-  "tag": "v0.27.3"
+  "tag": "v1.0.0-preview.1",
+  "version": "1.0.0-preview.1",
+  "commit": "bd3604fdf218614ef501977745af08d473bea102",
+  "bun": "1.4.2",
+  "sourceSha256": "606c14e3aeafd27c9bf41cf954284dcb8e638c5e6470522d0785324f6ea5ca37"
 }

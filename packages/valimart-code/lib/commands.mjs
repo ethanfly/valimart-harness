@@ -333,7 +333,8 @@ export function deskCommands() {
   ]
 }
 
-/** 补丁调用的入口（Qwen Code 传进它的 Config，这里用不上）。跑在 TUI 进程里：同步日志不许写 stderr，否则会花屏。 */
+/** AppPlugin（valimartDeskPlugin.ts）经 VALIMART_CODE_COMMANDS 动态 import 的入口（模块路径由启动器注入，编译期未知）。
+ *  跑在 TUI 进程里：同步日志不许写 stderr，否则会花屏。 */
 export function loadDeskCommands() {
   setDriveLogSink(() => {})
   return deskCommands()

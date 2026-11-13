@@ -1,6 +1,7 @@
 /**
- * 锚点补丁的四条规矩：每条锚点恰好命中一次才套用；重跑幂等；locate 对不上或多处命中硬失败。
- * 用假包跑，不依赖网络与 Qwen Code 真包（真包由 scripts/build.mjs 验证）。
+ * 锚点补丁的规矩：每条锚点恰好命中一次才套用；重跑幂等；文件缺失 / 命中多次硬失败。
+ * 用假源码树跑（每个补丁的目标文件里只放它的 from 片段），不依赖网络与 Qwen Code 真源码——
+ * 真源码的锚点由 scripts/build.mjs 在构建时验证（对不上就硬失败）。
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -9,58 +10,53 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { applyPatches, PATCHES, QwenPatchError } from '../scripts/patches.mjs'
 
-const BUNDLE = path.join('chunks', 'bundle.js')
-
-/** 每个锚点（locate 与各 edit 的 from）各写一次进假 bundle；返回包目录。 */
-function fakePackage(t) {
+function fakeTree(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'valimart-patches-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
-  fs.mkdirSync(path.join(dir, 'chunks'))
-  const snippets = new Set()
   for (const patch of PATCHES) {
-    snippets.add(patch.locate)
-    for (const edit of patch.edits) snippets.add(edit.from)
+    const file = path.join(dir, patch.file)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, `${patch.edits.map((e) => e.from).join('\n')}\n`)
   }
-  fs.writeFileSync(path.join(dir, BUNDLE), [...snippets].join('\n'))
   return dir
 }
 
 test('锚点各命中一次：全部套用；重跑只跳过且内容不变', (t) => {
-  const dir = fakePackage(t)
+  const dir = fakeTree(t)
   const first = applyPatches(dir)
   assert.equal(first.applied.length, PATCHES.length)
-  const patched = fs.readFileSync(path.join(dir, BUNDLE), 'utf8')
-  assert.match(patched, /You are Valimart Code/)
+  const snapshot = new Map(PATCHES.map((p) => [p.file, fs.readFileSync(path.join(dir, p.file), 'utf8')]))
 
   const second = applyPatches(dir)
   assert.deepEqual(second.applied, [])
   assert.equal(second.skipped.length, PATCHES.length)
-  assert.equal(fs.readFileSync(path.join(dir, BUNDLE), 'utf8'), patched)
+  for (const [file, text] of snapshot) assert.equal(fs.readFileSync(path.join(dir, file), 'utf8'), text)
 })
 
-test('locate 对不上：硬失败并点名是哪条补丁', (t) => {
-  const dir = fakePackage(t)
-  fs.writeFileSync(path.join(dir, BUNDLE), 'nothing matches')
+test('目标文件缺失：硬失败并点名补丁', (t) => {
+  const dir = fakeTree(t)
+  fs.rmSync(path.join(dir, PATCHES[0].file))
   assert.throws(
     () => applyPatches(dir),
-    (err) => err instanceof QwenPatchError && err.code === 'locate-not-unique' && err.detail.startsWith(`${PATCHES[0].mark}|`),
+    (err) => err instanceof QwenPatchError && err.code === 'file-missing' && err.detail.startsWith(`${PATCHES[0].file}|`),
   )
 })
 
-test('locate 在两个文件里都出现：拒绝，不猜该改哪个', (t) => {
-  const dir = fakePackage(t)
-  fs.writeFileSync(path.join(dir, 'cli.js'), PATCHES[1].locate)
-  assert.throws(
-    () => applyPatches(dir),
-    (err) => err instanceof QwenPatchError && err.code === 'locate-not-unique',
-  )
-})
-
-test('edit 的 from 在文件里出现两次：拒绝', (t) => {
-  const dir = fakePackage(t)
-  fs.appendFileSync(path.join(dir, BUNDLE), `\n${PATCHES[1].edits[0].from}`)
+test('锚点对不上（升了上游版本）：硬失败', (t) => {
+  const dir = fakeTree(t)
+  fs.writeFileSync(path.join(dir, PATCHES[0].file), 'nothing matches\n')
   assert.throws(
     () => applyPatches(dir),
     (err) => err instanceof QwenPatchError && err.code === 'anchor-not-unique',
+  )
+})
+
+test('同一锚点出现两次：拒绝，不猜改哪一处', (t) => {
+  const dir = fakeTree(t)
+  const patch = PATCHES[0]
+  fs.appendFileSync(path.join(dir, patch.file), `${patch.edits[0].from}\n`)
+  assert.throws(
+    () => applyPatches(dir),
+    (err) => err instanceof QwenPatchError && err.code === 'anchor-not-unique' && err.detail.includes(patch.edits[0].name),
   )
 })

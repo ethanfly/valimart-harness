@@ -14,7 +14,7 @@ import {
   mergeGateways,
   normalizeUrl,
   parseHealthHello,
-} from '../../../scripts/lib/lan-protocol.mjs'
+} from './lan-protocol.mjs'
 import { loadState } from './state.mjs'
 
 export const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:8790'

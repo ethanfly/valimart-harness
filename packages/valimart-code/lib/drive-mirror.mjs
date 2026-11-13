@@ -6,7 +6,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { persistedIndexMethods, writeFileAtomic } from '../../../scripts/lib/drive-mirror-index.mjs'
+import { persistedIndexMethods, writeFileAtomic } from './drive-mirror-index.mjs'
 import { assertInside } from './drive-paths.mjs'
 
 export { writeFileAtomic }

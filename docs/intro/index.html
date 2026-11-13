@@ -223,9 +223,9 @@
         </article>
         <article>
           <h3>valimart code（终端）</h3>
-          <p>基于 Qwen Code 的 TUI 客户端，命令 <code>valimart</code>，需要 Node.js ≥ 22。</p>
+          <p>基于 Qwen Code 1.0 的 TUI 客户端，命令 <code>valimart</code>。原生可执行文件，不需要装 Node.js；按平台下载 zip / tar.gz，解压即用。</p>
           <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="valimart-code" data-ready-label="直接下载最新版 valimart code 安装包" data-fallback-label="前往 GitHub Releases 下载">获取最新版安装包…</a></p>
-          <p class="code">npm install -g valimart-code-&lt;版本&gt;.tgz</p>
+          <p class="code">产物名 valimart-code-*-windows-x64.zip / -linux-x64.tar.gz / -darwin-arm64.tar.gz</p>
         </article>
       </div>
       <p id="download-status" class="download-status" role="status" aria-live="polite">正在获取最新版下载链接…</p>
@@ -235,7 +235,7 @@
           <li>先在公司服务器安装网关 exe：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="gateway" data-ready-label="直接下载最新版网关" data-fallback-label="前往 GitHub Releases 下载">获取最新版网关…</a>，完成管理页首次引导（公司名 + 管理员）。</li>
           <li>员工安装客户端 exe；启动后填网关地址（或等局域网自动发现）并用公司账号登录。</li>
           <li>只要 CLI：<code>pi install npm:pi-valimart-desk</code>，然后 <code>/desk-login</code>。</li>
-          <li>终端：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="valimart-code" data-ready-label="直接下载最新版 valimart code 安装包" data-fallback-label="前往 GitHub Releases 下载">获取最新版 valimart code 安装包…</a>，<code>npm install -g</code> 后运行 <code>valimart login</code>。</li>
+          <li>终端：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="valimart-code" data-ready-label="直接下载最新版 valimart code 安装包" data-fallback-label="前往 GitHub Releases 下载">获取最新版 valimart code 安装包…</a>，解压后把 <code>valimart-code/bin</code> 加进 <code>PATH</code>，运行 <code>valimart login</code>。</li>
           <li>VS Code：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="vscode" data-ready-label="直接下载最新版 VSIX" data-fallback-label="前往 GitHub Releases 下载">获取最新版 VS Code 插件…</a>，扩展 → … → 从 VSIX 安装。</li>
           <li>Claude Code：<code>/plugin marketplace add &lt;克隆目录&gt;/packages/claude-valimart-desk</code> → <code>/plugin install valimart-desk@valimart-harness</code> → <code>/valimart-desk:desk-login</code>。</li>
           <li>源码开发：克隆仓库后 <code>npm install</code> → <code>npm run setup</code> → <code>npm run dev</code>。</li>
@@ -369,15 +369,15 @@
     <section id="valimart-code">
       <div class="sec-label">06 / valimart code</div>
       <h2>valimart code · 终端客户端</h2>
-      <p class="lead">在终端里干活的同事用的 TUI 客户端，基于 Qwen Code 二次开发，命令名 <code>valimart</code>。界面、Agent、工具和会话沿用 Qwen Code；登录、模型目录、公司盘、任务卡换成公司网关。模型请求全部经网关，本机只存登录会话令牌和网关令牌。</p>
+      <p class="lead">在终端里干活的同事用的 TUI 客户端，基于 Qwen Code 1.0 二次开发，命令名 <code>valimart</code>。1.0 是 Bun 编译的原生可执行文件，<b>不需要装 Node.js</b>，解压即用。界面、Agent、工具和会话沿用 Qwen Code；登录、模型目录、公司盘、任务卡换成公司网关。</p>
       <div class="cards">
         <article>
           <h3>项目是什么</h3>
-          <p>fork 自 QwenLM/qwen-code（Apache-2.0），锁定 0.27.3。仓库不克隆上游：<code>packages/valimart-code/pin.json</code> 固定版本与 integrity，构建时取 npm 包、校验后套 5 组锚点补丁（对不上硬失败），再并入 <code>valimart/</code>（启动器、desk MCP、公司上下文、状态栏、/desk-* 命令、公司技能）。</p>
+          <p>基于 <code>QwenLM/qwen-code</code> v1.0.0-preview.1（Apache-2.0）。仓库不克隆上游：<code>packages/valimart-code/pin.json</code> 锁定 tag、commit 与源码 sha256，构建时取源码、打锚点补丁（对不上硬失败）、白标（<code>BRAND_*</code>），再用 Bun 编成原生宿主，和启动器、desk MCP 一起归档。</p>
         </article>
         <article>
           <h3>登录、模型与公司盘</h3>
-          <p><code>valimart login</code> 先找网关，找不到再手填，密码不回显；命令行给了的项不再问。内置 MCP 服务 <code>desk</code> 提供 14 个 <code>company_*</code> 工具，公司盘镜像每 30 秒同步，<code>/desk-sync</code> 可立即同步。</p>
+          <p><code>valimart login</code> 先找网关，找不到再手填，密码不回显；命令行给了的项不再问。内置 MCP 服务 <code>desk</code> 提供 14 个 <code>company_*</code> 工具，公司盘镜像每 30 秒同步，<code>/desk-sync</code> 可立即同步。公司默认模型自动写进设置，快速推理模型走 <code>routing.utility</code>。</p>
         </article>
         <article>
           <h3>任务卡与状态栏</h3>
@@ -385,14 +385,14 @@
         </article>
         <article>
           <h3>与原版 Qwen Code 的区别</h3>
-          <p>只用公司网关登录：<code>/auth</code>、订阅相关的 <code>/logout</code> <code>/upgrade</code>、会装回原版的 <code>/update</code>、去上游提 issue 的 <code>/bug</code> 关掉。遥测、使用统计、自动更新、models.dev 目录刷新关掉。横幅换成惠利玛花标，系统提示改为 Valimart Code。</p>
+          <p>产品名、命令名、配置目录（<code>~/.valimart</code>）、环境变量前缀（<code>VALIMART_</code>）都是构建期白标。默认登录类型改成公司网关 provider；<code>/auth</code>、<code>/logout</code> 换成公司网关提示，不提供 Qwen / Qoder 账号登录。关掉使用统计与自动更新。</p>
         </article>
       </div>
       <div class="steps">
         <ol>
-          <li>从「安装与下载」取 <code>valimart-code-*.tgz</code>，<code>npm install -g</code> 装好（需要 Node.js ≥ 22）。</li>
+          <li>从「安装与下载」取对应平台的 <code>valimart-code-*-windows-x64.zip</code> / <code>-linux-x64.tar.gz</code> / <code>-darwin-arm64.tar.gz</code>，解压后把 <code>valimart-code/bin</code> 加进 <code>PATH</code>。</li>
           <li><code>valimart login</code> 选网关、填公司账号；<code>valimart</code> 进 TUI，<code>valimart -p "…"</code> 非交互。</li>
-          <li>登录态、公司盘镜像与设置都在 <code>~/.valimart</code>，与原版 <code>qwen</code> 互不影响。卸载：<code>npm uninstall -g valimart-code</code>。</li>
+          <li>登录态、公司盘镜像与设置都在 <code>~/.valimart</code>，与原版 <code>qwen</code> 互不影响。升级：下载新版解压覆盖。</li>
         </ol>
       </div>
     </section>
@@ -409,7 +409,7 @@
         { key: 'client', label: 'Windows 客户端', pattern: /^valimart-harness-Setup-.*\.exe$/i },
         { key: 'gateway', label: 'Windows 网关', pattern: /^valimart-harness-Gateway-Setup-(\d+\.\d+\.\d+(?:-[\w.-]+)?)\.exe$/i, versioned: true },
         { key: 'vscode', label: 'VS Code 插件', pattern: /^valimart-harness-(\d+\.\d+\.\d+(?:-[\w.-]+)?)\.vsix$/i, versioned: true },
-        { key: 'valimart-code', label: 'valimart code', pattern: /^valimart-code-(\d+\.\d+\.\d+(?:-[\w.-]+)?)\.tgz$/i, versioned: true },
+        { key: 'valimart-code', label: 'valimart code', pattern: /^valimart-code-\d+\.\d+\.\d+(?:-[\w.-]+)?-(?:windows-x64\.zip|linux-x64\.tar\.gz|darwin-arm64\.tar\.gz)$/i },
       ]
 
       function compareVersions(left, right) {

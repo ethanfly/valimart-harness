@@ -1,27 +1,28 @@
 /**
- * valimart 命令入口：先处理公司网关这一层，再把终端交给（打过补丁的）Qwen Code。
- *
- * - 自带子命令：login / logout / status / discover / sync；update、auth 改成提示（不许装回原版、不许换登录方式）。
- * - 进 TUI 或 -p 之前确认已登录公司网关：没登录就在终端里选网关、填账号密码（桌面端的登录遮罩同理）。
- * - 按登录态生成系统默认设置（settings.mjs），注入网关令牌等环境变量，然后在本进程里 import Qwen Code 的 cli-entry.js。
- */
+* valimart 命令入口（1.0）：先处理公司网关这一层，再 spawn 白标宿主二进制（原 Qwen Code）。
+*
+* - 自带子命令：login / logout / status / discover / sync；update、auth 改成提示（不许换登录方式）。
+* - 进 TUI 或 -p 之前确认已登录公司网关：没登录就在终端里选网关、填账号密码（桌面端的登录遮罩同理）。
+* - 按登录态生成启动设置（settings.mjs，--settings 注入），设置配置根、网关令牌等环境变量，然后
+*   spawn 宿主（BUN_BE_BUN 不设，正常起 CLI）。1.0 是独立进程，退出码透传。
+*/
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { DEFAULT_GATEWAY_URL, discoverGateways } from './discover.mjs'
 import { getMirror, setDriveLogSink, syncDrive } from './drive-runtime.mjs'
 import { gatewayOptions, gatewayUrlFromChoice, MANUAL_GATEWAY_LABEL } from './gateway-choice.mjs'
 import { fetchMe, GatewayError, login, logout, normalizeGatewayUrl } from './gateway.mjs'
 import { GATEWAY_TOKEN_ENV } from './models.mjs'
+import { buildLaunchSettings, mergeUserProviders, writeLaunchSettings } from './settings.mjs'
 import { createPrompter, PromptCancelled } from './prompt-io.mjs'
-import { buildSystemDefaults, writeSystemDefaults } from './settings.mjs'
 import { isLoggedIn, loadState, valimartHome } from './state.mjs'
 import { statusText, userLine } from './status.mjs'
 
 export const RELEASE_PAGE = 'https://ethanfly.github.io/valimart-harness/'
 
-/** Qwen Code 的顶层子命令：管理类命令不拦登录，照原样交给它。 */
-const QWEN_SUBCOMMANDS = new Set(['mcp', 'memory', 'channel', 'serve', 'daemon', 'attach', 'sessions', 'agents', 'batch', 'board', 'sandbox', 'extensions', 'extension'])
+const QWEN_SUBCOMMANDS = new Set(['mcp', 'plugins', 'skills', 'hooks', 'agents'])
 
 const OWN_HELP = [
   'valimart code：基于 Qwen Code 的公司网关终端客户端。',
@@ -57,9 +58,9 @@ function envCredentials(env = process.env) {
 }
 
 /**
- * 终端里登录：先找网关列出来选，找不到才手填；账号密码错了再问一次账号密码，连不上再问地址。
- * 命令行或环境变量给了的项不再问。
- */
+* 终端里登录：先找网关列出来选，找不到才手填；账号密码错了再问一次账号密码，连不上再问地址。
+* 命令行或环境变量给了的项不再问。
+*/
 export async function interactiveLogin(io, { url: urlArg = '', username: userArg = '' } = {}) {
   const state = loadState()
   let url = normalizeGatewayUrl(urlArg || process.env.DESK_GATEWAY_URL)
@@ -133,9 +134,9 @@ async function cmdSync(io) {
 }
 
 /**
- * 进 TUI / -p 前的登录关口。返回 false 表示没登录成、不该启动。
- * 网关连不上时按本机记录启动（模型请求届时会报错），不把人挡在门外。
- */
+* 进 TUI / -p 前的登录关口。返回 false 表示没登录成、不该启动。
+* 网关连不上时按本机记录启动（模型请求届时会报错），不把人挡在门外。
+*/
 export async function ensureGatewayLogin(io, { headless }) {
   if (isLoggedIn() && !loadState().needsRelogin) {
     try {
@@ -184,30 +185,72 @@ export function syncBundledSkills(runtimeDir, home) {
   }
 }
 
-/** 把 Qwen Code 需要的环境变量准备好（会被它的子进程继承：MCP 服务、hook、状态栏、Windows 下的重启子进程）。 */
-export function prepareQwenEnv({ runtimeDir, version, env = process.env, cwd = process.cwd() }) {
+/** 定位宿主二进制：优先随包分发（包内 bin/valimart 或 bin/valimart.exe），找不到返回 null。 */
+export function locateBinary(runtimeDir) {
+  const local = path.join(runtimeDir, '..', '..', 'bin', `valimart-host${process.platform === 'win32' ? '.exe' : ''}`)
+  if (fs.existsSync(local)) return local
+  const which = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['valimart'], { encoding: 'utf8', windowsHide: true })
+  const hit = which.status === 0 ? which.stdout.split(/\r?\n/)[0].trim() : ''
+  return hit || null
+}
+
+
+/**
+* 准备宿主进程的环境与启动设置：
+* - 配置根：白标构建的配置目录 env 名是 VALIMART_CONFIG_DIR（BRAND_ENV_PREFIX=VALIMART_），
+*   用户数据都在 ~/.valimart。
+* - 网关令牌进 VALIMART_GATEWAY_TOKEN：settings 里 providers.valimart.apiKey 写的是 ${占位符}，
+*   宿主启动时从进程环境解析，不落盘。MCP 子进程会被 1.0 的环境脱敏拦下（名字带 TOKEN），
+*   所以 desk 服务的 mcpServers.env 里显式带它（settings.mjs）。
+* - --settings 指向按登录态重写的 launch-settings.json（providers、desk MCP、hook、状态栏、遥测开关）。
+* @returns {{ env: Record<string,string>, args: string[], settingsFile: string }}
+*/
+export function prepareLaunch({ runtimeDir, version, env = process.env, cwd = process.cwd() }) {
   const home = valimartHome()
   const state = loadState()
-  const defaultsFile = path.join(home, 'system-defaults.json')
-  writeSystemDefaults(defaultsFile, buildSystemDefaults({ state, runtimeDir, nodePath: process.execPath, version, home }))
+  const binaryPath = locateBinary(runtimeDir) ?? ''
+  const { settings, provider, picked } = buildLaunchSettings({ state, runtimeDir, binaryPath, version, home })
+  // provider（含实际令牌）只放用户层：请求路径只认用户设置原文。
+  mergeUserProviders(path.join(home, 'settings.json'), provider, picked.main ? `valimart/${picked.main}` : '')
+  const settingsFile = path.join(home, 'launch-settings.json')
+  writeLaunchSettings(settingsFile, settings)
   syncBundledSkills(runtimeDir, home)
-  env.VALIMART_HOME = home
-  env.QWEN_HOME = home
-  env.QWEN_CODE_SYSTEM_DEFAULTS_PATH = defaultsFile
-  env.VALIMART_WORKSPACE = cwd
-  env.VALIMART_CODE_VERSION = version
-  env.VALIMART_CODE_COMMANDS = pathToFileURL(path.join(runtimeDir, 'commands.mjs')).href
-  if (isLoggedIn(state)) env[GATEWAY_TOKEN_ENV] = state.gatewayToken
-  else delete env[GATEWAY_TOKEN_ENV]
-  if (!env.CLI_TITLE) env.CLI_TITLE = `valimart · ${path.basename(cwd) || cwd}`
-  return { home, defaultsFile }
+  const child = {
+    ...env,
+    // 入口包装用 BUN_BE_BUN=1 让宿主当解释器；spawn 宿主本体时必须去掉，否则它不会进 CLI。
+    BUN_BE_BUN: undefined,
+    VALIMART_HOME: home,
+    VALIMART_CONFIG_DIR: home,
+    VALIMART_WORKSPACE: cwd,
+    VALIMART_CODE_VERSION: version,
+    VALIMART_CODE_COMMANDS: pathToFileURL(path.join(runtimeDir, 'commands.mjs')).href,
+    ...(isLoggedIn(state) ? { [GATEWAY_TOKEN_ENV]: state.gatewayToken } : {}),
+  }
+  return { env: child, args: ['--config-dir', home, '--settings', settingsFile], settingsFile }
+}
+
+/** spawn 宿主并透传退出码；找不到二进制时报错（包没装全 / 开发模式没构建）。 */
+export function launchHost({ runtimeDir, argv }) {
+  const prepared = prepareLaunch({ runtimeDir })
+  const binary = locateBinary(runtimeDir)
+  if (!binary) {
+    process.stderr.write('valimart：找不到宿主二进制（包内 bin/valimart）。请从发布页重装完整的 valimart-code。\n')
+    return 1
+  }
+  const r = spawnSync(binary, [...prepared.args, ...argv], { stdio: 'inherit', env: prepared.env, windowsHide: false })
+  if (r.error) {
+    process.stderr.write(`valimart：启动宿主失败：${r.error.message}\n`)
+    return 1
+  }
+  return r.status ?? (r.signal ? 128 + 15 : 1)
 }
 
 /**
- * @param {string[]} argv process.argv.slice(2)
- * @param {{ qwenEntry: string, runtimeDir: string, version: string, qwenVersion: string }} opts
- */
-export async function main(argv, { qwenEntry, runtimeDir, version, qwenVersion }) {
+* valimart 主入口。自带子命令在本进程处理完就返回退出码；其余交给宿主二进制（launchHost）。
+* @param {string[]} argv process.argv.slice(2)
+* @param {{ runtimeDir: string, version: string, qwenVersion: string }} opts
+*/
+export async function main(argv, { runtimeDir, version, qwenVersion }) {
   const io = createPrompter()
   // 启动器自己打印同步结果；公司盘的逐条日志只在出错时有用，这里不往终端写
   setDriveLogSink(() => {})
@@ -215,39 +258,47 @@ export async function main(argv, { qwenEntry, runtimeDir, version, qwenVersion }
   try {
     switch (first) {
       case 'login':
-        return await cmdLogin(rest, io)
+        return exitCodeOf(await cmdLogin(rest, io))
       case 'logout':
         await logout()
-        return io.say('已登出公司网关')
+        io.say('已登出公司网关')
+        return 0
       case 'status':
-        return await cmdStatus(io)
+        return exitCodeOf(await cmdStatus(io))
       case 'discover':
-        return await cmdDiscover(io)
+        return exitCodeOf(await cmdDiscover(io))
       case 'sync':
-        return await cmdSync(io)
+        return exitCodeOf(await cmdSync(io))
       case 'update':
-        return io.say(`valimart code 不走 npm 自动更新：到发布页 ${RELEASE_PAGE} 下载新版 valimart-code-*.tgz，再 npm i -g 安装。`)
+        io.say(`valimart code 不走自动更新：到发布页 ${RELEASE_PAGE} 下载新版重装。`)
+        return 0
       case 'auth':
-        return io.say('valimart code 只用公司网关登录：valimart login。Qwen Code 的其它登录方式在这里关掉了。')
+        io.say('valimart code 只用公司网关登录：valimart login。Qwen Code 的其它登录方式在这里关掉了。')
+        return 0
       default:
         break
     }
-    if (argv.length === 1 && (first === '--version' || first === '-v')) return io.say(`valimart-code ${version}（Qwen Code ${qwenVersion}）`)
-    if (hasFlag(argv, '--help', '-h') && !(first && QWEN_SUBCOMMANDS.has(first))) process.stdout.write(OWN_HELP)
-    if (needsGatewayLogin(argv) && !(await ensureGatewayLogin(io, { headless: isHeadless(argv) }))) {
-      process.exitCode = 1
-      return
+    if (argv.length === 1 && (first === '--version' || first === '-v')) {
+      io.say(`valimart-code ${version}（Qwen Code ${qwenVersion}）`)
+      return 0
     }
+    if (hasFlag(argv, '--help', '-h') && !(first && QWEN_SUBCOMMANDS.has(first))) {
+      process.stdout.write(OWN_HELP)
+      return 0
+    }
+    if (needsGatewayLogin(argv) && !(await ensureGatewayLogin(io, { headless: isHeadless(argv) }))) return 1
   } catch (err) {
     if (err instanceof PromptCancelled) {
       io.say('已取消')
-      process.exitCode = 130
-      return
+      return 130
     }
     process.stderr.write(`valimart：${err instanceof Error ? err.message : String(err)}\n`)
-    process.exitCode = 1
-    return
+    return 1
   }
-  prepareQwenEnv({ runtimeDir, version })
-  await import(pathToFileURL(qwenEntry).href)
+  return launchHost({ runtimeDir, argv })
+}
+
+/** 子命令返回 true/false（成功 / 失败）或 undefined；统一成进程退出码。 */
+function exitCodeOf(result) {
+  return result === false ? 1 : 0
 }

@@ -2,6 +2,21 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-13：valimart code 改基于 Qwen Code 1.0（原生二进制）
+
+- **为什么改**：1.0 是上游重写（Qoder 与 Qwen Code 合并），产物是 Bun 编译的原生可执行文件，用户不用装 Node；但 0.27 那套「npm 包 JS + 锚点补丁」在 1.0 上整套失效（`QWEN_CODE_SYSTEM_DEFAULTS_PATH`、身份文案、`fastModel`、`catalogRefresh`、`slashCommands.disabled` 都没了）。上游 1.0 目前只有预览版（`v1.0.0-preview.1`，npm 仍发 0.27.x）。
+- **现在是什么样**：`packages/valimart-code/` 0.2.0。`pin.json` 锁 GitHub tag/commit 与源码 tarball sha256（`sourceSha256` 由首次构建回填）。构建：取源码 → 4 组锚点补丁（brand-env 读构建环境、`/desk-*` 注入 BuiltinCommandLoader、`/auth` 提示、默认登录类型 `openai`）→ `npm ci --ignore-scripts`（sharp/node-pty 用平台预编译；锁文件里 82 个阿里内网 resolved 改写到 npmjs，版本与 integrity 一致）→ `bun run scripts/build_qwen_bun_binary.ts --target <宿主平台>` → 归档。白标靠 `BRAND_*`（Valimart Code / valimart / ~/.valimart / VALIMART_ 前缀）。
+- **包内布局**：`bin/valimart`（sh）+ `bin/valimart.cmd`（Windows）入口包装 → 用宿主自带 Bun（`BUN_BE_BUN=1 ... run lib/runtime/valimart.mjs`）跑启动器；`bin/valimart-host` 是宿主。启动器登录后写 `~/.valimart/launch-settings.json`（0600，含网关 provider、desk MCP、SessionStart hook、状态栏、关遥测/自动更新），再用 `--config-dir ~/.valimart --settings <file>` spawn 宿主。
+- **踩过的坑（别再踩）**：
+  1. 1.0 的运行时 provider 从**用户 settings 原文**装配（`createPublicProviders` → `createCustomModelProvidersFromSettingsTexts`），**不做 `$VAR` 展开**；`${VAR}` 只在 list-models 那条 merged 路径解析。所以 `apiKey` 必须写实际令牌（存在 `launch-settings.json`，0600）。
+  2. `--settings` flag 层的 providers 对请求路径不可见，别放那。
+  3. `BUN_BE_BUN=1` 会继承给宿主本体，spawn 宿主时必须抹掉，否则它当解释器跑、把 `--config-dir` 当模块路径。
+  4. 1.0 的 `/auth`、`/logout` 来自 AuthPlugin，AppPlugin 同名命令会报 duplicate；已改成补丁 AuthPlugin 的行为。
+  5. 沙箱里 `CI=true` / `TERM=dumb` 会让 1.0 直接走 headless（exit 42）；测 TUI 要用 `env -u CI TERM=xterm-256color`。
+  6. 文件夹信任（`permissions.trustDirectories`）不通过时 TUI 先弹信任框，输入会被吞。
+- **已验证**（本机 linux-x64，从归档解压安装）：`valimart login`（非交互）/`status`/`discover`/`sync`；`-p` 对话经网关；`-p /desk-status`；`/auth` 提示；TUI 起得来（状态栏 `员工A (emp-a)`、`/desk-status` 输出）；MCP `desk` 显示 Connected（宿主 `BUN_BE_BUN` 跑 desk-mcp）。包测试 4/4。
+- **未验证**：Windows / macOS 归档（本机只编了 linux；CI 用三平台原生 runner，未跑过）；TUI 内任务卡四格流转（0.27 版已验证，1.0 只验到 `/desk-status`）。
+
 ## 2026-11-13：valimart code（Qwen Code 二次开发的终端客户端）
 
 - **在哪**：`packages/valimart-code/`，命令名 `valimart`，包名 `valimart-code` 0.1.0。上游 `@qwen-code/qwen-code` 锁定 0.27.3（`pin.json` 的版本与 integrity）。不克隆上游：构建时 npm pack → 校验 integrity → 解包 → `scripts/patches.mjs` 的 5 组锚点补丁（恰好命中才套用，对不上硬失败）→ esbuild 把 `runtime/`、`lib/` 打进包内 `valimart/` → `npm pack` 到 `dist/`。

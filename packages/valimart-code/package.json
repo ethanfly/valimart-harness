@@ -1,8 +1,8 @@
 {
   "name": "valimart-code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "valimart code（惠利玛）：基于 Qwen Code 二次开发的公司网关终端客户端",
+  "description": "valimart code（惠利玛）：基于 Qwen Code 1.0 二次开发的公司网关终端客户端（原生二进制）",
   "type": "module",
   "license": "UNLICENSED",
   "author": "ethanfly",

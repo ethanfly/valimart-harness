@@ -74,26 +74,43 @@ jobs:
           if-no-files-found: error
 
   valimart-code:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 原生依赖（node-pty / sharp / ripgrep）只装得上宿主平台，三个平台各用原生 runner 编自己的包。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: macos-14
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
-      # build.mjs 默认走国内镜像；CI 上直接用官方 registry（上游 tgz 另有 pin.json 的 integrity 校验）
+      # build.mjs 默认走国内镜像；CI 上直接打官方 registry。
       npm_config_registry: https://registry.npmjs.org
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
       - name: Install JS deps
         run: npm install
       - name: Test and package valimart code
         run: |
-          node --test packages/valimart-code/test/*.test.mjs
+          node --test packages/valimart-code/test/patches.test.mjs
           node packages/valimart-code/scripts/build.mjs
+        shell: bash
       - uses: actions/upload-artifact@v4
         with:
-          name: valimart-code-tgz
-          path: dist/valimart-code-*.tgz
+          name: valimart-code-${{ matrix.platform }}
+          path: |
+            dist/valimart-code-*.tar.gz
+            dist/valimart-code-*.zip
           if-no-files-found: error
 
   release:
@@ -117,7 +134,7 @@ jobs:
             - 客户端：`valimart-harness-Setup-*.exe`
             - 网关：`valimart-harness-Gateway-Setup-*.exe`
             - VS Code：`valimart-harness-*.vsix`
-            - valimart code（终端）：`valimart-code-*.tgz`（`npm install -g` 安装）
+            - valimart code（终端，免装 Node）：`valimart-code-*-(windows-x64|linux-x64|darwin-arm64).(zip|tar.gz)`
           artifacts: dist/*
           artifactErrorsFailBuild: true
           allowUpdates: true
@@ -142,7 +159,13 @@ jobs:
             });
             const uploaded = assets.find(asset => asset.name === current[0] && asset.state === 'uploaded');
             if (!uploaded) throw new Error('Current client installer was not uploaded; keeping previous builds');
+            const legacyTgz = /^valimart-code-.*\.tgz$/;
             for (const asset of assets) {
+              if (legacyTgz.test(asset.name)) {
+                await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: asset.id });
+                core.info(`Deleted legacy tgz: ${asset.name}`);
+                continue;
+              }
               if (clientName.test(asset.name) && asset.id !== uploaded.id) {
                 await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: asset.id });
                 core.info(`Deleted old client: ${asset.name}`);
