@@ -10,7 +10,8 @@
 - **npm**：0.2.1 起 `npm install -g valimart-code`。入口包只有 `bin/valimart.js`，三个平台二进制是可选依赖（`valimart-code-linux-x64` / `darwin-arm64` / `windows-x64`，带 os/cpu，npm 只装当前平台）。`release.yml` 的 `npm-valimart-code` 在三平台归档编完后 publish，令牌用 `Secrets.NPM_TOKEN`；没配令牌或版本已在 npm 上就跳过。run [43386927214](https://github.com/ethanfly/valimart-harness/actions/runs/43386927214) 四个包都 publish 成功。npm 对大包走分段发布：先挂 `0.0.0-stage` 占位，tarball 处理完 `0.2.1` 才可下载（期间装会 404，npm 静默跳过可选依赖，入口报「没有装上 valimart-code-<平台>」）。linux / darwin 约 5 分钟可用，linux 已实装验证；windows（176 MB）发版后 10 分钟仍是占位，待复查。
 - **npm Windows 包改为安装后下载（0.2.3）**：`valimart-code-windows-x64@0.2.1` 和 `@0.2.2` 都卡在 `0.0.0-stage` 占位（0.2.1 重发报 409，见 [npm/cli#9889](https://github.com/npm/cli/issues/9889)）。Linux / darwin 包正常，只有 176 MB 的 Windows 包卡住。因此 Windows 平台包改成只带 `package.json` 的占位（约 1 KB），`bin/windows-runtime.mjs` 在首次运行时从 `releases/download/latest/valimart-code-<版本>-windows-x64.zip` 下载，解压到 `%LOCALAPPDATA%\valimart-code\<版本>\`。下载先写临时目录，入口校验通过才改名，失败不留缓存。
 - 发布顺序：先发 Linux、darwin、Windows 占位包；只等 Linux、darwin 的 tarball 能下载（HEAD 200，最多 30 分钟）再发入口包 `valimart-code`。npm job 超时 20 分钟。
-- 0.2.2 的 Windows 包仍是占位，入口包 0.2.2 本身没有发。0.2.1 的入口包在 Windows 上装不上程序，0.2.3 上线后应 `npm deprecate valimart-code@0.2.1`（需要本机登录 npm）。
+- **0.2.3 已上线**：run [43396095941](https://github.com/ethanfly/valimart-harness/actions/runs/43396095941) 全绿。npm 上 `valimart-code`、`-linux-x64`、`-darwin-arm64`、`-windows-x64`（占位）的 `latest` 都是 0.2.3，tarball 均 200；Release 上 `valimart-code-0.2.3-windows-x64.zip` 可下载。Linux 上 `npm install -g valimart-code@0.2.3` 实装，`valimart --version` 正常。Windows 下载路径在 Linux 上用发布的 `windows-runtime.mjs` 真实下载 zip（解压换成 unzip）验过地址与目录结构；**系统 `tar.exe` 解压与 `valimart.cmd` 启动没在真 Windows 上跑过**。
+- 待办：`npm deprecate valimart-code@0.2.1`（Windows 装不上程序），需要本机登录 npm。0.2.2 只有平台包，入口包没发，不用处理。
 
 
 ## 2026-11-13：valimart code 改基于 Qwen Code 1.0（原生二进制）
