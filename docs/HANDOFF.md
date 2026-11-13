@@ -18,7 +18,11 @@
 - **CI 首跑（`01f9d25`）两个失败，已在 `5b5961e` 修**：
   1. Windows job：`shell: bash` 是 Git Bash，setup-node 只把 npm 加进 PowerShell 的 PATH，`spawnSync('npm')` 得 ENOENT。`build.mjs` 的 `run('npm', …)` 改成优先用 node 安装目录旁的 `npm-cli.js`（`process.execPath/../lib/node_modules/npm/bin/npm-cli.js`），找不到才退回 `npm.cmd`/`npm`。
   2. macOS job：`macos-14` runner 排队 1 秒即被取消（无 runner 分配）。改成 `macos-latest`（arm64，正是 darwin-arm64 目标）。
-- **未验证**：Windows / macOS 归档（等 `5b5961e` 的 CI）；TUI 内任务卡四格流转（0.27 版已验证，1.0 只验到 `/desk-status`）。
+- **CI 后续两轮**：
+  3. `fa0ad54`：`patch-package` 那步走 `npx`，Git Bash 里同样 ENOENT。`nodeBin()` 同时覆盖 `npm-cli.js` 与 `npx-cli.js`。
+  4. `a237529`：上游 `signWindowsBinary` 在 Windows 宿主上无条件调 `signtool`，CI 没装 Windows SDK 也没有证书，编译在签名处 ENOENT。补丁 `valimart-skip-win-sign-v1` 改成跳过（产物不签名，SmartScreen 提示未知发布者，与网关安装包一致）。macOS 走 ad-hoc `codesign -s -`，不需要证书，未改。
+- **已发布**：release run [43382338909](https://github.com/ethanfly/valimart-harness/actions/runs/43382338909) 全绿。`latest` 上三个归档：`valimart-code-0.2.0-windows-x64.zip`（76,443,313）、`valimart-code-0.2.0-linux-x64.tar.gz`（68,261,766）、`valimart-code-0.2.0-darwin-arm64.tar.gz`（57,236,944）。旧 `valimart-code-*.tgz` 已由 release job 删除。介绍页（ethanfly.github.io/valimart-harness）的下载规则匹配这三个文件名。
+- **未验证**：TUI 内任务卡四格流转（0.27 版已验证，1.0 只验到 `/desk-status`）；Windows / macOS 归档只在 CI 编过，没有在真机上跑过登录与 TUI。
 
 ## 2026-11-13：valimart code（Qwen Code 二次开发的终端客户端）
 
