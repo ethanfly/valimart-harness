@@ -1,6 +1,6 @@
 # main 推送后：
 #   Windows 打客户端 + 网关 exe
-#   Ubuntu 打 VS Code vsix
+#   Ubuntu 打 VS Code vsix 与 valimart code 安装包（tgz）
 #   一并挂到 GitHub Release 标签 `latest`
 # packages/pi-valimart-desk 版本号比 npm 新时自动 publish（Secrets.NPM_TOKEN）
 name: release
@@ -73,8 +73,31 @@ jobs:
           path: packages/vscode/*.vsix
           if-no-files-found: error
 
+  valimart-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # build.mjs 默认走国内镜像；CI 上直接用官方 registry（上游 tgz 另有 pin.json 的 integrity 校验）
+      npm_config_registry: https://registry.npmjs.org
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install JS deps
+        run: npm install
+      - name: Test and package valimart code
+        run: |
+          node --test packages/valimart-code/test/*.test.mjs
+          node packages/valimart-code/scripts/build.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: valimart-code-tgz
+          path: dist/valimart-code-*.tgz
+          if-no-files-found: error
+
   release:
-    needs: [installers, vscode]
+    needs: [installers, vscode, valimart-code]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -94,6 +117,7 @@ jobs:
             - 客户端：`valimart-harness-Setup-*.exe`
             - 网关：`valimart-harness-Gateway-Setup-*.exe`
             - VS Code：`valimart-harness-*.vsix`
+            - valimart code（终端）：`valimart-code-*.tgz`（`npm install -g` 安装）
           artifacts: dist/*
           artifactErrorsFailBuild: true
           allowUpdates: true
