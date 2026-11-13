@@ -7,7 +7,7 @@
 - 欢迎页不走 `BRAND_*`。`packages/cli/src/brand.ts` 的 `CLI_DISPLAY_NAME` 和 `QWEN_CODE_LOGO` 是写死的，所以 0.2.0 装上后横幅仍是 QWEN 字标、标题仍是 `Qwen Code (v1.0.0)`。
 - 补丁 `valimart-welcome-brand-v1`：产品名改成 `Valimart Code`，字标换成与 pi 包同一张 16×16 花标。`valimart-welcome-header-v1`：标题去掉版本括号，卡片最后只留一行 `基于 Qwen Code {version}`（二进制里的版本是 `1.0.0`，不是 pin 的 `1.0.0-preview.1`）。`LOGO_WIDTH` 改成跟字标列数走，写死 37 会在花标右边空一截。
 - 本机已重编并覆盖 `~/.local/opt/valimart-code`（当时还是 0.2.0 本地包）。宽终端冒烟：花标在左，卡片是 `>_ Valimart Code`，末行 `基于 Qwen Code 1.0.0`。模型名（如 Qwen4 Max Preview）是目录里的名字，没改。花标补丁随 0.2.1 一起进 CI，`latest` 上的 0.2.0 归档仍是旧横幅，等这次发版替换。
-- **npm（进行中）**：0.2.1 起 `npm install -g valimart-code`。入口包只有 `bin/valimart.js`，三个平台二进制是可选依赖（`valimart-code-linux-x64` / `darwin-arm64` / `windows-x64`，带 os/cpu，npm 只装当前平台）。`release.yml` 的 `npm-valimart-code` 在三平台归档编完后 publish，令牌用已有的 `Secrets.NPM_TOKEN`。没配令牌或版本已在 npm 上就跳过。
+- **npm**：0.2.1 起 `npm install -g valimart-code`。入口包只有 `bin/valimart.js`，三个平台二进制是可选依赖（`valimart-code-linux-x64` / `darwin-arm64` / `windows-x64`，带 os/cpu，npm 只装当前平台）。`release.yml` 的 `npm-valimart-code` 在三平台归档编完后 publish，令牌用 `Secrets.NPM_TOKEN`；没配令牌或版本已在 npm 上就跳过。run [43386927214](https://github.com/ethanfly/valimart-harness/actions/runs/43386927214) 四个包都 publish 成功。npm 对大包走分段发布：先挂 `0.0.0-stage` 占位，tarball 处理完 `0.2.1` 才可下载（期间装会 404，npm 静默跳过可选依赖，入口报「没有装上 valimart-code-<平台>」）。linux / darwin 约 5 分钟可用，linux 已实装验证；windows（176 MB）发版后 10 分钟仍是占位，待复查。
 
 
 ## 2026-11-13：valimart code 改基于 Qwen Code 1.0（原生二进制）
