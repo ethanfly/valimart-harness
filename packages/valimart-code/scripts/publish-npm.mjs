@@ -119,6 +119,30 @@ function publishDir(dir, name, version) {
   console.log(`publish ${name}@${version}`)
   run('npm', npmArgs(['publish', '--access', 'public', '--registry', 'https://registry.npmjs.org']), { cwd: dir, stdio: 'inherit' })
 }
+export function windowsStubFiles(version) {
+  return {
+    'package.json': `${JSON.stringify({
+      name: 'valimart-code-windows-x64',
+      version,
+      description: 'valimart code 的 Windows 占位包：首次运行时从 GitHub Release 下载程序。请通过 valimart-code 使用。',
+      license: 'UNLICENSED',
+      author: 'ethanfly',
+      os: ['win32'],
+      cpu: ['x64'],
+      files: ['package.json'],
+      valimart: { releaseAsset: `valimart-code-${version}-windows-x64.zip` },
+    }, null, 2)}\n`,
+  }
+}
+
+function stageWindowsStub(stageRoot, version) {
+  const dir = path.join(stageRoot, 'windows-x64-stub')
+  fs.mkdirSync(dir, { recursive: true })
+  for (const [name, text] of Object.entries(windowsStubFiles(version))) {
+    fs.writeFileSync(path.join(dir, name), text)
+  }
+  return dir
+}
 
 /**
  * npm 收下大包后可能先挂占位、过一阵才放出 tarball，个别版本还会卡死（npm/cli#9889）。
@@ -167,13 +191,17 @@ async function main() {
   const stageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'valimart-npm-'))
   try {
     for (const { spec, file } of archivesFor(distDir, version)) {
+      if (spec.id === 'windows-x64') {
+        publishDir(stageWindowsStub(stageRoot, version), spec.npm, version)
+        continue
+      }
       const extracted = path.join(stageRoot, spec.id)
       extract(file, extracted)
       const root = packageRoot(extracted)
       rewritePackage(root, spec, version)
       publishDir(root, spec.npm, version)
     }
-    for (const spec of PLATFORMS) await waitDownloadable(spec.npm, version)
+    for (const spec of PLATFORMS.filter((s) => s.id !== 'windows-x64')) await waitDownloadable(spec.npm, version)
     publishDir(pkgRoot, own.name, version)
   } finally {
     fs.rmSync(stageRoot, { recursive: true, force: true })

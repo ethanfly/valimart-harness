@@ -30,6 +30,8 @@ valimart --version
 
 不要加 `--omit=optional`，否则平台包不会装上。也可以不经过 npm，从发布页下归档解压。
 
+Windows 的 npm 包只是个占位，**第一次运行 `valimart` 时**会从 GitHub Release 下载同版本的 zip（约 76 MB），解压到 `%LOCALAPPDATA%\valimart-code\<版本>\`，之后不再下载。所以 Windows 上首次启动需要能访问 github.com；下载失败会提示 HTTP 状态，可以稍后重试或直接从发布页解压。
+
 
 安装包挂在 GitHub Release `latest`，介绍页 <https://ethanfly.github.io/valimart-harness/#valimart-code> 有直链。
 
