@@ -2,6 +2,27 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-13：valimart code（Qwen Code 二次开发的终端客户端）
+
+- **在哪**：`packages/valimart-code/`，命令名 `valimart`，包名 `valimart-code` 0.1.0。上游 `@qwen-code/qwen-code` 锁定 0.27.3（`pin.json` 的版本与 integrity）。不克隆上游：构建时 npm pack → 校验 integrity → 解包 → `scripts/patches.mjs` 的 5 组锚点补丁（恰好命中才套用，对不上硬失败）→ esbuild 把 `runtime/`、`lib/` 打进包内 `valimart/` → `npm pack` 到 `dist/`。
+- **发布**：`release.yml` 新增 `valimart-code` job（ubuntu：`npm install` → 包测试 → build → 上传 `valimart-code-tgz`），`release` 依赖它，tgz 挂到 `latest` Release。介绍页新增「06 / valimart code」节、安装卡和步骤项；下载脚本按 `valimart-code-*.tgz` 取最新版本。
+- **已验证**（本机 Linux）：
+  - 清缓存后经 registry.npmjs.org 取包，integrity 通过；产物 `dist/valimart-code-0.1.0.tgz` 43,840,211 字节。装到临时前缀后 `valimart --version`、`--help` 正常。
+  - desk MCP（stdio）`tools/list` 14 个 `company_*`；`tools/call company_whoami` 对测试网关 `127.0.0.1:18795` 返回 emp-a。
+  - 非交互登录（环境变量）、`valimart status`、`valimart sync` 通过。
+  - TUI：横幅 `VALIMART CODE 0.1.0 · Qwen Code`；状态栏 `valimart 员工A (emp-a) @valimart harness · Mock Echo`；输入 `/desk-` 补全可见 `/desk-status` 等命令。未登录启动会先出登录页并发现网关。
+  - SessionStart hook、statusline 直接运行正常。
+  - `node --test packages/valimart-code/test/*.test.mjs` 4/4。
+  - 介绍页两段内联脚本 `node --check` 通过，section 开闭 7/7。
+- **未验证**：
+  - 交互式手填登录（只测了环境变量路径和网关发现列表）。
+  - `/desk-*` 命令的执行（只看了补全，没提交：输入未识别时会送模型、消耗网关额度）。
+  - `-p` 非交互与任务卡四格流转。
+  - GitHub Actions 上的 valimart-code job（本机跑的是同一组命令，CI 环境未跑过）。
+- **本机副作用**：为本地构建执行了 `npm install --no-save @esbuild/linux-x64@0.25.12`，根 `node_modules` 按 lockfile 修剪（npm 报 removed 309 packages，原先是 Windows 装的，含多余包）。`package-lock.json` 未改；需要时 `npm install` 可恢复 lockfile 声明的全部包。
+- **已知限制**：`@qwen-code/audio-capture` 的 install 脚本被 npm allowScripts 拦下（语音输入不可用，其它不受影响）。
+- **下次该干嘛**：确认 Actions 的 `valimart-code` job 与 `release` 通过，latest Release 里有 `valimart-code-0.1.0.tgz`，再打开介绍页核对下载按钮。升级 Qwen Code：改 `pin.json`，跑 `npm run dist:valimart-code`，按报错重审 `scripts/patches.mjs`，再冒烟一遍 TUI。
+
 ## 2026-11-09：同事登录页「请求失败 404 / 405」，本机 Host 不可达
 
 - **现象**：安装版登录页顶上「本机 Host 不可达：请求失败 404」，网关一栏同样是 404，点登录是 405，页脚「dev · 内核 dev」。网关本身是好的（错密码会回 JSON「账号或密码错误」）。今天发的 anysearch 安装包修的不是这个。
