@@ -120,6 +120,27 @@ function publishDir(dir, name, version) {
   run('npm', npmArgs(['publish', '--access', 'public', '--registry', 'https://registry.npmjs.org']), { cwd: dir, stdio: 'inherit' })
 }
 
+/**
+ * npm 收下大包后可能先挂占位、过一阵才放出 tarball，个别版本还会卡死（npm/cli#9889）。
+ * 入口包必须等三个平台包都能下载再发，否则会出现入口已上线、平台包装不上的半发布。
+ */
+async function waitDownloadable(name, version, { timeoutMs = 30 * 60_000, intervalMs = 30_000 } = {}) {
+  const url = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const res = await fetch(url, { method: 'HEAD' }).catch(() => null)
+    if (res?.ok) {
+      console.log(`ready ${name}@${version}`)
+      return
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`${name}@${version} 发布后 ${timeoutMs / 60_000} 分钟仍下载不到（${res?.status ?? '无响应'}），不发入口包`)
+    }
+    console.log(`waiting ${name}@${version}（${res?.status ?? '无响应'}）`)
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+}
+
 export function archivesFor(distDir, version) {
   const files = walk(distDir)
   return PLATFORMS.map((spec) => {
@@ -130,7 +151,7 @@ export function archivesFor(distDir, version) {
   })
 }
 
-function main() {
+async function main() {
   if (!process.env.NODE_AUTH_TOKEN) {
     console.log('skip publish: 未配置 NODE_AUTH_TOKEN')
     return
@@ -152,10 +173,11 @@ function main() {
       rewritePackage(root, spec, version)
       publishDir(root, spec.npm, version)
     }
+    for (const spec of PLATFORMS) await waitDownloadable(spec.npm, version)
     publishDir(pkgRoot, own.name, version)
   } finally {
     fs.rmSync(stageRoot, { recursive: true, force: true })
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main()
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main()

@@ -1,6 +1,6 @@
 {
   "name": "valimart-code",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "valimart code（惠利玛）：基于 Qwen Code 1.0 二次开发的公司网关终端客户端（原生二进制）",
   "type": "module",
   "license": "UNLICENSED",
@@ -20,9 +20,9 @@
     "NOTICE.md"
   ],
   "optionalDependencies": {
-    "valimart-code-linux-x64": "0.2.1",
-    "valimart-code-darwin-arm64": "0.2.1",
-    "valimart-code-windows-x64": "0.2.1"
+    "valimart-code-linux-x64": "0.2.2",
+    "valimart-code-darwin-arm64": "0.2.2",
+    "valimart-code-windows-x64": "0.2.2"
   },
   "engines": {
     "node": ">=18"
