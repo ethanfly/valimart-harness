@@ -121,6 +121,90 @@ import { runLogger } from '@qwen-code/core';`,
       },
     ],
   },
+  {
+    // 欢迎页身份不走 BRAND_*：CLI_DISPLAY_NAME 与 QWEN 字标是写死的。
+    // 花标与 pi 包同一张 16×16 轮廓；产品名改成 Valimart Code。
+    mark: 'valimart-welcome-brand-v1',
+    file: 'packages/cli/src/brand.ts',
+    edits: [
+      {
+        name: 'display-name',
+        from: `export const CLI_DISPLAY_NAME = 'Qwen Code';`,
+        to: `export const CLI_DISPLAY_NAME = 'Valimart Code';`,
+      },
+      {
+        name: 'logo',
+        from: `export const QWEN_CODE_LOGO = \` ▄▄▄▄▄▄  ▄▄     ▄▄ ▄▄▄▄▄▄▄ ▄▄▄    ▄▄
+██╔═══██╗██║    ██║██╔════╝████╗  ██║
+██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║
+██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║
+╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║
+ ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝\`;`,
+        to: `export const QWEN_CODE_LOGO = \`     ██   █▄
+  ██▄██  ███▄██
+   ▀▀██  ███▀▀
+ ▄▄▄▄       ▄▄▄
+▀▀████    ▀████▀
+  ███▀ ██▄ ▀██▄
+  ▀   █████  ▀
+      █▀ ▀▀\`;`,
+      },
+    ],
+  },
+  {
+    // 标题去掉 Qwen 版本；卡片最后只留一行「基于 Qwen Code <版本>」。
+    // LOGO_WIDTH 跟字标宽度走，花标是 16 列，写死 37 会空出一截。
+    mark: 'valimart-welcome-header-v1',
+    file: 'packages/cli/src/ui/components/QwenCodeWelcomeHeader.tsx',
+    edits: [
+      {
+        name: 'logo-width',
+        from: `const LOGO_WIDTH = 37;
+const LOGO_ROWS = QWEN_CODE_LOGO.split('\\n').map((line) => Array.from(line));`,
+        to: `const LOGO_ROWS = QWEN_CODE_LOGO.split('\\n').map((line) => Array.from(line));
+const LOGO_WIDTH = Math.max(...LOGO_ROWS.map((line) => line.length), 1);`,
+      },
+      {
+        name: 'drop-version-label',
+        from: `export function QwenCodeWelcomeHeader({
+  cliDisplayName,
+  terminalWidth,
+  versionLabel,
+  tips,
+}: CliWelcomeHeaderProps) {`,
+        to: `export function QwenCodeWelcomeHeader({
+  cliDisplayName,
+  terminalWidth,
+  version,
+  tips,
+}: CliWelcomeHeaderProps) {`,
+      },
+      {
+        name: 'title-without-qwen-version',
+        from: `            <Text bold color={theme.text.accent}>
+              {'>_ '}
+              {cliDisplayName}
+            </Text>
+            <Text color={theme.text.secondary}> ({versionLabel})</Text>`,
+        to: `            <Text bold color={theme.text.accent}>
+              {'>_ '}
+              {cliDisplayName}
+            </Text>`,
+      },
+      {
+        name: 'based-on-line',
+        from: `          <Text color={theme.text.secondary} wrap="truncate-end">
+            {tildeifyPath(config.getTargetDir())}
+          </Text>`,
+        to: `          <Text color={theme.text.secondary} wrap="truncate-end">
+            {tildeifyPath(config.getTargetDir())}
+          </Text>
+          <Text color={theme.text.secondary} wrap="truncate-end">
+            基于 Qwen Code {version}
+          </Text>`,
+      },
+    ],
+  },
 ]
 
 export class QwenPatchError extends Error {

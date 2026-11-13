@@ -2,7 +2,7 @@
 #   Windows 打客户端 + 网关 exe
 #   Ubuntu 打 VS Code vsix 与 valimart code 安装包（tgz）
 #   一并挂到 GitHub Release 标签 `latest`
-# packages/pi-valimart-desk 版本号比 npm 新时自动 publish（Secrets.NPM_TOKEN）
+# packages/pi-valimart-desk、valimart-code 版本号比 npm 新时自动 publish（Secrets.NPM_TOKEN）
 name: release
 
 on:
@@ -112,6 +112,26 @@ jobs:
             dist/valimart-code-*.tar.gz
             dist/valimart-code-*.zip
           if-no-files-found: error
+
+  npm-valimart-code:
+    needs: [valimart-code]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: valimart-code-*
+          merge-multiple: true
+          path: dist
+      - name: Publish valimart-code if version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node packages/valimart-code/scripts/publish-npm.mjs dist
 
   release:
     needs: [installers, vscode, valimart-code]

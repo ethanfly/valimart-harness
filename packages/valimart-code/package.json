@@ -1,7 +1,6 @@
 {
   "name": "valimart-code",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.2.1",
   "description": "valimart code（惠利玛）：基于 Qwen Code 1.0 二次开发的公司网关终端客户端（原生二进制）",
   "type": "module",
   "license": "UNLICENSED",
@@ -11,6 +10,22 @@
     "type": "git",
     "url": "git+https://github.com/ethanfly/valimart-harness.git",
     "directory": "packages/valimart-code"
+  },
+  "bin": {
+    "valimart": "bin/valimart.js"
+  },
+  "files": [
+    "bin/valimart.js",
+    "README.md",
+    "NOTICE.md"
+  ],
+  "optionalDependencies": {
+    "valimart-code-linux-x64": "0.2.1",
+    "valimart-code-darwin-arm64": "0.2.1",
+    "valimart-code-windows-x64": "0.2.1"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "build": "node scripts/build.mjs",

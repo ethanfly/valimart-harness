@@ -21,6 +21,16 @@
 
 ## 安装
 
+已经装了 Node.js 的话，一条命令即可（npm 按系统只拉对应平台的二进制，跑起来不再用 Node）：
+
+```sh
+npm install -g valimart-code
+valimart --version
+```
+
+不要加 `--omit=optional`，否则平台包不会装上。也可以不经过 npm，从发布页下归档解压。
+
+
 安装包挂在 GitHub Release `latest`，介绍页 <https://ethanfly.github.io/valimart-harness/#valimart-code> 有直链。
 
 | 平台 | 文件 |

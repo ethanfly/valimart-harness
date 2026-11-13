@@ -2,6 +2,14 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-13：valimart code 欢迎页换成花标
+
+- 欢迎页不走 `BRAND_*`。`packages/cli/src/brand.ts` 的 `CLI_DISPLAY_NAME` 和 `QWEN_CODE_LOGO` 是写死的，所以 0.2.0 装上后横幅仍是 QWEN 字标、标题仍是 `Qwen Code (v1.0.0)`。
+- 补丁 `valimart-welcome-brand-v1`：产品名改成 `Valimart Code`，字标换成与 pi 包同一张 16×16 花标。`valimart-welcome-header-v1`：标题去掉版本括号，卡片最后只留一行 `基于 Qwen Code {version}`（二进制里的版本是 `1.0.0`，不是 pin 的 `1.0.0-preview.1`）。`LOGO_WIDTH` 改成跟字标列数走，写死 37 会在花标右边空一截。
+- 本机已重编并覆盖 `~/.local/opt/valimart-code`（当时还是 0.2.0 本地包）。宽终端冒烟：花标在左，卡片是 `>_ Valimart Code`，末行 `基于 Qwen Code 1.0.0`。模型名（如 Qwen4 Max Preview）是目录里的名字，没改。花标补丁随 0.2.1 一起进 CI，`latest` 上的 0.2.0 归档仍是旧横幅，等这次发版替换。
+- **npm（进行中）**：0.2.1 起 `npm install -g valimart-code`。入口包只有 `bin/valimart.js`，三个平台二进制是可选依赖（`valimart-code-linux-x64` / `darwin-arm64` / `windows-x64`，带 os/cpu，npm 只装当前平台）。`release.yml` 的 `npm-valimart-code` 在三平台归档编完后 publish，令牌用已有的 `Secrets.NPM_TOKEN`。没配令牌或版本已在 npm 上就跳过。
+
+
 ## 2026-11-13：valimart code 改基于 Qwen Code 1.0（原生二进制）
 
 - **为什么改**：1.0 是上游重写（Qoder 与 Qwen Code 合并），产物是 Bun 编译的原生可执行文件，用户不用装 Node；但 0.27 那套「npm 包 JS + 锚点补丁」在 1.0 上整套失效（`QWEN_CODE_SYSTEM_DEFAULTS_PATH`、身份文案、`fastModel`、`catalogRefresh`、`slashCommands.disabled` 都没了）。上游 1.0 目前只有预览版（`v1.0.0-preview.1`，npm 仍发 0.27.x）。
