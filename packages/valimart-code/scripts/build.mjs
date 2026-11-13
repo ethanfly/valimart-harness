@@ -90,8 +90,27 @@ const BRAND_ENV = {
   BRAND_WEBSITE_URL: 'https://ethanfly.github.io/valimart-harness/',
 }
 
+/** Windows 的 Git Bash 里 setup-node 只把 npm 加进 PowerShell 的 PATH，bash 里直接 spawn "npm" 会 ENOENT。
+ *  优先用 node 安装目录旁的 npm-cli.js。 */
+function npmCmd() {
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ].filter(Boolean)
+  for (const c of candidates) if (fs.existsSync(c)) return { cmd: process.execPath, prefix: [c] }
+  return { cmd: process.platform === 'win32' ? 'npm.cmd' : 'npm', prefix: [] }
+}
+
 function run(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', windowsHide: true, ...opts })
+  let realCmd = cmd
+  let realArgs = args
+  if (cmd === 'npm') {
+    const npm = npmCmd()
+    realCmd = npm.cmd
+    realArgs = [...npm.prefix, ...args]
+  }
+  const r = spawnSync(realCmd, realArgs, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', windowsHide: true, ...opts })
   if (r.status !== 0) {
     const tail = (r.stderr || r.stdout || r.error?.message || '').trim().slice(-1500)
     throw new Error(`${path.basename(cmd)} ${args.join(' ')} 失败（${r.status}）：${tail}`)
