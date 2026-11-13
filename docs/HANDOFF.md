@@ -14,14 +14,14 @@
   - SessionStart hook、statusline 直接运行正常。
   - `node --test packages/valimart-code/test/*.test.mjs` 4/4。
   - 介绍页两段内联脚本 `node --check` 通过，section 开闭 7/7。
-- **未验证**：
-  - 交互式手填登录（只测了环境变量路径和网关发现列表）。
-  - `/desk-*` 命令的执行（只看了补全，没提交：输入未识别时会送模型、消耗网关额度）。
-  - `-p` 非交互与任务卡四格流转。
-  - GitHub Actions 上的 valimart-code job（本机跑的是同一组命令，CI 环境未跑过）。
+  - 交互式手填登录（pty）：发现列表 → 选序号 / 手填地址 → 账号 → 密码不回显；401 重问账号、连不上重问地址，均按设计。
+  - `-p` 非交互：普通提问经网关返回（测试网关是 mock 模型）；`-p "/desk-status"` 本地执行不送模型。TUI 里提交 `/desk-status` 与一轮对话正常。
+  - 任务卡四格（三个账号）：emp-a `/desk-task-new` 建卡并绑定 → MCP `company_task_attach` + `company_task_update` → `/desk-task-submit director` → director `/desk-task-review pass` → boss `/desk-task-final pass`，`/desk-tasks` 显示「通过」。
+  - Actions：release 运行 43362554152、43362764789 全部 job 通过；latest Release 有 `valimart-code-0.1.0.tgz`（sha256 与本机构建一致，下载后可安装运行）；Pages 上线「06 / valimart code」节，下载按钮按 API 匹配到该 tgz。
+- **注意**：局域网 UDP 发现会列出网关广播的 LAN 地址；网关只绑 127.0.0.1 时这些地址连不上，选「手动输入」填本机地址即可（与 pi 包同一发现逻辑）。
 - **本机副作用**：为本地构建执行了 `npm install --no-save @esbuild/linux-x64@0.25.12`，根 `node_modules` 按 lockfile 修剪（npm 报 removed 309 packages，原先是 Windows 装的，含多余包）。`package-lock.json` 未改；需要时 `npm install` 可恢复 lockfile 声明的全部包。
 - **已知限制**：`@qwen-code/audio-capture` 的 install 脚本被 npm allowScripts 拦下（语音输入不可用，其它不受影响）。
-- **下次该干嘛**：确认 Actions 的 `valimart-code` job 与 `release` 通过，latest Release 里有 `valimart-code-0.1.0.tgz`，再打开介绍页核对下载按钮。升级 Qwen Code：改 `pin.json`，跑 `npm run dist:valimart-code`，按报错重审 `scripts/patches.mjs`，再冒烟一遍 TUI。
+- **下次该干嘛**：升级 Qwen Code：改 `pin.json`，跑 `npm run dist:valimart-code`，按报错重审 `scripts/patches.mjs`，再冒烟一遍 TUI。改版本号（`packages/valimart-code/package.json`）后推 main 即重新发布 tgz。
 
 ## 2026-11-09：同事登录页「请求失败 404 / 405」，本机 Host 不可达
 
