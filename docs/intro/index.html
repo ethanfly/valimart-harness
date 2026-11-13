@@ -223,7 +223,7 @@
         </article>
         <article>
           <h3>valimart code（终端）</h3>
-          <p>基于 Qwen Code 1.0 的 TUI 客户端，命令 <code>valimart</code>。原生可执行文件。装了 Node.js 时用 <code>npm install -g valimart-code</code>；也可以按平台下载 zip / tar.gz，解压即用，不用装 Node。</p>
+          <p>基于 Qwen Code 1.0 的 TUI 客户端，命令 <code>valimart</code>。装了 Node.js 用 npm 一条命令装；没装 Node 就下载压缩包，解压即用。支持 Windows x64、Linux x64、macOS Apple 芯片。安装步骤见 <a href="https://github.com/ethanfly/valimart-harness/blob/main/packages/valimart-code/README.md#安装">项目 README 的「安装」</a>。</p>
           <p class="code"><a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="valimart-code" data-ready-label="直接下载最新版 valimart code 安装包" data-fallback-label="前往 GitHub Releases 下载">获取最新版安装包…</a></p>
           <p class="code">npm install -g valimart-code</p>
         </article>
@@ -235,7 +235,7 @@
           <li>先在公司服务器安装网关 exe：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="gateway" data-ready-label="直接下载最新版网关" data-fallback-label="前往 GitHub Releases 下载">获取最新版网关…</a>，完成管理页首次引导（公司名 + 管理员）。</li>
           <li>员工安装客户端 exe；启动后填网关地址（或等局域网自动发现）并用公司账号登录。</li>
           <li>只要 CLI：<code>pi install npm:pi-valimart-desk</code>，然后 <code>/desk-login</code>。</li>
-          <li>终端：<code>npm install -g valimart-code</code> 后运行 <code>valimart login</code>。或不装 Node，<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="valimart-code" data-ready-label="直接下载最新版 valimart code 安装包" data-fallback-label="前往 GitHub Releases 下载">获取最新版 valimart code 安装包…</a>，解压后把 <code>valimart-code/bin</code> 加进 <code>PATH</code>。</li>
+          <li>终端（装了 Node.js）：<code>npm install -g valimart-code</code>，然后 <code>valimart --version</code> 确认。（没装 Node 的话，下载对应平台的压缩包，解压后把 <code>bin</code> 加进 <code>PATH</code>，步骤见 README。）</li>
           <li>VS Code：<a href="https://github.com/ethanfly/valimart-harness/releases/latest" data-release-asset="vscode" data-ready-label="直接下载最新版 VSIX" data-fallback-label="前往 GitHub Releases 下载">获取最新版 VS Code 插件…</a>，扩展 → … → 从 VSIX 安装。</li>
           <li>Claude Code：<code>/plugin marketplace add &lt;克隆目录&gt;/packages/claude-valimart-desk</code> → <code>/plugin install valimart-desk@valimart-harness</code> → <code>/valimart-desk:desk-login</code>。</li>
           <li>源码开发：克隆仓库后 <code>npm install</code> → <code>npm run setup</code> → <code>npm run dev</code>。</li>
@@ -390,7 +390,7 @@
       </div>
       <div class="steps">
         <ol>
-          <li>装了 Node.js：<code>npm install -g valimart-code</code>。或不装 Node，从「安装与下载」取 <code>valimart-code-*-windows-x64.zip</code> / <code>-linux-x64.tar.gz</code> / <code>-darwin-arm64.tar.gz</code>，解压后把 <code>valimart-code/bin</code> 加进 <code>PATH</code>。</li>
+          <li>装了 Node.js：<code>npm install -g valimart-code</code>。没装 Node：下载对应平台的压缩包，Windows 解压后把 <code>valimart-code\bin</code> 加进用户 <code>PATH</code>，Linux / macOS 解压到 <code>~/.local/opt</code> 并把 <code>valimart-code/bin</code> 加进 <code>PATH</code>，完整步骤见 README「安装」。</li>
           <li><code>valimart login</code> 选网关、填公司账号；<code>valimart</code> 进 TUI，<code>valimart -p "…"</code> 非交互。</li>
           <li>登录态、公司盘镜像与设置都在 <code>~/.valimart</code>，与原版 <code>qwen</code> 互不影响。升级：下载新版解压覆盖。</li>
         </ol>

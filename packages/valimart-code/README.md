@@ -21,43 +21,109 @@
 
 ## 安装
 
-已经装了 Node.js 的话，一条命令即可（npm 按系统只拉对应平台的二进制，跑起来不再用 Node）：
+两种方式任选其一。装好后都是同一个命令 `valimart`，数据都在 `~/.valimart`，与原版 `qwen` 互不影响。
 
-```sh
-npm install -g valimart-code
-valimart --version
-```
+| 方式 | 适合谁 | 需要 |
+| --- | --- | --- |
+| A. npm 安装（推荐） | 电脑上已有 Node.js | Node.js ≥ 18；Windows 首次运行要能访问 github.com |
+| B. 下载压缩包 | 没装 Node.js，或不想用 npm | 无 |
 
-不要加 `--omit=optional`，否则平台包不会装上。也可以不经过 npm，从发布页下归档解压。
+支持的平台：Windows x64、Linux x64、macOS Apple 芯片（M 系列）。Intel Mac 和 ARM 版 Linux/Windows 暂不支持。
 
-Windows 的 npm 包只是个占位，**第一次运行 `valimart` 时**会从 GitHub Release 下载同版本的 zip（约 76 MB），解压到 `%LOCALAPPDATA%\valimart-code\<版本>\`，之后不再下载。所以 Windows 上首次启动需要能访问 github.com；下载失败会提示 HTTP 状态，可以稍后重试或直接从发布页解压。
+### A. npm 安装
 
+1. 安装：
 
-安装包挂在 GitHub Release `latest`，介绍页 <https://ethanfly.github.io/valimart-harness/#valimart-code> 有直链。
+   ```sh
+   npm install -g valimart-code
+   ```
+
+   不要加 `--omit=optional`，否则装不上对应平台的程序。
+
+2. 确认装好：
+
+   ```sh
+   valimart --version
+   ```
+
+   能看到 `valimart-code <版本>（Qwen Code …）` 就成功了。
+
+   **Windows 第一次运行**会先从 GitHub 下载程序（约 76 MB，只下这一次），存到 `%LOCALAPPDATA%\valimart-code\<版本>\`。期间提示「正在下载」，等它结束即可。下载失败会显示原因，通常是连不上 github.com，换个网络重试，或改用方式 B。
+
+3. 升级：`npm install -g valimart-code@latest`。卸载：`npm uninstall -g valimart-code`（Windows 再手动删 `%LOCALAPPDATA%\valimart-code`）。
+
+### B. 下载压缩包
+
+到 GitHub Release [`latest`](https://github.com/ethanfly/valimart-harness/releases/latest)（或介绍页 <https://ethanfly.github.io/valimart-harness/#valimart-code> 的直链）下载对应平台的文件：
 
 | 平台 | 文件 |
 | --- | --- |
 | Windows x64 | `valimart-code-<版本>-windows-x64.zip` |
 | Linux x64 | `valimart-code-<版本>-linux-x64.tar.gz` |
-| macOS Apple 芯片 | `valimart-code-<版本>-darwin-arm64.tar.gz`（未签名：首次运行 `xattr -dr com.apple.quarantine ./valimart-code`） |
+| macOS Apple 芯片 | `valimart-code-<版本>-darwin-arm64.tar.gz` |
 
-解压后把 `valimart-code/bin` 加进 `PATH`：
+下面以版本 `0.2.3` 为例，换成你下载的版本号。
+
+#### Windows（PowerShell）
+
+zip 里直接是 `bin\`、`lib\`，没有外层目录，所以要解压到一个专门的文件夹：
 
 ```powershell
-# Windows
-Expand-Archive .\valimart-code-0.1.0-windows-x64.zip -DestinationPath $env:USERPROFILE
-[Environment]::SetEnvironmentVariable('Path', "$env:USERPROFILE\valimart-code\bin;" + $env:Path, 'User')
+$dir = "$env:LOCALAPPDATA\Programs\valimart-code"
+Expand-Archive .\valimart-code-0.2.3-windows-x64.zip -DestinationPath $dir -Force
+[Environment]::SetEnvironmentVariable('Path', "$dir\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
+```
+
+**关掉 PowerShell 再打开一个新的**，然后：
+
+```powershell
 valimart --version
 ```
+
+程序没有代码签名，第一次运行如果弹出 SmartScreen「已保护你的电脑」，点「更多信息」→「仍要运行」。
+
+#### Linux / macOS
+
+压缩包里有一层 `valimart-code/` 目录。解压到固定位置，再把它的 `bin` 加进 `PATH`：
 
 ```sh
-# Linux / macOS
-tar -xzf valimart-code-0.1.0-linux-x64.tar.gz
-sudo ln -s "$PWD/valimart-code/bin/valimart" /usr/local/bin/valimart
+mkdir -p ~/.local/opt
+tar -xzf valimart-code-0.2.3-linux-x64.tar.gz -C ~/.local/opt      # macOS 换成 darwin-arm64 的文件
+echo 'export PATH="$HOME/.local/opt/valimart-code/bin:$PATH"' >> ~/.bashrc   # zsh 用户写到 ~/.zshrc
+source ~/.bashrc                                                     # 或重开终端
 valimart --version
 ```
 
-升级：到发布页下载新版解压覆盖（`~/.valimart` 里的登录态、公司盘、会话都保留）。和原版 `qwen` 互不影响。
+不要用 `ln -s` 把 `bin/valimart` 软链到别处：入口脚本按自身所在目录找 `valimart-host`，软链后会找不到。
+
+macOS 版是临时（ad-hoc）签名，没有 Apple 开发者证书，从网上下载的文件会被标记隔离，第一次运行前先去掉标记，否则会提示「无法验证开发者」：
+
+```sh
+xattr -dr com.apple.quarantine ~/.local/opt/valimart-code
+```
+
+#### 升级与卸载
+
+- 升级：下载新版，按上面同样的命令解压到同一位置覆盖。
+- 卸载：删掉解压目录（Windows 的 `%LOCALAPPDATA%\Programs\valimart-code`，Linux/macOS 的 `~/.local/opt/valimart-code`），再把 `PATH` 里那一项去掉。
+
+两种方式升级、卸载都不会动 `~/.valimart`（登录态、公司盘镜像、会话）。要彻底清除就把它也删掉。
+
+### 装好之后
+
+1. 确认公司网关已经在跑（向管理员要地址，例如 `http://192.168.1.10:8790`）。
+2. 登录：`valimart login`。它会先自动找局域网里的网关，找不到再让你填地址，然后输入公司账号和密码。
+3. 启动：在项目目录里运行 `valimart`。第一次进某个目录会问是否信任这个文件夹，选信任才能读写文件。
+
+### 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| `valimart: command not found` / 不是内部或外部命令 | `PATH` 没生效：重开终端；方式 B 检查 `PATH` 里是否有 `…/valimart-code/bin` |
+| 提示「没有装上 valimart-code-<平台>」 | npm 漏装了平台包：`npm install -g valimart-code` 重装，别加 `--omit=optional` |
+| 提示「没有 xxx 的安装包」 | 当前系统或芯片不在支持列表里，见上面的平台说明 |
+| Windows 首次运行下载失败（HTTP 4xx/5xx 或超时） | 连不上 github.com：换网络重试，或改用方式 B |
+| 启动后要求登录 | 还没登录或登录已过期：`/quit` 退出，运行 `valimart login`，再 `valimart --resume` 接着聊 |
 
 ## 使用
 
