@@ -23,6 +23,26 @@ export const PATCHES = [
     ],
   },
   {
+    // Windows 代码签名：上游在 Windows 宿主上无条件调 signtool（signWindowsBinary）。
+    // 公司没有代码签名证书，CI 也没装 Windows SDK；跳过签名，产物不签名照常可用
+    // （SmartScreen 会提示「未知发布者」，与现在的网关安装包一致）。
+    mark: 'valimart-skip-win-sign-v1',
+    file: 'scripts/bun-binary-compiler.ts',
+    edits: [
+      {
+        name: 'skip-windows-signing',
+        from: `  } else if (
+    process.platform === 'win32' &&
+    (!target || target.includes('win32') || target.includes('windows'))
+  ) {
+    signWindowsBinary(binaryPath);`,
+        to: `  } else if (process.platform === 'win32') {
+    // valimart：没有代码签名证书，跳过 signtool（上游这里无条件签名，CI 没有 Windows SDK 会失败）。
+    console.log('Skipping Windows code signing (valimart build has no certificate).');`,
+      },
+    ],
+  },
+  {
     // /auth：1.0 是 Qoder / Qwen 账号的登录入口。valimart 只走公司网关 provider，直接给提示。
     mark: 'valimart-auth-command-v1',
     file: 'packages/cli/src/auth/authPlugin.ts',
