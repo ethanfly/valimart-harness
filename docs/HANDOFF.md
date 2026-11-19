@@ -8,8 +8,9 @@
 - **隔离**：登录态在 `~/.codex/valimart-desk.json`，镜像在 `~/.codex/valimart-drive`，不与 Claude / pi 互相登出。`CODEX_HOME`、`VALIMART_DESK_STATE`、`VALIMART_DRIVE_DIR` 可覆盖。SessionStart 记录 Codex hook 载荷里的 `cwd` 到 `projectDir`，交付物相对路径按这里解析。
 - **安装**：发布包用 `npm install -g codex-valimart-desk && codex-valimart-desk install`；开发机可继续 `codex plugin marketplace add packages/codex-valimart-desk`。登录用 `codex-valimart-desk login [URL] [账号]`，密码走 `DESK_GATEWAY_PASSWORD`。
 - **发布**：包已去 private，npm 包内置 Codex marketplace；`bin/codex-valimart-desk install` 注册并安装插件。release workflow 新增 `npm-codex`，main 推送后版本比 npm 新时自动 publish。介绍页新增 Codex 导航、卡片、section 和安装步骤。
-- **验证**：包测试 10 pass；`npm pack` 23 个文件 / 19.6 kB，临时全局安装后 `codex-valimart-desk install` 通过，`codex plugin list` enabled、`codex mcp list` 显示 `desk`；缓存内 MCP initialize 和 SessionStart hook 冒烟通过。本机 `~/.codex` 已从仓库 marketplace 安装 0.1.0，当前未登录。根测试 579 项：565 pass / 11 fail / 3 skip；11 个失败是既有 Linux mixed、npm PATH、voice 路径问题，新增包全过。过程：`docs/sessions/2026-11-19-codex-company-drive.md`。
-- **未做**：真实 Codex TUI + 真实公司网关的登录 / 自动同步 / 任务卡四格没有跑；推送后要核对 `npm-codex` 和 `pages` 两个 workflow、npm 页面和介绍页链接。
+- **已上线**：提交 `a8225f7` 推 origin / gitea。npm `codex-valimart-desk@0.1.0` 可从 [registry.npmjs.org](https://www.npmjs.com/package/codex-valimart-desk) 下载；release run [44465571250](https://github.com/ethanfly/valimart-harness/actions/runs/44465571250) 和 pages run [44465571176](https://github.com/ethanfly/valimart-harness/actions/runs/44465571176) 全部成功，介绍页已包含 Codex section。
+- **验证**：包测试 10 pass；`npm pack` 23 个文件 / 19.6 kB，npm 临时全局安装后 `codex-valimart-desk install` 通过，`codex plugin list` enabled、`codex mcp list` 显示 `desk`；缓存内 MCP initialize 和 SessionStart hook 冒烟通过。本机 `~/.local` 已装 npm 0.1.0，`~/.codex` marketplace 已切到 `~/.local/lib/node_modules/codex-valimart-desk`，当前未登录。当前 Codex 会话里能发现 `mcp__desk__company_whoami`，调用返回未登录。根测试 579 项：565 pass / 11 fail / 3 skip；11 个失败是既有 Linux mixed、npm PATH、voice 路径问题，新增包全过。过程：`docs/sessions/2026-11-19-codex-company-drive.md`。
+- **未做**：真实 Codex TUI + 真实公司网关的登录 / 自动同步 / 任务卡四格没有跑。下次本机要登录时运行 `codex-valimart-desk login`，密码走 `DESK_GATEWAY_PASSWORD`。
 
 ## 2026-11-13：valimart code 欢迎页换成花标
 

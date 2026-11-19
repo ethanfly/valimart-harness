@@ -14,4 +14,5 @@
 - 根 `npm test`：579 项里 565 pass / 11 fail / 3 skip。失败为既有 Linux 环境问题（8 个 mixed 测试文件、npm PATH、voice 路径），新增包没有失败。
 - `npm pack` 得到 `codex-valimart-desk-0.1.0.tgz`，23 个文件、19.6 kB，隐藏的 `.agents` / `.codex-plugin` / `.mcp.json` 都在包内。临时 prefix 全局安装后 `codex-valimart-desk install` 成功，插件 enabled 且 MCP `desk` 注册成功。
 - release workflow 新增 `npm-codex`；介绍页新增 Codex 导航、卡片、完整 section 和安装步骤。
-- 本机真实 `~/.codex` 已从仓库 marketplace 安装 `valimart-desk@0.1.0`，`codex mcp list` 显示 `desk` enabled；当前 `valimart 未登录`。
+- 发布提交 `a8225f7` 后，`npm-codex` 发布 `codex-valimart-desk@0.1.0`；tarball integrity 是 `sha512-icLu7Ha8tWlEsXDgDa4Ya44xRAQQL3GIaizI/N7i9/TYN5q+JspdSb8T9TxpFJSUyFp+qzs3SBk2P8pZzh2kRA==`。release 和 pages workflow 都成功。
+- npm 包正式可用后，本机 `~/.local` 安装了 npm 0.1.0，并移除仓库 marketplace 后改用 `~/.local/lib/node_modules/codex-valimart-desk`。当前 Codex 会话能发现 `mcp__desk__company_whoami`，调用返回未登录，符合未登录状态。
