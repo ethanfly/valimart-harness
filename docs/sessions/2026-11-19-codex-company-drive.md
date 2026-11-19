@@ -9,7 +9,7 @@
 
 ## 验证
 
-- 包内 `node --test packages/codex-valimart-desk/test/*.test.mjs`：10 pass（新增 npm 发布布局检查）。
+- 包内 `node --test packages/codex-valimart-desk/test/*.test.mjs`：0.1.1 为 11 pass（新增 npm 发布布局检查、statusline entrypoint 与 resources/read 员工信息检查）。
 - 临时 `CODEX_HOME` 里执行 `codex plugin marketplace add packages/codex-valimart-desk` 和 `codex plugin add valimart-desk@valimart-harness-codex`：插件安装并 enabled，`codex mcp list` 显示 `desk`。
 - 安装缓存里 MCP initialize 返回协议 `2025-06-18`、版本 `0.1.0` 和 instructions；SessionStart hook 正确注入未登录提示并把 cwd 记到 `projectDir`。
 - 根 `npm test`：579 项里 565 pass / 11 fail / 3 skip。失败为既有 Linux 环境问题（8 个 mixed 测试文件、npm PATH、voice 路径），新增包没有失败。
@@ -17,3 +17,4 @@
 - release workflow 新增 `npm-codex`；介绍页新增 Codex 导航、卡片、完整 section 和安装步骤。
 - 发布提交 `a8225f7` 后，`npm-codex` 发布 `codex-valimart-desk@0.1.0`；tarball integrity 是 `sha512-icLu7Ha8tWlEsXDgDa4Ya44xRAQQL3GIaizI/N7i9/TYN5q+JspdSb8T9TxpFJSUyFp+qzs3SBk2P8pZzh2kRA==`。release 和 pages workflow 都成功。
 - npm 包正式可用后，本机 `~/.local` 安装了 npm 0.1.0，并移除仓库 marketplace 后改用 `~/.local/lib/node_modules/codex-valimart-desk`。当前 Codex 会话能发现 `mcp__desk__company_whoami`，调用返回未登录，符合未登录状态。
+- 0.1.1 提交 `a380dc1` 后 npm 与 Pages 发布成功；本机升级到 0.1.1。MCP 实测 `tools/list` 15 个工具，`company_hud` entrypoint 指向 `ui://valimart-desk/footer`，`resources/read` 返回姓名、账号、角色、公司和额度。当前登录态为 ethan / admin / ValimartHarness。
