@@ -281,7 +281,7 @@ TUI 标题为 **valimart pi desk**（惠利玛花标）。在 pi 里：
 
 ### 5. Codex CLI
 
-源码在 [`packages/codex-valimart-desk`](packages/codex-valimart-desk)。通过 stdio MCP 接入公司盘镜像、知识检索、个人 / 共享记忆和任务卡；任务卡默认不强制，手动绑定后才走四格验收。
+源码在 [`packages/codex-valimart-desk`](packages/codex-valimart-desk)。通过 stdio MCP 接入公司盘镜像、知识检索、个人 / 共享记忆和任务卡；插件 skills 暴露 `/valimart-desk:desk-*` 操作；自定义 statusline 显示公司员工信息。任务卡默认不强制，手动绑定后才走四格验收。
 
 ```bash
 npm install -g codex-valimart-desk
@@ -289,7 +289,7 @@ codex-valimart-desk install
 DESK_GATEWAY_PASSWORD=... codex-valimart-desk login http://127.0.0.1:8790 <账号>
 ```
 
-新开 Codex 会话即可看到 `desk` MCP。登录态在 `~/.codex/valimart-desk.json`，公司盘镜像在 `~/.codex/valimart-drive`。完整说明：[`packages/codex-valimart-desk/README.md`](packages/codex-valimart-desk/README.md)。
+新开 Codex 会话即可看到 `desk` MCP。登录态在 `~/.codex/valimart-desk.json`，公司盘镜像在 `~/.codex/valimart-drive`。可用 `/valimart-desk:desk-login`、`/valimart-desk:desk-status`、`/valimart-desk:desk-sync` 等命令。自定义 HUD 先在 `/experimental` 打开 Custom status line，重启后到 `/statusline` 选择 `valimart desk HUD`。完整说明：[`packages/codex-valimart-desk/README.md`](packages/codex-valimart-desk/README.md)。
 
 ### 6. VS Code 插件
 

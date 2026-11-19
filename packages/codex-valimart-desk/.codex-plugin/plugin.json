@@ -1,6 +1,6 @@
 {
   "name": "valimart-desk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "公司网关登录、公司盘镜像与知识 / 记忆 / 任务卡工具（MCP），并在 Codex 会话开始注入公司上下文。",
   "author": { "name": "ethanfly" },
   "license": "UNLICENSED",

@@ -7,6 +7,7 @@ import { zoneRoot } from './drive-paths.mjs'
 import { writeFileAtomic } from './drive-mirror.mjs'
 import { getMirror, syncDrive } from './drive-runtime.mjs'
 import { loadState, publicView, saveState } from './state.mjs'
+import { quotaLine } from './whoami.mjs'
 
 const str = (description, extra = {}) => ({ type: 'string', description, ...extra })
 const num = (description) => ({ type: 'number', description })
@@ -14,6 +15,24 @@ const bool = (description) => ({ type: 'boolean', description })
 const enumOf = (values, description) => ({ type: 'string', enum: values, description })
 const ok = (text, details) => ({ content: [{ type: 'text', text }], ...(details === undefined ? {} : { details }) })
 const personName = (person) => (person && typeof person === 'object' ? person.displayName || person.username : person) ?? null
+export const HUD_URI = 'ui://valimart-desk/footer'
+
+export function hudTree(state = loadState()) {
+  if (!state?.sessionToken || !state?.user) return { type: 'text', props: { color: 'status-metadata' }, children: ['valimart 未登录'] }
+  const user = state.user
+  const parts = [
+    `valimart ${user.displayName || user.username}`,
+    user.username && user.username !== (user.displayName || user.username) ? `(${user.username})` : '',
+    user.roleLabel ?? user.role ?? '',
+    state.company?.name ?? '',
+    quotaLine(state.quota),
+  ].filter(Boolean)
+  return {
+    type: 'row',
+    props: { gap: 1, wrap: 'wrap' },
+    children: parts.map((part, index) => ({ type: 'text', props: { color: index === 0 ? 'status-model' : 'status-metadata' }, children: [part] })),
+  }
+}
 
 function fail(err) {
   let text = err instanceof Error ? err.message : String(err)
@@ -63,6 +82,17 @@ function workspaceDir() {
 }
 
 export const TOOLS = [
+  {
+    name: 'company_hud',
+    title: 'valimart desk HUD',
+    readOnly: true,
+    description: 'Codex 底部 statusline：显示 valimart 登录姓名、账号、角色、公司和额度。选择 statusline provider 时使用。',
+    inputSchema: { type: 'object', properties: {} },
+    _meta: { 'openai/ui': { entrypoints: [{ type: 'statusline', resourceUri: HUD_URI }] } },
+    async run() {
+      try { return ok(JSON.stringify(hudTree()), hudTree()) } catch (err) { return fail(err) }
+    },
+  },
   {
     name: 'company_whoami', readOnly: true, description: '查看当前公司网关登录账号、公司名和本周额度。密钥不会返回。', inputSchema: { type: 'object', properties: {} },
     async run() { try { return ok(JSON.stringify(publicView(await fetchMe()), null, 2), publicView(loadState())) } catch (err) { return fail(err) } },
@@ -232,7 +262,14 @@ export const TOOLS = [
 ]
 
 export const TOOL_NAMES = TOOLS.map((tool) => tool.name)
-export const listTools = () => TOOLS.map(({ name, description, inputSchema, readOnly }) => ({ name, description, inputSchema, ...(readOnly ? { annotations: { readOnlyHint: true } } : {}) }))
+export const listTools = () => TOOLS.map(({ name, title, description, inputSchema, readOnly, _meta }) => ({
+  name,
+  ...(title ? { title } : {}),
+  description,
+  inputSchema,
+  ...(readOnly ? { annotations: { readOnlyHint: true } } : {}),
+  ...(_meta ? { _meta } : {}),
+}))
 export const findTool = (name) => TOOLS.find((tool) => tool.name === name) ?? null
 export async function callTool(name, args) {
   const tool = findTool(name)

@@ -10,7 +10,7 @@ import { assertDecision, canFinalize, canReview, canSubmit, hasDeliverables, rev
 import { peopleOptions, personIdFromChoice } from '../lib/people-options.mjs'
 import { zoneRoot } from '../lib/drive-paths.mjs'
 import { isLoggedIn, loadState, publicView, saveState, statePath } from '../lib/state.mjs'
-import { callTool, listTools, TOOL_NAMES } from '../lib/tools.mjs'
+import { callTool, HUD_URI, hudTree, listTools, TOOL_NAMES } from '../lib/tools.mjs'
 import { companyDrivePrompt, MCP_INSTRUCTIONS } from '../lib/company-prompt.mjs'
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
@@ -161,6 +161,9 @@ describe('codex MCP shell', () => {
     const response = await jsonRpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
     assert.equal(response.message.result.tools.length, TOOL_NAMES.length)
     for (const name of ['company_knowledge', 'company_memory_write', 'company_drive_sync', 'company_task_submit']) assert.ok(TOOL_NAMES.includes(name))
+    const hud = response.message.result.tools.find((tool) => tool.name === 'company_hud')
+    assert.equal(hud.title, 'valimart desk HUD')
+    assert.deepEqual(hud._meta['openai/ui'].entrypoints, [{ type: 'statusline', resourceUri: HUD_URI }])
   })
 
   it('calls whoami through the gateway and keeps tokens out of the result', async () => {
@@ -170,6 +173,19 @@ describe('codex MCP shell', () => {
     assert.match(text, /emp-a/)
     assert.equal(text.includes('session-secret'), false)
     assert.equal(loadState().user.username, 'emp-a')
+  })
+
+  it('serves the logged-in employee identity to the Codex statusline', async () => {
+    const listed = await jsonRpc({ jsonrpc: '2.0', id: 21, method: 'resources/list' })
+    assert.deepEqual(listed.message.result.resources, [{ uri: HUD_URI, name: 'valimart desk HUD', mimeType: 'application/json' }])
+    const response = await jsonRpc({ jsonrpc: '2.0', id: 22, method: 'resources/read', params: { uri: HUD_URI } })
+    const content = response.message.result.contents[0]
+    assert.equal(content.uri, HUD_URI)
+    const tree = JSON.parse(content.text)
+    assert.equal(tree.type, 'row')
+    assert.match(JSON.stringify(tree), /valimart 员工A/)
+    assert.match(JSON.stringify(tree), /emp-a/)
+    assert.deepEqual(hudTree().children[0].children, ['valimart 员工A'])
   })
 
   it('passes tool errors back as MCP results', async () => {
@@ -187,6 +203,10 @@ describe('codex MCP shell', () => {
     assert.equal(mcp.mcpServers.desk.command, 'node')
     assert.match(fs.readFileSync(path.join(root, 'skills/company-briefing/SKILL.md'), 'utf8'), /name: company-briefing/)
     assert.match(MCP_INSTRUCTIONS, /company_knowledge/)
+    for (const name of ['desk-login', 'desk-logout', 'desk-status', 'desk-discover', 'desk-sync', 'desk-tasks', 'desk-task', 'desk-task-submit', 'desk-task-review', 'desk-task-final', 'desk-hud']) {
+      const skill = fs.readFileSync(path.join(root, `skills/${name}/SKILL.md`), 'utf8')
+      assert.match(skill, new RegExp(`name: ${name}`))
+    }
   })
 })
 

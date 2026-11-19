@@ -4,7 +4,7 @@
 
 ## 2026-11-19：Codex 公司盘插件
 
-- **新增**：`packages/codex-valimart-desk` v0.1.0。适配 Codex CLI 0.170 的原生插件机制：`.codex-plugin/plugin.json` + `.mcp.json` + SessionStart hook。公司盘、知识、记忆、任务卡的 14 个 `company_*` 工具由 stdio MCP `desk` 提供；实现口径参考 Claude 和 pi 包。
+- **新增**：`packages/codex-valimart-desk` v0.1.1。适配 Codex CLI 0.170 的原生插件机制：`.codex-plugin/plugin.json` + `.mcp.json` + SessionStart hook。公司盘、知识、记忆、任务卡和 HUD 共 15 个 `company_*` 工具由 stdio MCP `desk` 提供；实现口径参考 Claude 和 pi 包。skills 暴露 `/valimart-desk:desk-login`、`desk-status`、`desk-sync`、`desk-task` 等操作。
 - **隔离**：登录态在 `~/.codex/valimart-desk.json`，镜像在 `~/.codex/valimart-drive`，不与 Claude / pi 互相登出。`CODEX_HOME`、`VALIMART_DESK_STATE`、`VALIMART_DRIVE_DIR` 可覆盖。SessionStart 记录 Codex hook 载荷里的 `cwd` 到 `projectDir`，交付物相对路径按这里解析。
 - **安装**：发布包用 `npm install -g codex-valimart-desk && codex-valimart-desk install`；开发机可继续 `codex plugin marketplace add packages/codex-valimart-desk`。登录用 `codex-valimart-desk login [URL] [账号]`，密码走 `DESK_GATEWAY_PASSWORD`。
 - **发布**：包已去 private，npm 包内置 Codex marketplace；`bin/codex-valimart-desk install` 注册并安装插件。release workflow 新增 `npm-codex`，main 推送后版本比 npm 新时自动 publish。介绍页新增 Codex 导航、卡片、section 和安装步骤。

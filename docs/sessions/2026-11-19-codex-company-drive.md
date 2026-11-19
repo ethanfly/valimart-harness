@@ -4,7 +4,8 @@
 - 插件 manifest 是 `.codex-plugin/plugin.json`；MCP 在 `.mcp.json`，hook 在 `hooks/hooks.json`，本地 marketplace 清单在 `.agents/plugins/marketplace.json`。
 - 登录态写 `~/.codex/valimart-desk.json`（0600），镜像写 `~/.codex/valimart-drive`，可用 `CODEX_HOME`、`VALIMART_DESK_STATE`、`VALIMART_DRIVE_DIR` 覆盖。
 - SessionStart 读取 hook 载荷的 `cwd` 写入 `projectDir`，让 `company_task_attach` 在 Codex 里也能解析相对路径。MCP 启动后默认 30 秒后台同步。
-- 提供 14 个 `company_*` 工具；任务卡默认不强制、不自动绑定，只有 CLI 绑定后才进入四格。
+- 0.1.1 提供 15 个 `company_*` 工具；新增 `/valimart-desk:desk-*` skills（登录、登出、状态、发现、同步、任务列表 / 绑定 / 三段审核），并用 MCP `resources/read` 提供 Codex custom statusline。已登录 HUD 显示 `valimart 姓名（账号）· 角色 · 公司 · 额度`。任务卡默认不强制、不自动绑定，只有 CLI 绑定后才进入四格。
+- Codex 0.170 的自定义 statusline 要先在 `/experimental` 打开 `tui_extensions_statusline`，重启后在 `/statusline` 选择 `valimart desk HUD`；这是宿主当前限制，不是插件可以静默打开的 UI。
 
 ## 验证
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { MCP_INSTRUCTIONS } from '../lib/company-prompt.mjs'
 import { driveLog, syncDrive } from '../lib/drive-runtime.mjs'
 import { isLoggedIn, loadState } from '../lib/state.mjs'
-import { callTool, findTool, listTools } from '../lib/tools.mjs'
+import { callTool, findTool, HUD_URI, hudTree, listTools } from '../lib/tools.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const version = (() => {
@@ -54,7 +54,7 @@ async function handle(msg) {
     case 'initialize':
       return reply(id, {
         protocolVersion: PROTOCOL_VERSIONS.includes(params?.protocolVersion) ? params.protocolVersion : '2025-06-18',
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, resources: {} },
         serverInfo: { name: 'valimart-desk', version },
         instructions: MCP_INSTRUCTIONS,
       })
@@ -68,6 +68,16 @@ async function handle(msg) {
       } catch (err) {
         return reply(id, { content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }], isError: true })
       }
+    }
+    case 'resources/list':
+      return reply(id, { resources: [{ uri: HUD_URI, name: 'valimart desk HUD', mimeType: 'application/json' }] })
+    case 'resources/templates/list':
+      return reply(id, { resourceTemplates: [] })
+    case 'resources/read': {
+      if (params?.uri !== HUD_URI) return replyError(id, -32602, `未知资源 ${params?.uri}`)
+      return reply(id, {
+        contents: [{ uri: HUD_URI, mimeType: 'application/json', text: JSON.stringify(hudTree()) }],
+      })
     }
     default: return replyError(id, -32601, `不支持的方法 ${method}`)
   }

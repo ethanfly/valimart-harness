@@ -319,7 +319,7 @@
     <section id="codex">
       <div class="sec-label">04 / codex plugin</div>
       <h2>Codex 插件 · valimart codex desk</h2>
-      <p class="lead">在 Codex CLI 里接公司盘：自带 stdio MCP <code>desk</code>，提供 14 个 <code>company_*</code> 工具。登录态和镜像与 Claude / pi 完全分开，公司盘每 30 秒后台同步。</p>
+      <p class="lead">在 Codex CLI 里接公司盘：自带 stdio MCP <code>desk</code>，提供 15 个 <code>company_*</code> 工具。登录态和镜像与 Claude / pi 完全分开，公司盘每 30 秒后台同步。</p>
       <div class="cards">
         <article>
           <h3>安装</h3>
@@ -334,11 +334,11 @@
         </article>
         <article>
           <h3>盘、知识与任务</h3>
-          <p>镜像在 <code>~/.codex/valimart-drive</code>。四层知识检索、个人 / 共享记忆、任务卡交付物与四格验收都是 Agent 工具；任务卡默认不强制。</p>
+          <p>镜像在 <code>~/.codex/valimart-drive</code>。<code>/valimart-desk:desk-login</code>、<code>desk-status</code>、<code>desk-sync</code>、<code>desk-task</code> 等 slash 操作直接可用；任务卡默认不强制。</p>
         </article>
         <article>
           <h3>命令</h3>
-          <p><code>codex-valimart-desk status</code> 看登录身份；<code>sync</code> 立即同步；<code>task &lt;ID&gt;</code> 手动绑定后才走四格验收。</p>
+          <p>CLI 有 <code>status</code>、<code>sync</code>、<code>task &lt;ID&gt;</code>；slash 命令同名走 <code>/valimart-desk:desk-*</code>。底部 HUD 在 <code>/experimental</code> 打开 Custom status line 后到 <code>/statusline</code> 选择 valimart desk HUD。</p>
         </article>
       </div>
     </section>
