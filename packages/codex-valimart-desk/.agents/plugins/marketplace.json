@@ -1,0 +1,13 @@
+{
+  "name": "valimart-harness-codex",
+  "description": "惠利玛公司网关的 Codex 插件",
+  "interface": { "displayName": "valimart harness" },
+  "plugins": [
+    {
+      "name": "valimart-desk",
+      "source": { "source": "local", "path": "." },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
+      "category": "Productivity"
+    }
+  ]
+}

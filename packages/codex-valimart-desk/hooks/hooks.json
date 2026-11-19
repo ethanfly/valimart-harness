@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/scripts/session-context.mjs\"", "timeout": 5 }]
+      }
+    ]
+  }
+}

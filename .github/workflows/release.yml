@@ -231,3 +231,36 @@ jobs:
           fi
           npm publish --access public
           echo "published pi-valimart-desk@$LOCAL"
+
+  npm-codex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/codex-valimart-desk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Test codex-valimart-desk
+        run: node --test test/*.test.mjs
+      - name: Publish codex-valimart-desk if version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          LOCAL=$(node -p "require('./package.json').version")
+          REMOTE=$(npm view codex-valimart-desk version --registry https://registry.npmjs.org 2>/dev/null || echo "")
+          echo "local=$LOCAL remote=${REMOTE:-none}"
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "skip publish: 未配置 Secrets.NPM_TOKEN"
+            exit 0
+          fi
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "skip publish: npm 已是 $LOCAL"
+            exit 0
+          fi
+          npm publish --access public
+          echo "published codex-valimart-desk@$LOCAL"

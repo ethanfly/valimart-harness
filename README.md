@@ -13,7 +13,7 @@
   <img alt="Kernel" src="https://img.shields.io/badge/dsh-0.2.0--rc.1-1484fc">
 </p>
 
-本仓库是公司自己的桌面客户端 + 公司网关 + pi 包 + VS Code 插件。**介绍页**：[ethanfly.github.io/valimart-harness](https://ethanfly.github.io/valimart-harness/)（源码 [`docs/intro/`](docs/intro/)）。**安装包**：[Releases](https://github.com/ethanfly/valimart-harness/releases/latest)。
+本仓库是公司自己的桌面客户端 + 公司网关 + pi 包 + Codex 插件 + VS Code 插件。**介绍页**：[ethanfly.github.io/valimart-harness](https://ethanfly.github.io/valimart-harness/)（源码 [`docs/intro/`](docs/intro/)）。**安装包**：[Releases](https://github.com/ethanfly/valimart-harness/releases/latest)。
 
 内核是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh@0.2.0-rc.1`），由本仓库安装并打公司补丁，**不必再克隆上游**。二次开发起点是 [TDHarness-coding](https://github.com/398894496-arch/TDHarness-coding)。
 
@@ -31,6 +31,7 @@
 | 管理员 / 总监 | 同一客户端 + 管理页 `http://<网关>:8790/admin` |
 | 公司服务器 | 网关服务（Windows 安装包，或树莓派 Docker） |
 | 只要 CLI | [pi](https://github.com/earendil-works/pi) + `pi install npm:pi-valimart-desk`（登录公司网关、选模型） |
+| Codex CLI | `codex-valimart-desk`（公司盘镜像、知识、记忆、任务卡） |
 
 **产品能力一览**
 
@@ -79,6 +80,7 @@ company-harness/                 # npm 包名仍是 company-desk
 │  └─ build-*.mjs                # 安装包流水线
 ├─ e2e/                          # Playwright
 ├─ packages/pi-valimart-desk/    # pi CLI 包：公司网关登录 / 模型 / 知识 / 任务卡
+├─ packages/codex-valimart-desk/ # Codex 插件：公司盘镜像 / 知识 / 记忆 / 任务卡
 ├─ packages/vscode/              # VS Code 插件（侧边栏工作台，打 vsix）
 └─ docs/                         # 交接、会话记录、介绍页、设计与计划
 ```
@@ -277,7 +279,19 @@ TUI 标题为 **valimart pi desk**（惠利玛花标）。在 pi 里：
 
 登录态在 `~/.pi/agent/valimart-desk.json`（只有会话令牌和网关令牌，没有上游密钥）。完整说明：[`packages/pi-valimart-desk/README.md`](packages/pi-valimart-desk/README.md)。
 
-### 5. VS Code 插件
+### 5. Codex CLI
+
+源码在 [`packages/codex-valimart-desk`](packages/codex-valimart-desk)。通过 stdio MCP 接入公司盘镜像、知识检索、个人 / 共享记忆和任务卡；任务卡默认不强制，手动绑定后才走四格验收。
+
+```bash
+npm install -g codex-valimart-desk
+codex-valimart-desk install
+DESK_GATEWAY_PASSWORD=... codex-valimart-desk login http://127.0.0.1:8790 <账号>
+```
+
+新开 Codex 会话即可看到 `desk` MCP。登录态在 `~/.codex/valimart-desk.json`，公司盘镜像在 `~/.codex/valimart-drive`。完整说明：[`packages/codex-valimart-desk/README.md`](packages/codex-valimart-desk/README.md)。
+
+### 6. VS Code 插件
 
 源码在 [`packages/vscode`](packages/vscode)。侧边栏登录公司网关、对话、改当前工作区；任务卡四格验收。不内嵌 DSH，密钥仍只在网关。
 

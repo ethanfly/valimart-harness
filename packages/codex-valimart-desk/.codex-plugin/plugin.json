@@ -1,0 +1,19 @@
+{
+  "name": "valimart-desk",
+  "version": "0.1.0",
+  "description": "公司网关登录、公司盘镜像与知识 / 记忆 / 任务卡工具（MCP），并在 Codex 会话开始注入公司上下文。",
+  "author": { "name": "ethanfly" },
+  "license": "UNLICENSED",
+  "keywords": ["valimart", "company-desk", "codex"],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "valimart desk",
+    "shortDescription": "公司盘、知识与任务卡",
+    "longDescription": "连接 valimart harness 公司网关：同步本人可见公司盘到本机，提供企业知识检索、个人 / 共享记忆读写和四格任务卡工具。",
+    "developerName": "ethanfly",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"]
+  }
+}

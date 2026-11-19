@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "desk": {
+      "command": "node",
+      "args": ["scripts/mcp-server.mjs"],
+      "cwd": ".",
+      "startup_timeout_sec": 30,
+      "env_vars": ["CODEX_HOME", "DESK_GATEWAY_URL", "DESK_GATEWAY_USER", "DESK_GATEWAY_PASSWORD", "VALIMART_DESK_STATE", "VALIMART_DRIVE_DIR", "VALIMART_DRIVE_SYNC_MS"]
+    }
+  }
+}
