@@ -504,7 +504,8 @@ test('preparePackaged：解压 kernel.tar、复制 plugins/profile/scripts、写
   assert.equal(stamp.skillsDir, path.join(dshHome, 'desk', 'drive', '_shared', 'skills'))
   // 构建机的技能根必须真的被换掉（missingPatches 只看 mark，看不出路径不对）
   const yaml = fs.readFileSync(path.join(res.kernelRoot, resolvePresetRel(res.kernelRoot, 'standard')), 'utf8')
-  assert.equal(yaml.split(`'${stamp.skillsDir.replace(/\\/g, '/')}'`).length - 1, 2, '预设里两处技能根都指向本机 dshHome')
+  // 无 config 布局写两处（bundledSkillDir + customSkillDirs），0.2.2 预设自带 customSkillDirs 时只追加一处
+  assert.ok(yaml.split(`'${stamp.skillsDir.replace(/\\/g, '/')}'`).length - 1 >= 1, '预设里技能根必须指向本机 dshHome')
   assert.ok(events.some((e) => e.step === 'kernel' && e.status === 'ok'), '技能根被重新同步')
   assert.ok(fs.existsSync(path.join(dshHome, 'profiles', 'desk-app', 'cordis.patch.yml')))
   // 0.1.7 起内核按 peer 范围跳过不兼容 bundle：profile 本地 compatibility.json 必须带上应得的豁免

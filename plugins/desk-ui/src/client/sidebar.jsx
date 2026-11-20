@@ -16,6 +16,75 @@ import { NewTaskDialog } from './tasks.jsx'
 import { STATUS_LABEL } from './tasks.jsx'
 import { clientVersionDetail, clientVersionLabel, kernelVersionLabel } from './version.js'
 
+// 0.2.2 起 sidebar.workspaces 槽要求宿主经 hookContext 提供 useSectionScroller（滚动接力）；
+// 缺了它 WorkspaceBrowser 直接抛错被错误边界吞成空白侧栏。移植官方 ui-sidebar 的 createScrollHandoff。
+const SCROLL_GESTURE_GAP_MS = 100
+
+function verticalWheelPixels(event, page) {
+  if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return undefined
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * page
+  return event.deltaY
+}
+
+function scrollClamped(element, delta) {
+  const before = element.scrollTop
+  element.scrollTop = before + delta
+  return element.scrollTop - before
+}
+
+function atEnd(viewport) {
+  return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 1
+}
+
+function createScrollHandoff() {
+  let scroller = null
+  let releaseViewport
+  let lastSplit = Number.NEGATIVE_INFINITY
+  const handle = (viewport, event) => {
+    if (scroller === null || event.defaultPrevented) return
+    const delta = verticalWheelPixels(event, viewport.clientHeight)
+    if (delta === undefined || delta === 0) return
+    if (!(event.cancelable && event.timeStamp - lastSplit < SCROLL_GESTURE_GAP_MS)) {
+      const native = atEnd(viewport) && scroller.contains(event.target)
+      if (native && (delta > 0 || scroller.scrollTop + delta >= 0)) return
+      if (!event.cancelable) {
+        if (native) scrollClamped(viewport, delta + scroller.scrollTop)
+        return
+      }
+    }
+    event.preventDefault()
+    lastSplit = event.timeStamp
+    if (delta > 0) {
+      const rest = delta - scrollClamped(viewport, delta)
+      if (rest > 0) scrollClamped(scroller, rest)
+      return
+    }
+    const rest = delta - scrollClamped(scroller, delta)
+    if (rest < 0) scrollClamped(viewport, rest)
+  }
+  const sectionScroller = {
+    bindScrollerRef: (element) => {
+      scroller = element
+    },
+  }
+  return {
+    bindViewportRef: (element) => {
+      releaseViewport?.()
+      releaseViewport = undefined
+      if (element === null) return
+      const onWheel = (event) => {
+        handle(element, event)
+      }
+      element.addEventListener('wheel', onWheel, { passive: false })
+      releaseViewport = () => {
+        element.removeEventListener('wheel', onWheel)
+      }
+    },
+    useSectionScroller: () => sectionScroller,
+  }
+}
+
 function WorkspaceGitSync({ rootRef }) {
   const loggedIn = useStoreValue(deskStore, (s) => s.desk?.loggedIn)
   useEffect(() => {
@@ -63,6 +132,8 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
   const desk = useStoreValue(deskStore, (s) => s.desk)
   const tasks = useStoreValue(deskStore, (s) => s.tasks)
   const rootRef = useRef(null)
+  const [scrollHandoff] = useState(createScrollHandoff)
+  const sectionHookContext = useMemo(() => ({ useSectionScroller: scrollHandoff.useSectionScroller }), [scrollHandoff])
   const wide = !collapsed
   const openTasks = tasks.filter((t) => t.status !== 'approved' && t.status !== 'rejected').length
 
@@ -97,8 +168,8 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
         >
           <IconTask />
         </button>
-        <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-          {tab === 'sessions' && renderSlot('sidebar.workspaces', { wide: false, expandSidebar: toggleSidebar })}
+        <div ref={scrollHandoff.bindViewportRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+          {tab === 'sessions' && renderSlot('sidebar.workspaces', { wide: false, expandSidebar: toggleSidebar }, { hookContext: sectionHookContext })}
         </div>
         {renderSlot('sidebar.footer.action', { wide: false })}
         <div className="dk-account-settings compact">{renderSlot('sidebar.settings', { wide: false })}<DeskUserChip wide={false} /></div>
@@ -130,9 +201,9 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
           </button>
         </div>
       </div>
-      <div className="dk-side-body">
+      <div ref={scrollHandoff.bindViewportRef} className="dk-side-body">
         <div style={{ display: tab === 'sessions' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
-          {renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} })}
+          {renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} }, { hookContext: sectionHookContext })}
         </div>
         {tab === 'tasks' && <TaskList tasks={tasks} desk={desk} />}
       </div>

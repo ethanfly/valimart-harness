@@ -65,3 +65,13 @@ api-merge 第二张截图显示 grok-4.7 失败集中在 270–282s（输入 ≈
 - **CI 结果**：run `44699548915`（commit `772279e`，含 pi-ai 补丁）构建成功；`windows-installers` 产物含客户端 `valimart-harness-Setup-0.1.0-20261120.0814.exe`（652,074,582 B，sha256 `194a10dd15b3cee446eb192b0c51a6ddfe10414d8b9cf90c840daf74140b535b`）与网关安装器。
 - **坑**：`/api/admin/client/publish` 的 `readBody` 上限 512MB，652MB 正式包被拒「request body too large」。已把部署机上 `server/src/api.js` 就地改 1GB + restart，并把同样改动提交回仓库（`80f5ec9`）。服务器留有 `api.js.bak-600cap` 备份。
 - **已发布**：buildId `0.1.0+0.2.2-rc.5.20261120-0814.4f9c5ef8`，publishedAt `2026-11-20T08:59:44Z`，`/api/client/current` 已切到该 build（previous 记录本机打的 `0740.cec2ec67`）。
+
+## 追加：侧栏会话列表空白（0.2.2 hookContext 契约）
+
+同事升级 0.2.2 后报告「会话列表全空」，疑似官方 dsh 动过会话列表导致。实际排查：
+
+- `C:\Users\21333\.dsh\sessions` 下所有会话目录与文件完好（数十个 `session-*`），日志无任何 `legacyLayout`/`encodingMismatch`/持久化错误——排除删除、归档、格式冲突。
+- 真因：**0.2.2 给 `sidebar.workspaces` 槽加了 `hookContext: SidebarSectionHookContext` 契约**。官方侧栏 `renderSlot('sidebar.workspaces', {wide, expandSidebar}, {hookContext: {useSectionScroller}})` 注入滚动接力；`WorkspaceBrowser` 无条件 `useSectionScroller()`，缺 hook 即抛 `TypeError`，整块被错误边界吞成空白。
+- 公司 `DeskSidebar` 替换官方侧栏但只传两参 → 升级后必空白。同事的第三方 AI 在他本机打了同类补丁（列表恢复）。
+- 仓库修复：`sidebar.jsx` 移植官方 `createScrollHandoff` 全套（`verticalWheelPixels`/`scrollClamped`/`atEnd`/GESTURE_GAP_MS=100），`useState` 持实例、`useMemo` 组 `hookContext`，两处 `sidebar.workspaces`（rail `wide:false` + wide `wide:true`）都补第三参；`bindViewportRef` 挂 rail 内列与 `dk-side-body`。`npm run build` 重打 `plugins/desk-ui/lib/client.js`。
+- 附带修正：`bootstrap.test.mjs` 断言预设里公司技能根恰好两处——0.2.2 `standard.patch.yml` 已自带 `customSkillDirs`（`!!js` 解析 agent-preset 技能），补丁走「追加一处」分支，断言改 `>=1`。
