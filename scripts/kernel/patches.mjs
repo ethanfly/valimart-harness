@@ -715,6 +715,87 @@ export const CODE_PATCHES = [
       },
     ],
   },
+  {
+    // @earendil-works/pi-ai 的 OpenAI 客户端默认走全局 fetch(undici)：headersTimeout /
+    // bodyTimeout 各 ~300s（本机实测 301s 触发 UND_ERR_HEADERS_TIMEOUT / UND_ERR_BODY_TIMEOUT）。
+    // 大上下文推理停滞超 5 分钟时，内核→网关这条腿会在 300s 被掐断，streamIdleTimeoutMs
+    // 放宽到 600s 也救不到这层。注入核心 http/https 实现去掉该 cap，只随 signal 取消；
+    // 不自动跟重定向，避免 Authorization 被带去别的主机。
+    file: path.join('node_modules', '@earendil-works', 'pi-ai', 'dist', 'api', 'openai-completions.js'),
+    mark: 'company-pi-ai-uncapped-fetch-v1',
+    append: '\n// --- company-pi-ai-uncapped-fetch-v1 (' + SEE + ') ---\n',
+    edits: [
+      {
+        name: 'inject-core-fetch',
+        from: 'import OpenAI from "openai";',
+        to:
+          'import OpenAI from "openai";\n' +
+          'import http from "node:http";\n' +
+          'import https from "node:https";\n' +
+          'import { Readable } from "node:stream";\n' +
+          '/* company-pi-ai-uncapped-fetch-v1: 全局 fetch(undici) 默认 headersTimeout/bodyTimeout\n' +
+          ' * 各 ~300s，大上下文推理停滞会被拦腰断开；核心 http/https 无闲置超时，只随 signal\n' +
+          ' * 取消，不自动跟重定向（避免 Authorization 被带去别的主机）。接口与 fetch 一致。 */\n' +
+          'function companyUpstreamFetch(url, init = {}) {\n' +
+          '    const { method = "GET", headers: rawHeaders = {}, body, signal } = init;\n' +
+          '    const plainHeaders = rawHeaders instanceof Headers\n' +
+          '        ? Object.fromEntries(rawHeaders.entries())\n' +
+          '        : Array.isArray(rawHeaders)\n' +
+          '            ? Object.fromEntries(rawHeaders)\n' +
+          '            : { ...rawHeaders };\n' +
+          '    const len =\n' +
+          '        typeof body === "string" || Buffer.isBuffer(body) || body instanceof Uint8Array || body instanceof ArrayBuffer\n' +
+          '            ? Buffer.byteLength(body)\n' +
+          '            : undefined;\n' +
+          '    return new Promise((resolve, reject) => {\n' +
+          '        const mod = String(url).startsWith("https:") ? https : http;\n' +
+          '        const req = mod.request(\n' +
+          '            url,\n' +
+          '            { method, headers: { ...plainHeaders, ...(len !== undefined ? { "content-length": len } : {}) } },\n' +
+          '            (res) => {\n' +
+          '                const status = res.statusCode ?? 0;\n' +
+          '                const hs = new Headers();\n' +
+          '                for (let i = 0; i < res.rawHeaders.length; i += 2) hs.append(res.rawHeaders[i], res.rawHeaders[i + 1]);\n' +
+          '                const noBody = status === 204 || status === 304 || method === "HEAD";\n' +
+          '                resolve(\n' +
+          '                    new Response(noBody ? null : Readable.toWeb(res), {\n' +
+          '                        status: status >= 200 && status <= 599 ? status : 502,\n' +
+          '                        statusText: res.statusMessage,\n' +
+          '                        headers: hs,\n' +
+          '                    }),\n' +
+          '                );\n' +
+          '            },\n' +
+          '        );\n' +
+          '        req.on("error", reject);\n' +
+          '        if (signal) {\n' +
+          '            const reason = () => new DOMException("The operation was aborted.", "AbortError");\n' +
+          '            if (signal.aborted) {\n' +
+          '                req.destroy();\n' +
+          '                reject(reason());\n' +
+          '                return;\n' +
+          '            }\n' +
+          '            const onAbort = () => req.destroy(reason());\n' +
+          '            signal.addEventListener("abort", onAbort, { once: true });\n' +
+          '            req.on("close", () => signal.removeEventListener("abort", onAbort));\n' +
+          '        }\n' +
+          '        if (body != null) {\n' +
+          '            if (typeof body.getReader === "function") {\n' +
+          '                Readable.fromWeb(body).pipe(req);\n' +
+          '                return;\n' +
+          '            }\n' +
+          '            req.write(body instanceof ArrayBuffer ? new Uint8Array(body) : body);\n' +
+          '        }\n' +
+          '        req.end();\n' +
+          '    });\n' +
+          '}\n',
+      },
+      {
+        name: 'use-core-fetch',
+        from: '        fetch,\n        defaultHeaders: headers,',
+        to: '        fetch: fetch ?? companyUpstreamFetch,\n        defaultHeaders: headers,',
+      },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------------------------

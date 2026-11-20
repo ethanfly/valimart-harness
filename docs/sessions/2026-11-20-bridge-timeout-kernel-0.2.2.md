@@ -53,7 +53,7 @@ api-merge 第二张截图显示 grok-4.7 失败集中在 270–282s（输入 ≈
 - **DSH 侧**：`plugins/desk-host/lib/index.js` 的 `configureLlmRoute` 给每个 provider 路由写 `streamIdleTimeoutMs: 600_000`（llm-pi-ai 默认 300s，逐 chunk 重置的 idleWatchdog）。本机现网 profile `~/.dsh/profiles/desk/cordis.patch.yml` 三个 `desk-gateway-*` provider 已手补同值，重启客户端即生效。
 - **网关侧**：`server/src/llm-proxy.js` 新增 `upstreamFetch`（核心 `node:http/https` + `Response` 门面）替换 `sendUpstream` 里四处 `fetch`——undici 默认 headersTimeout/bodyTimeout 会在长停滞时掐断上游请求。核心 http 无闲置超时，只随客户端断连 abort；不自动跟重定向。
 - **Claude 桥**：`packages/claude-valimart-desk` 的 `bridge-server.mjs` 两处 120_000 → 600_000；`gateway.mjs` 新增 `coreFetch`（同核心 http 实现），`request()` 与 `pipeStream` 都换过去，消掉桥内 undici 上限。
-- 隐患备忘：内核里 pi-ai 走 openai 官方 SDK（`options.fetch` 默认全局 fetch/undici），若 undici 默认 body 闲置超时仍卡 300s，600s 只能救到 undici 那层——待真机验证；SDK 自带总超时默认 ~10min 与目标一致。后台跑了个 310s headers/body 探针验证 undici 默认。
+- **内核侧（探针实锤）**：310s headers/body 探针证实 Node 全局 fetch(undici) 默认 `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT` 都在 301s 触发。pi-ai 的 openai SDK 默认走全局 fetch，会在 300s 先于 600s 看门狗断流——第四层 cap。已在 `scripts/kernel/patches.mjs` 加 `company-pi-ai-uncapped-fetch-v1`：给 `node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js` 的 `new OpenAI` 注入 `companyUpstreamFetch`（核心 http/https，与服务端同款实现），`fetch: fetch ?? companyUpstreamFetch`。锚点：`import OpenAI from "openai";` 与 `fetch,\n        defaultHeaders: headers,` 各恰好命中 1 次。`npm run setup` 新打 1 处；`kernel:check` 21 处齐全；补丁测试 19/19。
 
 ## 部署与发布
 

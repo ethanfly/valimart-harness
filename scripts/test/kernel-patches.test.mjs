@@ -116,6 +116,27 @@ test('fs-local：0.2.2 的 existingDestination 覆盖判定仍能走 UNC rename 
   assert.match(out, /error\.code === "EACCES" \|\| error\.win32Code === 5/)
 })
 
+// @earendil-works/pi-ai（0.2.2 内核内嵌）：openai-completions.js 的 createClient 构造点。
+const PIAI_IMPORT = 'import OpenAI from "openai";'
+const PIAI_CTOR =
+  '    return new OpenAI({\n' +
+  '        apiKey,\n' +
+  '        baseURL: model.baseUrl,\n' +
+  '        dangerouslyAllowBrowser: true,\n' +
+  '        fetch,\n' +
+  '        defaultHeaders: headers,\n' +
+  '    });'
+
+test('pi-ai：openai 客户端注入无 300s 闲置 cap 的核心 http fetch', () => {
+  const patch = CODE_PATCHES.find((p) => p.mark === 'company-pi-ai-uncapped-fetch-v1')
+  const head = applyEdit(PIAI_IMPORT, patch.edits.find((e) => e.name === 'inject-core-fetch'), 'pi-ai')
+  const ctor = applyEdit(PIAI_CTOR, patch.edits.find((e) => e.name === 'use-core-fetch'), 'pi-ai')
+  assert.match(head, /function companyUpstreamFetch\(url, init = \{\}\)/)
+  assert.match(head, /Readable\.toWeb\(res\)/)
+  assert.match(head, /AbortError/)
+  assert.match(ctor, /fetch: fetch \?\? companyUpstreamFetch,/)
+})
+
 test('assistant markdown：0.1.3 与 0.1.5 的 MarkdownText 都能切到 renderMarkdown 槽', () => {
   const edit = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1').edits.find((e) => e.name === 'assistant-markdown-slot-render')
   const old = applyEdit(MARKDOWN_RC13, edit, 'dsh-client-ui-chat')
