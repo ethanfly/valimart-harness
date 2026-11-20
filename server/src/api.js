@@ -981,7 +981,8 @@ export function registerApi(router, ctx) {
         const expectedSha = String(req.headers['x-client-sha256'] ?? '').trim()
         const version = String(req.headers['x-client-version'] ?? '').trim()
         const filename = String(req.headers['x-client-filename'] ?? '').trim()
-        const buf = await readBody(req, 512 * 1024 * 1024)
+        // CI 正式包已超 512MB（0.2.2-rc.5 内核安装器 ~652MB），上限放到 1GB。
+        const buf = await readBody(req, 1024 * 1024 * 1024)
         if (!buf.length) throw new HttpError(400, '空的客户端安装包', 'bad_request')
         const buildId = resolvePublishedBuildId({
           headerBuildId: req.headers['x-client-build-id'],
