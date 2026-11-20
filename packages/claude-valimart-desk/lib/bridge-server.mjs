@@ -5,7 +5,7 @@
  */
 import http from 'node:http'
 import { createOpenAIToAnthropicStream, toAnthropicMessage, toOpenAIBody } from './anthropic-bridge.mjs'
-import { GatewayError, gatewayAuth, request } from './gateway.mjs'
+import { GatewayError, coreFetch, gatewayAuth, request } from './gateway.mjs'
 import { loadState } from './state.mjs'
 
 const PORT_FILE_ENV = 'VALIMART_DESK_PORT'
@@ -71,7 +71,7 @@ export async function handleMessages(req, res) {
     return
   }
   try {
-    const json = await request('POST', '/v1/chat/completions', { token, baseUrl, body: openai, timeoutMs: 120_000 })
+    const json = await request('POST', '/v1/chat/completions', { token, baseUrl, body: openai, timeoutMs: 600_000 })
     sendJson(res, 200, toAnthropicMessage(json))
   } catch (err) {
     const status = err instanceof GatewayError && err.status ? err.status : 502
@@ -82,10 +82,10 @@ export async function handleMessages(req, res) {
 async function pipeStream(res, openai, auth) {
   const root = auth.baseUrl.replace(/\/+$/, '')
   const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), 120_000)
+  const timer = setTimeout(() => ac.abort(), 600_000)
   let upstream
   try {
-    upstream = await fetch(`${root}/v1/chat/completions`, {
+    upstream = await coreFetch(`${root}/v1/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json', accept: 'text/event-stream' },
       body: JSON.stringify(openai),

@@ -3,7 +3,53 @@
  * /v1/* 用网关令牌；/api/* 用登录会话令牌。
  */
 import os from 'node:os'
+import http from 'node:http'
+import https from 'node:https'
+import { Readable } from 'node:stream'
 import { isLoggedIn, loadState, saveState } from './state.mjs'
+
+/** 不走全局 fetch：undici 的 headersTimeout/bodyTimeout 会先于应用层超时把长响应掐断
+ * （chat 接口允许跑到 600s）。核心 http/https 没有闲置超时，只随 signal 取消；
+ * 不自动跟重定向。返回 Response 门面，接口与 fetch 一致。 */
+export function coreFetch(url, { method = 'GET', headers = {}, body, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const mod = String(url).startsWith('https:') ? https : http
+    const req = mod.request(
+      url,
+      {
+        method,
+        headers: { ...headers, ...(body !== undefined ? { 'content-length': Buffer.byteLength(body) } : {}) },
+      },
+      (res) => {
+        const status = res.statusCode ?? 0
+        const h = new Headers()
+        for (let i = 0; i < res.rawHeaders.length; i += 2) h.append(res.rawHeaders[i], res.rawHeaders[i + 1])
+        const noBody = status === 204 || status === 304 || method === 'HEAD'
+        resolve(
+          new Response(noBody ? null : Readable.toWeb(res), {
+            status: status >= 200 && status <= 599 ? status : 502,
+            statusText: res.statusMessage,
+            headers: h,
+          }),
+        )
+      },
+    )
+    req.on('error', reject)
+    if (signal) {
+      const reason = () => new DOMException('The operation was aborted.', 'AbortError')
+      if (signal.aborted) {
+        req.destroy()
+        reject(reason())
+        return
+      }
+      const onAbort = () => req.destroy(reason())
+      signal.addEventListener('abort', onAbort, { once: true })
+      req.on('close', () => signal.removeEventListener('abort', onAbort))
+    }
+    if (body !== undefined) req.write(body)
+    req.end()
+  })
+}
 
 export class GatewayError extends Error {
   constructor(status, message, code, body) {
@@ -35,7 +81,7 @@ export async function request(method, apiPath, { body, token, timeoutMs = 30_000
   const timer = setTimeout(() => ac.abort(), timeoutMs)
   let res
   try {
-    res = await fetch(url, {
+    res = await coreFetch(url, {
       method,
       headers: {
         ...(token ? { authorization: `Bearer ${token}` } : {}),

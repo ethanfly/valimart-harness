@@ -4,6 +4,9 @@
  * - 每次请求：校验令牌（吊销即时生效）→ 周额度检查 → 转发上游 → 按人记账。
  */
 import crypto from 'node:crypto'
+import http from 'node:http'
+import https from 'node:https'
+import { Readable } from 'node:stream'
 import { HttpError, readBody, sendJson, bearer } from './http.js'
 import { estimateCostCny } from './ledger.js'
 import {
@@ -33,6 +36,50 @@ import {
   usesDashscopeImages,
 } from './upstream-dashscope.js'
 import { runVendorVideo, videoVendor } from './upstream-video.js'
+
+/** 上游对话请求不走全局 fetch：undici 默认 headersTimeout / bodyTimeout 各 300s，
+ * 上游推理停滞超 5 分钟（如 4M token 的大上下文）会被拦腰断开成「downstream request canceled」。
+ * 核心 http/https 没有闲置超时，只随 signal（客户端断连）取消；不自动跟重定向（避免把
+ * Authorization 带去别的主机）。返回 Response 门面，消费侧接口与 fetch 一致。 */
+function upstreamFetch(url, { method = 'POST', headers = {}, body, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const mod = String(url).startsWith('https:') ? https : http
+    const req = mod.request(
+      url,
+      {
+        method,
+        headers: { ...headers, ...(body !== undefined ? { 'content-length': Buffer.byteLength(body) } : {}) },
+      },
+      (res) => {
+        const status = res.statusCode ?? 0
+        const h = new Headers()
+        for (let i = 0; i < res.rawHeaders.length; i += 2) h.append(res.rawHeaders[i], res.rawHeaders[i + 1])
+        const noBody = status === 204 || status === 304 || method === 'HEAD'
+        resolve(
+          new Response(noBody ? null : Readable.toWeb(res), {
+            status: status >= 200 && status <= 599 ? status : 502,
+            statusText: res.statusMessage,
+            headers: h,
+          }),
+        )
+      },
+    )
+    req.on('error', reject)
+    if (signal) {
+      const reason = () => new DOMException('The operation was aborted.', 'AbortError')
+      if (signal.aborted) {
+        req.destroy()
+        reject(reason())
+        return
+      }
+      const onAbort = () => req.destroy(reason())
+      signal.addEventListener('abort', onAbort, { once: true })
+      req.on('close', () => signal.removeEventListener('abort', onAbort))
+    }
+    if (body !== undefined) req.write(body)
+    req.end()
+  })
+}
 
 export class LlmProxy {
   constructor({ db, cfg, ledger, catalog, oauth, channels, mixedAttribution = null }) {
@@ -739,7 +786,7 @@ export class LlmProxy {
       }
       const forward = mediaForwardBody(body, model, apiPath)
       const p = apiPath.startsWith('/') ? apiPath : '/' + apiPath
-      return fetch(openaiCompatUrl(upstream.baseUrl, p), {
+      return upstreamFetch(openaiCompatUrl(upstream.baseUrl, p), {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: 'application/json' },
         body: JSON.stringify(forward),
@@ -749,7 +796,7 @@ export class LlmProxy {
     if (usesCloudCodePa(upstream)) return sendGeminiRequest(upstream, body, model, { stream, signal })
     if (usesChatgptCodex(upstream)) {
       const forward = toCodexResponsesBody({ ...body, stream: true }, model)
-      return fetch(chatgptResponsesUrl(upstream.baseUrl), {
+      return upstreamFetch(chatgptResponsesUrl(upstream.baseUrl), {
         method: 'POST',
         headers: {
           ...chatgptHeaders(upstream.resolvedKey, { accountId: upstream.chatgptAccountId }),
@@ -761,7 +808,7 @@ export class LlmProxy {
     }
     if (usesAnthropicMessages(upstream)) {
       const forward = toAnthropicBody({ ...body, stream }, model)
-      return fetch(anthropicMessagesUrl(upstream.baseUrl), {
+      return upstreamFetch(anthropicMessagesUrl(upstream.baseUrl), {
         method: 'POST',
         headers: { ...anthropicHeaders(upstream.resolvedKey, { authStyle: upstream.authStyle }), accept: stream ? 'text/event-stream' : 'application/json' },
         body: JSON.stringify(forward),
@@ -770,7 +817,7 @@ export class LlmProxy {
     }
     const forward = { ...body, model: model.upstreamModel }
     if (stream) forward.stream_options = { ...(body.stream_options ?? {}), include_usage: true }
-    return fetch(openaiCompatUrl(upstream.baseUrl, '/chat/completions'), {
+    return upstreamFetch(openaiCompatUrl(upstream.baseUrl, '/chat/completions'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${upstream.resolvedKey}`, accept: stream ? 'text/event-stream' : 'application/json' },
       body: JSON.stringify(forward),

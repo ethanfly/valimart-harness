@@ -157,6 +157,9 @@ export function apply(ctx, config) {
         api: 'openai-completions',
         baseURL: `${gateway.baseUrl}/v1`,
         compat,
+        // 大上下文推理会停滞几分钟不吐字，默认 300s 的流式闲置看门狗会把请求断成
+        // downstream canceled；放宽到 600s（网关侧上游请求也不再有闲置超时）。
+        streamIdleTimeoutMs: 600_000,
         models: g.models,
       }
       for (const m of g.models) routeOfModel.set(m.id, rid)
