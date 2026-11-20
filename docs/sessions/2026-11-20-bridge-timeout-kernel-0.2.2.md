@@ -75,3 +75,4 @@ api-merge 第二张截图显示 grok-4.7 失败集中在 270–282s（输入 ≈
 - 公司 `DeskSidebar` 替换官方侧栏但只传两参 → 升级后必空白。同事的第三方 AI 在他本机打了同类补丁（列表恢复）。
 - 仓库修复：`sidebar.jsx` 移植官方 `createScrollHandoff` 全套（`verticalWheelPixels`/`scrollClamped`/`atEnd`/GESTURE_GAP_MS=100），`useState` 持实例、`useMemo` 组 `hookContext`，两处 `sidebar.workspaces`（rail `wide:false` + wide `wide:true`）都补第三参；`bindViewportRef` 挂 rail 内列与 `dk-side-body`。`npm run build` 重打 `plugins/desk-ui/lib/client.js`。
 - 附带修正：`bootstrap.test.mjs` 断言预设里公司技能根恰好两处——0.2.2 `standard.patch.yml` 已自带 `customSkillDirs`（`!!js` 解析 agent-preset 技能），补丁走「追加一处」分支，断言改 `>=1`。
+- **发布**：commit `ed07e33` 推送 → release run `44720535451` 全绿（installers 12m）；下载 `windows-installers` 产物校验 sha256 `a842d6808e73e35f9082bc498d448387650ae80388b6a11926ea40a7e4bdc2b1`，publish 成功 buildId `0.1.0+0.2.2-rc.5.20261120-1040.232a348d`，`/api/client/current` 已切换（previous 0814）。注意：`/api/admin/client/publish` 要的是**登录 sessionToken**（desk-state.json），不是 `gatewayToken`（401）。
