@@ -62,3 +62,6 @@ api-merge 第二张截图显示 grok-4.7 失败集中在 270–282s（输入 ≈
 - 客户端 Windows 包：本机 electron-builder 需 wine。没装 wine，走 **docker 本地镜像 wine shim**（`local/wine` = archlinux:base + aliyun 源装 wine；`/tmp/wine-shim/wine` 包装 `docker run --rm --user uid:gid -v /home/ethan -v /tmp`），`--config.win.signExecutable=false`（保留 rcedit 图标/版本资源、跳过签名）。产物 `dist/valimart-harness-Setup-0.1.0-20261120.0740.exe` 261,232,785 B。
 - 已 POST `/api/admin/client/publish`：buildId `0.1.0+0.2.2-rc.5.20261120-0740.cec2ec67` 发布成功，previous 是 11-09 的 0.2.1-rc.5 包。
 - 随后用户要求改走 CI：提交推送 main → release workflow（windows-latest 跑 `dist:client`+`dist:gateway`，artifact `windows-installers`，挂 `latest` Release）→ 下载正式包重新 publish 到网关。
+- **CI 结果**：run `44699548915`（commit `772279e`，含 pi-ai 补丁）构建成功；`windows-installers` 产物含客户端 `valimart-harness-Setup-0.1.0-20261120.0814.exe`（652,074,582 B，sha256 `194a10dd15b3cee446eb192b0c51a6ddfe10414d8b9cf90c840daf74140b535b`）与网关安装器。
+- **坑**：`/api/admin/client/publish` 的 `readBody` 上限 512MB，652MB 正式包被拒「request body too large」。已把部署机上 `server/src/api.js` 就地改 1GB + restart，并把同样改动提交回仓库（`80f5ec9`）。服务器留有 `api.js.bak-600cap` 备份。
+- **已发布**：buildId `0.1.0+0.2.2-rc.5.20261120-0814.4f9c5ef8`，publishedAt `2026-11-20T08:59:44Z`，`/api/client/current` 已切到该 build（previous 记录本机打的 `0740.cec2ec67`）。
