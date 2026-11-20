@@ -40,6 +40,32 @@ const ASSISTANT_021_SIG =
 const ASSISTANT_021_REGISTER =
   '\t\t\t\t\t"conversation.chat.message.images": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView));'
 
+// 0.2.2-rc.x：client.js 压成单行无空格 minify，字符串用反引号；AssistantMarkdown 签名在
+// streaming 后加 textInteractionSource，文本块渲染与实例化 props 同步带上它。
+const ASSISTANT_022_SIG =
+  'function AssistantMarkdown({blocks,streaming,textInteractionSource=false,interrupted,loadImage,groupPart,useDisclosure,reasoningHidden=false,usePresentation,revealProcess,mentions,renderSlot,useGroupAction,t})'
+const MARKDOWN_022 =
+  'rendered.push((0,react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText,{text:block.text,streaming,labels,fileMentions:mentions,pathImages,textInteractionSource},i));'
+const ASSISTANT_022_RETURN =
+  '(0,react_jsx_runtime.jsx)(AssistantMarkdown,{blocks:data.blocks,groupPart,useDisclosure,streaming:data.status===`running`,textInteractionSource:data.status===`settled`&&data.finalNode?.messageId!==void 0,interrupted:data.status===`interrupted`,loadImage,reasoningHidden,useGroupAction,usePresentation,renderSlot,revealProcess,mentions,t})});'
+const ASSISTANT_022_REGISTER =
+  'key:`assistant-step`,locale:NS,children:{"conversation.chat.reasoning.body":{kind:`single`,scope:`session`},"conversation.chat.message.images":{kind:`single`,scope:`session`}},inject:sessionId=>({hooks:{presentation},resolveFilePath:sessionFilePath(ctx,sessionId),fileMentions:(owner,getFileTriggerProps)=>ctx.get(`chatFileMentions`)?.forClosing(owner,sessionId,getFileTriggerProps)})},AssistantNodeView));'
+
+// 0.2.2-rc.x：sandbox-local 的 materializeAclGrant 重写为 isTempRootInsideWorkspace +
+// SandboxPreparationError；grant 失败统一走 aclPreparationFailure（三处）。
+const SANDBOX_022_MATERIALIZE = '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n\t\tlet tempInsideWorkspace;\n'
+const SANDBOX_022_GRANT_BLOCK =
+  '\t\tif (!this.workspaceGrants.has(workspaceRoot)) {\n\t\t\tlet grant;\n\t\t\ttry {\n\t\t\t\tgrant = AclWriteGrant.create(writeSid);\n\t\t\t} catch (error) {\n\t\t\t\tthrow aclPreparationFailure("workspace grant", error);\n\t\t\t}\n\t\t\ttry {\n\t\t\t\tgrant.add(workspaceRoot, true);\n\t\t\t} catch (error) {\n\t\t\t\ttry {\n\t\t\t\t\tgrant.dispose();\n\t\t\t\t} catch (cleanupError) {\n\t\t\t\t\tthrow aclPreparationFailure("workspace grant", error, [cleanupError]);\n\t\t\t\t}\n\t\t\t\tthrow aclPreparationFailure("workspace grant", error);\n\t\t\t}\n\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n\t\t}'
+
+// 0.2.2-rc.x：覆盖判定换成 options.existingDestination（缺省回落原启发式）。
+const FS_022_REPLACE =
+  '\t\telse if (platform === "win32" && existingDestination) try {\n' +
+  '\t\t\tawait replaceFile(absolutePath, tempPath);\n' +
+  '\t\t} catch (error) {\n' +
+  '\t\t\tif (!isENOENT(error)) throw error;\n' +
+  '\t\t\tawait rename(tempPath, absolutePath);\n' +
+  '\t\t}\n'
+
 test('assistant markdown：0.1.7 的过程组签名仍把正文交给 renderMarkdown 槽', () => {
   const patch = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1')
   const ret = applyEdit(ASSISTANT_017_RETURN, patch.edits.find((e) => e.name === 'assistant-node-markdown-fallback'), 'dsh-client-ui-chat')
@@ -59,6 +85,35 @@ test('assistant markdown：0.2.1-rc.2 原生 renderSlot 签名与 children 子�
   assert.match(reg, /"conversation\.chat\.message\.images": \{\n\t+kind: "single",\n\t+scope: "session"\n\t+\},/)
   assert.match(reg, /"conversation\.assistant\.markdown": \{\n\t+kind: "single",\n\t+scope: "session"\n\t+\}\n\t+\},/)
   assert.match(reg, /inject: \(\) => \(\{ hooks: \{ presentation \} \}\)\n\t+\}, AssistantNodeView\)\);/)
+})
+
+test('assistant markdown：0.2.2 minify 签名 / 文本块 / 实例化 / 子槽都能打上', () => {
+  const patch = CODE_PATCHES.find((p) => p.mark === 'company-assistant-markdown-slot-v1')
+  const sig = applyEdit(ASSISTANT_022_SIG, patch.edits.find((e) => e.name === 'markdown-render-prop'), 'dsh-client-ui-chat')
+  const blk = applyEdit(MARKDOWN_022, patch.edits.find((e) => e.name === 'assistant-markdown-slot-render'), 'dsh-client-ui-chat')
+  const ret = applyEdit(ASSISTANT_022_RETURN, patch.edits.find((e) => e.name === 'assistant-node-markdown-fallback'), 'dsh-client-ui-chat')
+  const reg = applyEdit(ASSISTANT_022_REGISTER, patch.edits.find((e) => e.name === 'assistant-markdown-child-slot'), 'dsh-client-ui-chat')
+  assert.match(sig, /function AssistantMarkdown\(\{blocks,streaming,textInteractionSource=false,interrupted,renderMarkdown,loadImage,/)
+  assert.match(blk, /renderMarkdown\(\{text:block\.text,streaming,labels,fileMentions:mentions,pathImages,textInteractionSource\}\)/)
+  assert.match(ret, /renderMarkdown:\(props\)=>renderSlot\(`conversation\.assistant\.markdown`,props,\{fallback:/)
+  assert.match(reg, /"conversation\.assistant\.markdown":\{kind:`single`,scope:`session`\}\},inject:/)
+})
+
+test('sandbox-local：0.2.2 的 materializeAclGrant / aclPreparationFailure 都能打上', () => {
+  const patch = CODE_PATCHES.find((p) => p.mark === 'company-sandbox-local-unc-v1')
+  const mat = applyEdit(SANDBOX_022_MATERIALIZE, patch.edits.find((e) => e.name === 'materializeAclGrant-precheck'), 'dsh-sandbox-local')
+  const grant = applyEdit(SANDBOX_022_GRANT_BLOCK, patch.edits.find((e) => e.name === 'workspace-grant-diagnosis'), 'dsh-sandbox-local')
+  assert.match(mat, /materializeAclGrant\(sessionId, workspaceRoot\) \{\n\t+companyAssertLocalWorkspace\(workspaceRoot\);\n\t+let tempInsideWorkspace;/)
+  assert.equal(grant.split('companyGrantError(workspaceRoot, error)').length - 1, 3)
+  assert.equal(grant.includes('aclPreparationFailure("workspace grant", error'), false)
+})
+
+test('fs-local：0.2.2 的 existingDestination 覆盖判定仍能走 UNC rename 回退', () => {
+  const patch = CODE_PATCHES.find((p) => p.mark === 'company-fs-unc-replace-v1')
+  const out = applyEdit(FS_022_REPLACE, patch.edits.find((e) => e.name === 'unc-skip-replacefilew'), 'dsh-fs-local')
+  assert.match(out, /const unc = String\(absolutePath/)
+  assert.match(out, /if \(unc\) await rename\(tempPath, absolutePath\);/)
+  assert.match(out, /error\.code === "EACCES" \|\| error\.win32Code === 5/)
 })
 
 test('assistant markdown：0.1.3 与 0.1.5 的 MarkdownText 都能切到 renderMarkdown 槽', () => {

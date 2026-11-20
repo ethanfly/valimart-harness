@@ -98,6 +98,12 @@ export const CODE_PATCHES = [
             from: 'function AssistantMarkdown({ blocks, streaming, interrupted, loadImage,',
             to: 'function AssistantMarkdown({ blocks, streaming, interrupted, renderMarkdown, loadImage,',
           },
+          {
+            // 0.2.2-rc.x：签名再加 textInteractionSource（streaming 之后），整文件压成无空格
+            // 单行 minify 风格。renderMarkdown 仍插在 interrupted 后。
+            from: 'function AssistantMarkdown({blocks,streaming,textInteractionSource=false,interrupted,loadImage,',
+            to: 'function AssistantMarkdown({blocks,streaming,textInteractionSource=false,interrupted,renderMarkdown,loadImage,',
+          },
         ],
       },
       {
@@ -111,6 +117,11 @@ export const CODE_PATCHES = [
             // 0.1.5-rc.1：MarkdownText 增加 pathImages，本地路径图走官方 resolver。0.2.1-rc.2 文本块渲染与这条逐字节一致，仍命中。
             from: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {\n\t\t\t\t\t\t\ttext: block.text,\n\t\t\t\t\t\t\tstreaming,\n\t\t\t\t\t\t\tlabels,\n\t\t\t\t\t\t\tfileMentions: mentions,\n\t\t\t\t\t\t\tpathImages\n\t\t\t\t\t\t}, i));',
             to: '\t\t\t\t\t\trendered.push((0, react_jsx_runtime.jsx)(react.Fragment, { children: renderMarkdown({ text: block.text, streaming, labels, fileMentions: mentions, pathImages }) }, i));',
+          },
+          {
+            // 0.2.2-rc.x：文本块渲染压成单行并多带一个 textInteractionSource，一并透传给槽。
+            from: 'rendered.push((0,react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText,{text:block.text,streaming,labels,fileMentions:mentions,pathImages,textInteractionSource},i));',
+            to: 'rendered.push((0,react_jsx_runtime.jsx)(react.Fragment,{children:renderMarkdown({text:block.text,streaming,labels,fileMentions:mentions,pathImages,textInteractionSource})},i));',
           },
         ],
       },
@@ -132,6 +143,12 @@ export const CODE_PATCHES = [
             from: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,',
             to: 'return (0, react_jsx_runtime.jsx)(AssistantMarkdown, {\n\t\t\t\trenderMarkdown: (props) => renderSlot("conversation.assistant.markdown", props, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, props) }),\n\t\t\t\tblocks: data.blocks,\n\t\t\t\tgroupPart,\n\t\t\t\tuseDisclosure,',
           },
+          {
+            // 0.2.2-rc.x：实例化调用压成单行 minify；blocks→groupPart→useDisclosure 前缀不变，
+            // renderMarkdown 仍插在 props 最前，槽名与 fallback 同前。
+            from: '(0,react_jsx_runtime.jsx)(AssistantMarkdown,{blocks:data.blocks,groupPart,useDisclosure,',
+            to: '(0,react_jsx_runtime.jsx)(AssistantMarkdown,{renderMarkdown:(props)=>renderSlot(`conversation.assistant.markdown`,props,{fallback:(0,react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText,props)}),blocks:data.blocks,groupPart,useDisclosure,',
+          },
         ],
       },
       {
@@ -151,6 +168,12 @@ export const CODE_PATCHES = [
             // 移到 children 之后；公司槽追加为第三个 child。锚到 message.images 整块保证唯一命中。
             from: '\t\t\t\t\t"conversation.chat.message.images": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView));',
             to: '\t\t\t\t\t"conversation.chat.message.images": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t},\n\t\t\t\t\t"conversation.assistant.markdown": {\n\t\t\t\t\t\tkind: "single",\n\t\t\t\t\t\tscope: "session"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tinject: () => ({ hooks: { presentation } })\n\t\t\t}, AssistantNodeView));',
+          },
+          {
+            // 0.2.2-rc.x：children 声明压成单行，inject 改成 sessionId=> 带 fileMentions 的函数体。
+            // 锚 message.images 子对象收尾 + inject 前缀，公司槽追加为第三个 child。
+            from: '"conversation.chat.message.images":{kind:`single`,scope:`session`}},inject:sessionId=>({hooks:{presentation},',
+            to: '"conversation.chat.message.images":{kind:`single`,scope:`session`},"conversation.assistant.markdown":{kind:`single`,scope:`session`}},inject:sessionId=>({hooks:{presentation},',
           },
         ],
       },
@@ -213,13 +236,34 @@ export const CODE_PATCHES = [
       {
         name: 'materializeAclGrant-precheck',
         // 锚点故意包含行尾换行：没有它，上游只在锚点行末尾追加内容时仍会匹配，补丁就会落到从未审过的源码上。
-        from: '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n' + '\t\tassertTempRootOutsideWorkspace(workspaceRoot, tmpdir());\n',
-        to: '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n' + '\t\tcompanyAssertLocalWorkspace(workspaceRoot);\n' + '\t\tassertTempRootOutsideWorkspace(workspaceRoot, tmpdir());\n',
+        variants: [
+          {
+            from: '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n' + '\t\tassertTempRootOutsideWorkspace(workspaceRoot, tmpdir());\n',
+            to: '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n' + '\t\tcompanyAssertLocalWorkspace(workspaceRoot);\n' + '\t\tassertTempRootOutsideWorkspace(workspaceRoot, tmpdir());\n',
+          },
+          {
+            // 0.2.2-rc.x：temp-root 检查改由 isTempRootInsideWorkspace + SandboxPreparationError
+            // 表达；公司 UNC/网盘拦截仍放在方法体最前。
+            from: '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n' + '\t\tlet tempInsideWorkspace;\n',
+            to: '\tmaterializeAclGrant(sessionId, workspaceRoot) {\n' + '\t\tcompanyAssertLocalWorkspace(workspaceRoot);\n' + '\t\tlet tempInsideWorkspace;\n',
+          },
+        ],
       },
       {
         name: 'workspace-grant-diagnosis',
-        from: '\t\t\t\tthrow error;\n' + '\t\t\t}\n' + '\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n',
-        to: '\t\t\t\tthrow companyGrantError(workspaceRoot, error);\n' + '\t\t\t}\n' + '\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n',
+        variants: [
+          {
+            from: '\t\t\t\tthrow error;\n' + '\t\t\t}\n' + '\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n',
+            to: '\t\t\t\tthrow companyGrantError(workspaceRoot, error);\n' + '\t\t\t}\n' + '\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n',
+          },
+          {
+            // 0.2.2-rc.x：grant 失败统一走 aclPreparationFailure（create / add / add 的 cleanup 三处），
+            // 把 cause 包成 companyGrantError（映射网络盘是主要嫌疑），SandboxPreparationError 形状与
+            // cleanup 上报语义不动。
+            from: '\t\tif (!this.workspaceGrants.has(workspaceRoot)) {\n\t\t\tlet grant;\n\t\t\ttry {\n\t\t\t\tgrant = AclWriteGrant.create(writeSid);\n\t\t\t} catch (error) {\n\t\t\t\tthrow aclPreparationFailure("workspace grant", error);\n\t\t\t}\n\t\t\ttry {\n\t\t\t\tgrant.add(workspaceRoot, true);\n\t\t\t} catch (error) {\n\t\t\t\ttry {\n\t\t\t\t\tgrant.dispose();\n\t\t\t\t} catch (cleanupError) {\n\t\t\t\t\tthrow aclPreparationFailure("workspace grant", error, [cleanupError]);\n\t\t\t\t}\n\t\t\t\tthrow aclPreparationFailure("workspace grant", error);\n\t\t\t}\n\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n\t\t}',
+            to: '\t\tif (!this.workspaceGrants.has(workspaceRoot)) {\n\t\t\tlet grant;\n\t\t\ttry {\n\t\t\t\tgrant = AclWriteGrant.create(writeSid);\n\t\t\t} catch (error) {\n\t\t\t\tthrow aclPreparationFailure("workspace grant", companyGrantError(workspaceRoot, error));\n\t\t\t}\n\t\t\ttry {\n\t\t\t\tgrant.add(workspaceRoot, true);\n\t\t\t} catch (error) {\n\t\t\t\ttry {\n\t\t\t\t\tgrant.dispose();\n\t\t\t\t} catch (cleanupError) {\n\t\t\t\t\tthrow aclPreparationFailure("workspace grant", companyGrantError(workspaceRoot, error), [cleanupError]);\n\t\t\t\t}\n\t\t\t\tthrow aclPreparationFailure("workspace grant", companyGrantError(workspaceRoot, error));\n\t\t\t}\n\t\t\tthis.workspaceGrants.set(workspaceRoot, grant);\n\t\t}',
+          },
+        ],
       },
     ],
   },
@@ -324,22 +368,46 @@ export const CODE_PATCHES = [
     edits: [
       {
         name: 'unc-skip-replacefilew',
-        from:
-          '\t\telse if (platform === "win32" && mode !== void 0) try {\n' +
-          '\t\t\tawait replaceFile(absolutePath, tempPath);\n' +
-          '\t\t} catch (error) {\n' +
-          '\t\t\tif (!isENOENT(error)) throw error;\n' +
-          '\t\t\tawait rename(tempPath, absolutePath);\n' +
-          '\t\t}\n',
-        to:
-          '\t\telse if (platform === "win32" && mode !== void 0) try {\n' +
-          '\t\t\tconst unc = String(absolutePath || "").replace(/\\//g, "\\\\").startsWith("\\\\\\\\");\n' +
-          '\t\t\tif (unc) await rename(tempPath, absolutePath);\n' +
-          '\t\t\telse await replaceFile(absolutePath, tempPath);\n' +
-          '\t\t} catch (error) {\n' +
-          '\t\t\tif (!isENOENT(error) && !(error && (error.code === "EACCES" || error.win32Code === 5))) throw error;\n' +
-          '\t\t\tawait rename(tempPath, absolutePath);\n' +
-          '\t\t}\n',
+        variants: [
+          {
+            from:
+              '\t\telse if (platform === "win32" && mode !== void 0) try {\n' +
+              '\t\t\tawait replaceFile(absolutePath, tempPath);\n' +
+              '\t\t} catch (error) {\n' +
+              '\t\t\tif (!isENOENT(error)) throw error;\n' +
+              '\t\t\tawait rename(tempPath, absolutePath);\n' +
+              '\t\t}\n',
+            to:
+              '\t\telse if (platform === "win32" && mode !== void 0) try {\n' +
+              '\t\t\tconst unc = String(absolutePath || "").replace(/\\//g, "\\\\").startsWith("\\\\\\\\");\n' +
+              '\t\t\tif (unc) await rename(tempPath, absolutePath);\n' +
+              '\t\t\telse await replaceFile(absolutePath, tempPath);\n' +
+              '\t\t} catch (error) {\n' +
+              '\t\t\tif (!isENOENT(error) && !(error && (error.code === "EACCES" || error.win32Code === 5))) throw error;\n' +
+              '\t\t\tawait rename(tempPath, absolutePath);\n' +
+              '\t\t}\n',
+          },
+          {
+            // 0.2.2-rc.x：覆盖判定从 mode !== void 0 换成 options.existingDestination
+            // （缺省仍回落同一启发式），并新增 createIfAbsent/linkFile 路径；UNC 替换语义不变。
+            from:
+              '\t\telse if (platform === "win32" && existingDestination) try {\n' +
+              '\t\t\tawait replaceFile(absolutePath, tempPath);\n' +
+              '\t\t} catch (error) {\n' +
+              '\t\t\tif (!isENOENT(error)) throw error;\n' +
+              '\t\t\tawait rename(tempPath, absolutePath);\n' +
+              '\t\t}\n',
+            to:
+              '\t\telse if (platform === "win32" && existingDestination) try {\n' +
+              '\t\t\tconst unc = String(absolutePath || "").replace(/\\//g, "\\\\").startsWith("\\\\\\\\");\n' +
+              '\t\t\tif (unc) await rename(tempPath, absolutePath);\n' +
+              '\t\t\telse await replaceFile(absolutePath, tempPath);\n' +
+              '\t\t} catch (error) {\n' +
+              '\t\t\tif (!isENOENT(error) && !(error && (error.code === "EACCES" || error.win32Code === 5))) throw error;\n' +
+              '\t\t\tawait rename(tempPath, absolutePath);\n' +
+              '\t\t}\n',
+          },
+        ],
       },
     ],
   },
