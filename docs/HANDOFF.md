@@ -2,6 +2,15 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-20：api-merge 报错定位 + 内核 0.2.2-rc.5
+
+- **api-merge 报错**：用户截图是上游 `api-merge.ethan.team` 中转站的失败页（grok-4.7，~121.9s 断）。网关 `llm-proxy.js` 对聊天请求没有总超时（只随客户端断连 abort），`index.js` 也没设 `requestTimeout`。真正的 120s 在本地桥 `packages/claude-valimart-desk/lib/bridge-server.mjs`：非流式 `timeoutMs: 120_000` + 流式 `setTimeout(abort, 120_000)`，与截图时间吻合；DSH 流 idle 默认 300s 不是它。尚不能排除中转站自身限制，需其日志或端到端计时。**桥的 120s 还没改**，改的话建议可配置。
+- **内核升级**：`pin.json` 0.2.1-rc.5 → 0.2.2-rc.5，setup 通过、`kernel:check` 20/20。重审补了 0.2.2 锚点：chat 四处（client.js 变单行 minify，签名新增 `textInteractionSource`）、`dsh-sandbox-local`（`materializeAclGrant` 重写 + grant 失败统一走 `aclPreparationFailure` 三处包 `companyGrantError`）、`dsh-fs-local`（`mode!==void 0` → `existingDestination`）。junction v3/v4 anchor-gone、browser settings target-missing 均为预期跳过。
+- **验证**：`npm test` 706 项 700 pass / 3 fail / 3 skip（3 个失败是既有 Linux 问题）；`dsh --profile desk` 冒烟启动零报错、EthanApi 六模型路由正常。**已开着的客户端要重启才加载新内核**。
+- **600s 放宽（续）**：第二张截图显示失败集中 270–282s（输入 ≈4.11M token）——是 DSH `streamIdleTimeoutMs` 默认 300s 的闲置看门狗，不是桥 120s。三层已改：desk-host `configureLlmRoute` 写 `streamIdleTimeoutMs: 600_000`；`llm-proxy.js` 的 `sendUpstream` 四处 `fetch` 换成自写 `upstreamFetch`（核心 http/https，无 undici headersTimeout/bodyTimeout cap）；Claude 桥 `bridge-server.mjs` 120s→600s 且 `gateway.mjs` 新增 `coreFetch` 替换两处 fetch。本机 `~/.dsh/profiles/desk/cordis.patch.yml` 三个 provider 已手补同值。残余隐患：内核 pi-ai 走 openai SDK 全局 fetch，undici 若仍有 300s cap 会先于 600s 断——待真机验证。
+- **部署/发布**：网关 linux 包用服务器 runtime（glibc-217）+ `install.sh` 装到 `192.168.100.71` 并 restart（注意包内 `server/config.json` 会覆盖机器上改过的，先备份）。客户端 exe 本机构建走 **docker wine shim**（`local/wine` 镜像 + `/tmp/wine-shim/wine`），`win.signExecutable=false`；已 publish buildId `0.1.0+0.2.2-rc.5.20261120-0740.cec2ec67`。随后改走 CI：推 main 触发 release workflow，正式包再发网关。
+- 过程：`docs/sessions/2026-11-20-bridge-timeout-kernel-0.2.2.md`。
+
 ## 2026-11-19：Codex 公司盘插件
 
 - **新增**：`packages/codex-valimart-desk` v0.1.1。适配 Codex CLI 0.170 的原生插件机制：`.codex-plugin/plugin.json` + `.mcp.json` + SessionStart hook。公司盘、知识、记忆、任务卡和 HUD 共 15 个 `company_*` 工具由 stdio MCP `desk` 提供；实现口径参考 Claude 和 pi 包。skills 暴露 `/valimart-desk:desk-login`、`desk-status`、`desk-sync`、`desk-task` 等操作。
