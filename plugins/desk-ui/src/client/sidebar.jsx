@@ -201,11 +201,13 @@ export function DeskSidebar({ collapsed, renderSlot, startSession, toggleSidebar
           </button>
         </div>
       </div>
-      <div ref={scrollHandoff.bindViewportRef} className="dk-side-body">
-        <div style={{ display: tab === 'sessions' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
-          {renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} }, { hookContext: sectionHookContext })}
+      <div className="dk-side-region">
+        <div ref={scrollHandoff.bindViewportRef} className="dk-side-body" data-sidebar-scrollport>
+          <div style={{ display: tab === 'sessions' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
+            {renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} }, { hookContext: sectionHookContext })}
+          </div>
+          {tab === 'tasks' && <TaskList tasks={tasks} desk={desk} />}
         </div>
-        {tab === 'tasks' && <TaskList tasks={tasks} desk={desk} />}
       </div>
       <div className="dk-side-footer">
         {renderSlot('sidebar.footer.action', { wide: true })}

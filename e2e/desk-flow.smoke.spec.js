@@ -104,3 +104,23 @@ test('可选：对已启动的内核桌面页走登录遮罩', async ({ page }) 
   const user = page.locator('input[name="username"], input[autocomplete="username"]').first()
   await expect(user).toBeVisible({ timeout: 15_000 })
 })
+
+// 0.2.2 起 WorkspaceBrowser 无条件调 useSectionScroller：公司侧栏漏了 hook 映射就整块崩成空白（「会话消失」）。
+test('可选：真内核桌面页的侧栏渲染出会话列表', async ({ page }) => {
+  const url = process.env.DESK_SMOKE_URL
+  test.skip(!url, '设 DESK_SMOKE_URL=<dsh web 打印的带 token 地址> 才打真内核页')
+  const crashes = []
+  page.on('pageerror', (e) => crashes.push(e.message))
+  page.on('console', (m) => {
+    if (m.type() === 'error' && /slot entry crashed/.test(m.text())) crashes.push(m.text())
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(url)
+  const body = page.locator('.dk-side-body')
+  await expect(body.locator('[data-sidebar-workspace-header]')).toBeVisible({ timeout: 30_000 })
+  await expect(body.locator('[role="treeitem"]').first()).toBeVisible()
+  // ui-workspace 的 100cqh 高度与 scroll-state 查询锚在这两层（官方 SidebarRoot 的 scrollRegion / scrollArea）。
+  await expect(page.locator('.dk-side-region')).toHaveCSS('container-type', 'size')
+  await expect(body).toHaveCSS('container-type', 'scroll-state')
+  expect(crashes).toEqual([])
+})

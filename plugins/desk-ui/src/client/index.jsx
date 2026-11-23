@@ -28,6 +28,15 @@ function HeroWordmark() {
   )
 }
 
+/**
+ * 与官方 ui-sidebar 的 SIDEBAR_SECTION_INJECT 一致：挂在 `sidebar.workspaces` 子槽声明上，
+ * 渲染器按对象身份缓存并用 renderSlot 的 hookContext 绑定，WorkspaceBrowser 才拿得到 useSectionScroller。
+ * 写进根槽 inject 只会变成 DeskSidebar 自己的 props，子槽照样缺 hook 而整块崩掉。
+ */
+const SIDEBAR_SECTION_INJECT = {
+  hooks: { sectionScroller: (_standard, { useSectionScroller }) => useSectionScroller },
+}
+
 export const name = 'desk-ui'
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 
@@ -152,7 +161,7 @@ export function apply(ctx) {
           children: {
             'sidebar.brand.mark': { kind: 'single', scope: 'root' },
             'sidebar.brand.name': { kind: 'single', scope: 'root' },
-            'sidebar.workspaces': { kind: 'single', scope: 'root' },
+            'sidebar.workspaces': { kind: 'single', scope: 'root', inject: SIDEBAR_SECTION_INJECT },
             'sidebar.settings': { kind: 'single', scope: 'root' },
             'sidebar.footer.action': { kind: 'list', scope: 'root' },
           },

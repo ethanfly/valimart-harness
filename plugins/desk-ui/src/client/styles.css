@@ -644,7 +644,10 @@ html.dk-desk-electron .dk-rail { padding-top: 10px; }
 .dk-side-tabs { padding: 4px 14px 8px 8px; }
 .dk-side-tabs .dk-seg { display: flex; }
 .dk-side-tabs .dk-seg button { flex: 1; justify-content: center; }
-.dk-side-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 8px 0 4px; }
+/* ui-workspace 的 100cqh 高度与 scroll-state 查询分别锚定这两层，勿插入额外容器。 */
+.dk-side-region { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; container-type: size; }
+.dk-side-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; container-type: scroll-state; scrollbar-width: none; padding: 0 8px 0 4px; }
+.dk-side-body::-webkit-scrollbar { display: none; }
 .dk-side-footer { flex: none; padding: 8px 12px 12px 6px; border-top: 1px solid var(--dk-border-soft); display: flex; flex-direction: column; gap: 2px; }
 .dk-client-ver {
   font-size: 11px;
