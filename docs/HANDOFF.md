@@ -2,6 +2,16 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-23：侧栏会话列表空白（11-20 修复不完整，真修）
+
+- **现象**：网关上的 `1040.232a348d` 包仍然「会话消失」。真实内核 + 系统 Chrome 复测：`.dk-side-body` 里没有 `[data-sidebar-workspace-header]`，会话区整块空白。11-20 那次只看了构建、CI 和 bundle 里有代码，没跑真实界面。
+- **真因**：渲染器只把 `renderSlot` 第三参的 `hookContext` 交给**子槽声明上 `inject.hooks` 的工厂**绑定（`ui-renderer` `scoped-slots.tsx` 的 `cachedSlotInject` → `bindSlotHookFactories`）。官方 ui-sidebar 在 `children['sidebar.workspaces']` 上挂 `SIDEBAR_SECTION_INJECT = { hooks: { sectionScroller: (_s, { useSectionScroller }) => useSectionScroller } }`；desk-ui 的子槽声明没挂，光传 `hookContext` 会被忽略，`WorkspaceBrowser` 拿不到 `useSectionScroller`，照样抛错。写进根槽 `inject` 也没用（只会变成 `DeskSidebar` 自己的 props）。
+- **修复**：`plugins/desk-ui/src/client/index.jsx` 定义同名 `SIDEBAR_SECTION_INJECT` 挂到 `sidebar.workspaces` 子槽声明。容器契约同步对齐官方 `SidebarRoot`：新增外层 `.dk-side-region`（`container-type: size`，供 `WorkspaceBrowser` 的 `max-height/height: 100cqh`），`.dk-side-body` 改为 `overflow-y: auto` + `container-type: scroll-state`（供 `@container scroll-state(scrollable: bottom)`）并加 `data-sidebar-scrollport`；任务列表也挪进这个滚动视口。
+- **回归测试**：`e2e/desk-flow.smoke.spec.js` 新增「可选：真内核桌面页的侧栏渲染出会话列表」（要 `DESK_SMOKE_URL`=dsh web 打印的带 token 地址）：断言 header 与 `treeitem` 可见、两层 `container-type`、无 `slot entry crashed`。改动前失败（header not found），改动后通过。
+- **验证**：真实界面三态（展开 / 收起 / 任务页切回）零报错；展开全部工作区后，可见会话与 `~/.dsh/sessions` 一致——`default-workspace` 里那个从没发过消息的会话不显示是官方规则（`ui-workspace` `tree.ts`：`blank && id !== current` 不可见），不是缺口。`npm test` 707 项 701 pass / 3 fail / 3 skip，3 个失败（mixed-scheduler 写锁、npm-cli PATH、voice-runtime 空格路径）在改动前的代码上同样失败。
+- **以后**：改 desk-ui 侧栏或升内核后，宣称修好前必须跑上面那条真内核 e2e（或等价的真实浏览器探针），不能只看 CI 绿。
+- 过程：`docs/sessions/2026-11-23-sidebar-section-inject.md`。
+
 ## 2026-11-20：api-merge 报错定位 + 内核 0.2.2-rc.5
 
 - **api-merge 报错**：用户截图是上游 `api-merge.ethan.team` 中转站的失败页（grok-4.7，~121.9s 断）。网关 `llm-proxy.js` 对聊天请求没有总超时（只随客户端断连 abort），`index.js` 也没设 `requestTimeout`。真正的 120s 在本地桥 `packages/claude-valimart-desk/lib/bridge-server.mjs`：非流式 `timeoutMs: 120_000` + 流式 `setTimeout(abort, 120_000)`，与截图时间吻合；DSH 流 idle 默认 300s 不是它。尚不能排除中转站自身限制，需其日志或端到端计时。（随后第二张截图证伪 120s 判断——实际失败 270–282s，见下条；桥的 120s 已一并放宽到 600s。）
@@ -9,7 +19,7 @@
 - **验证**：`npm test` 706 项 700 pass / 3 fail / 3 skip（3 个失败是既有 Linux 问题）；`dsh --profile desk` 冒烟启动零报错、EthanApi 六模型路由正常。**已开着的客户端要重启才加载新内核**。
 - **600s 放宽（续）**：第二张截图显示失败集中 270–282s（输入 ≈4.11M token）——300s 级闲置超时，不是桥 120s。四层已改：desk-host `configureLlmRoute` 写 `streamIdleTimeoutMs: 600_000`；`llm-proxy.js` 的 `sendUpstream` 四处 `fetch` 换成自写 `upstreamFetch`（核心 http/https，无 undici cap）；Claude 桥 `bridge-server.mjs` 120s→600s 且 `gateway.mjs` 新增 `coreFetch` 替换两处 fetch；**内核补丁 `company-pi-ai-uncapped-fetch-v1`** 给 pi-ai 的 openai SDK 注入同款核心 fetch——310s 探针实锤 undici 默认 headersTimeout/bodyTimeout 在 301s 触发，这是内核→网关腿上的第四层 300s cap。本机 `~/.dsh/profiles/desk/cordis.patch.yml` 三个 provider 已手补同值。
 - **部署/发布**：网关 linux 包用服务器 runtime（glibc-217）+ `install.sh` 装到 `192.168.100.71` 并 restart（注意包内 `server/config.json` 会覆盖机器上改过的，先备份）。客户端正式包走 **GitHub release workflow**（run `44699548915`），已 publish CI 产物 buildId `0.1.0+0.2.2-rc.5.20261120-0814.4f9c5ef8`（652MB，sha256 `194a10dd…b535b`），`/api/client/current` 已切换。**注意**：publish 上传上限原 512MB，652MB 正式包会被拒——部署机已就地改 1GB（备份 `api.js.bak-600cap`），同改提交 `80f5ec9`；下次用安装包覆盖部署时该提交生效。
-- **侧栏会话列表空白（0.2.2 破坏契约）**：升级后用户反馈「会话不见了」——磁盘 `~/.dsh/sessions` 完好。0.2.2 起 `sidebar.workspaces` 槽新增 `hookContext: SidebarSectionHookContext` 契约，`WorkspaceBrowser` 无条件调 `useSectionScroller()`（滚动接力），官方侧栏经 `renderSlot` 第三参 `{hookContext}` 注入；公司 `DeskSidebar` 只传两参 → 渲染抛错被错误边界吞成空白。修复：`plugins/desk-ui/src/client/sidebar.jsx` 移植官方 `createScrollHandoff`（滚轮在侧栏视口与会话列表间接力），两处 `sidebar.workspaces` 调用补第三参，`bindViewportRef` 挂到 rail 内列和 `dk-side-body`。**同事机器上被第三方 AI 打过同类本机补丁，重打内核会被我们的正式修复覆盖，无冲突**。附带修正 `bootstrap.test.mjs` 技能根计数断言：0.2.2 预设自带 customSkillDirs，公司根只追加一处（原断言两处）。已推 `ed07e33`，CI run `44720535451` 全绿，正式发布 buildId `0.1.0+0.2.2-rc.5.20261120-1040.232a348d`（sha256 `a842d680…c2b1`，652,109,388 B），`/api/client/current` 已切换。同事及其他用户自动更新到 1040 包即恢复会话列表。
+- **侧栏会话列表空白（0.2.2 破坏契约）**：升级后用户反馈「会话不见了」——磁盘 `~/.dsh/sessions` 完好。0.2.2 起 `sidebar.workspaces` 槽新增 `hookContext: SidebarSectionHookContext` 契约，`WorkspaceBrowser` 无条件调 `useSectionScroller()`（滚动接力），官方侧栏经 `renderSlot` 第三参 `{hookContext}` 注入；公司 `DeskSidebar` 只传两参 → 渲染抛错被错误边界吞成空白。修复：`plugins/desk-ui/src/client/sidebar.jsx` 移植官方 `createScrollHandoff`（滚轮在侧栏视口与会话列表间接力），两处 `sidebar.workspaces` 调用补第三参，`bindViewportRef` 挂到 rail 内列和 `dk-side-body`。**同事机器上被第三方 AI 打过同类本机补丁，重打内核会被我们的正式修复覆盖，无冲突**。附带修正 `bootstrap.test.mjs` 技能根计数断言：0.2.2 预设自带 customSkillDirs，公司根只追加一处（原断言两处）。已推 `ed07e33`，CI run `44720535451` 全绿，正式发布 buildId `0.1.0+0.2.2-rc.5.20261120-1040.232a348d`（sha256 `a842d680…c2b1`，652,109,388 B），`/api/client/current` 已切换。~~同事及其他用户自动更新到 1040 包即恢复会话列表~~——**11-23 实测 1040 仍崩**：只传了 `hookContext`，子槽声明没挂 hook 工厂，见上方 11-23 段。
 - 过程：`docs/sessions/2026-11-20-bridge-timeout-kernel-0.2.2.md`。
 
 ## 2026-11-19：Codex 公司盘插件
