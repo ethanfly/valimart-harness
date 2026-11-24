@@ -44,5 +44,11 @@
 
 ## 待办
 
-- 提交后走 CI release 重打 `dist:client`，再到管理页发布。
 - C2 drive-v2 等 B3 预检（目标机 PowerShell 5.1 + Add-Type 是否可用）后再议。
+
+## 发布
+
+- 提交 `8b83297` 推送 origin → release run `45373568334` 全部成功。installers job 日志：「新打 24 处，已有 2 处」「22 处补丁齐全」，新补丁 `linux-statfs-import,linux-cifs-confine-precheck`、`copy-dacl-unc-skip`、`rg-missing-root-empty` 都在。
+- 先用 `gh run download` 取 `windows-installers`，6 分钟只下了 9MB；改用 `gh release download latest -p valimart-harness-Setup-0.1.0-20261124.1023.exe`，约 80s 下完。652809769 字节，sha256 `91b388b942809537058fb6b29feee6b3532dd409a2e6aedf6c90d2eeee25b824`，与 Release 资产 digest 一致。注意 `nohup … &` 的后台下载会随 shell 退出被杀，要前台跑。
+- 管理员 sessionToken 写进 600 权限的临时 header 文件，POST `192.168.100.71:8790/api/admin/client/publish`：HTTP 200，约 87s，buildId `0.1.0+0.2.2-rc.5.20261124-1023.c773aaa1`，publishedAt `2026-11-24T10:40:18Z`，previous `0535.447f1f87`。`GET /api/client/current` 返回同一 buildId 与 sha256。header 文件已删除。
+- 网关代码没改，不用重部署网关。

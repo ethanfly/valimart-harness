@@ -18,7 +18,7 @@
     - `models-header-v1`、`models-key-discover-v1`、`models-key-unlocked-v1`：针对官方模型设置页和直连 DeepSeek 填 Key。本仓 profile 已禁用 `ui-settings-models` 与 `llm-deepseek`，密钥只放在网关；0.2.2 的 `keyLocked` / `storeCredential` / 标题锚点也都没命中。
     - `win-junction-mark-v5`：只是给上游自家 AppHost exe 留的字符串标记，防它整包 RestoreProduct。本仓用 Electron 壳，没有这条路径；junction 继续由 v3/v4 处理。
 - **验证**：先在本机内核前缀的副本上演练（新打 3 处，其中 2 处 migrated；二次运行 0 处），再 `npm run setup` 实打开发前缀，结果与演练逐字节一致，`kernel:check` 22/22（原 21）。三个模块真实 import 正常；真调 `LocalSandboxProvider.prototype.confine`：本地工作区放行、不存在的根 PROBE_FAILED、read-only 不探测。`scripts/test/kernel-patches.test.mjs` 新增 8 个用例（C8 矩阵 + 真实 rg、ACL 矩阵、CIFS 矩阵 + 真 statfs + confine 顺序、v1→v2 升级与篡改拒绝），27/27。`npm test` 715 项 709 pass / 3 fail / 3 skip，3 个失败同前（mixed-scheduler 写锁、npm-cli PATH、voice-runtime 空格路径）。
-- **发布**：改了 `scripts/kernel/patches.mjs`，正式客户端包要重跑 `dist:client`（走 CI release）。本次**未提交、未发布**；已开着的客户端要重启才加载新补丁。
+- **发布**：提交 `8b83297` 推送 → release run `45373568334` 全绿；installers 日志「新打 24 处，已有 2 处」「22 处补丁齐全」，含 `linux-cifs-confine-precheck`、`copy-dacl-unc-skip`、`rg-missing-root-empty`。`gh release download latest` 取 `valimart-harness-Setup-0.1.0-20261124.1023.exe`（652809769 字节，sha256 `91b388b9…25b824`，与 Release digest 一致；artifact 下载只有约 25KB/s，Release 资产约 8MB/s，以后优先走 Release）。POST `/api/admin/client/publish` HTTP 200（约 87s），buildId `0.1.0+0.2.2-rc.5.20261124-1023.c773aaa1`，previous `0535.447f1f87`；`/api/client/current` 已切换。只改了客户端内核补丁，网关不用重部署。已开着的客户端更新后要重启才加载新补丁。
 - 过程：`docs/sessions/2026-11-24-tdh-kernel-patch-sync.md`。
 
 ## 2026-11-23：侧栏会话列表空白（11-20 修复不完整，真修）
