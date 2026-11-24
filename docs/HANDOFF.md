@@ -2,6 +2,25 @@
 
 > 活文档。每次会话结束更新这里；过程记录放 `docs/sessions/`。
 
+## 2026-11-24：同步上游 TDHarness 内核补丁（C8 v2 / C3 v2 / C2b）
+
+- **范围**：上游 `TDHarness` main `36d6f27`（2026-11-18）；`patches/` 最后改动是 `01cf9d5`（2026-10-11），上游内核仍锁 0.2.1-alpha.1。本仓 0.2.2-rc.5 更新，**不升内核**，只移植上游比本仓多出的补丁收紧。三个 helper 从上游 `patches/lib/*.js` 原样搬进 `scripts/kernel/patches.mjs`，`toString()` 嵌进内核，同时导出给测试。
+- **`company-glob-missing-root-v2`（C8）**：rg 退出码 2、stdout 为空且完整、stderr 完整、诊断只点名 `--` 后的显式搜索根且以精确 `(os error 2)` 结尾，才当空结果。v1 按 `IO error / os error 2` 模糊匹配，会把夹带的权限 / 解析错误吞成「没有匹配」。代价：Windows `(os error 3)`（父目录也不在）与其他本地化格式不再吞，照常报错。
+- **`company-fs-unc-acl-v2`（C3）**：两端都是 UNC 共享（要有 server 和 share；`\\?\C:\`、`\\.\` 不算）才跳过 DACL 复制；本地 / 混合路径的读写错误照常抛。v1 吞本地 ACCESS_DENIED，会让受限文件悄悄换成继承权限。
+- **`company-sandbox-linux-cifs-v1`（C2b，新 mark）**：Linux 上 workspace-write 的工作区根在 SMB/CIFS/SMB2 挂载上时，`confine()` 进门就拒绝（`COMPANY_WORKSPACE_NOT_LOCAL`）；statfs 探测失败（含工作区根不存在）也拒绝（`COMPANY_WORKSPACE_PROBE_FAILED`）；只读 / 非 Linux 不探测。只查根目录所在文件系统，不查子挂载、NFS、FUSE。
+- **v1→v2 自动升级（与上游不同，别轻易推翻）**：补丁对象新增 `supersedes: { mark, append, edits }`。`applyKernelPatches` 遇到旧 mark，先在内存里把旧 append 和旧编辑的 `to` 各恰好命中 1 次地退回官方源码，再按新版打；形状对不上就报 `legacy-patch`、文件不动，提示 `install-kernel.mjs --force`。上游是见旧 mark 直接硬拒、要求重装。`missingPatches` 只认新 mark，旧前缀会被判缺补丁、自动触发重打。安装版每个 buildId 都重解 CI 新打的 kernel.tar，走不到迁移分支。**回滚**到旧代码时要 `node scripts/install-kernel.mjs --force` 重装（v1 锚点在 v2 前缀上对不上）。
+- **未移植**：
+  - `company-sandbox-local-drive-v2`（C2，本地盘 / 映射网络盘探测 v2）：依赖 PowerShell 5.1 + Add-Type，受管控机器上探测失败会拒绝全部本地工作区；`reports/upstream-update/decision.json` 的 B3 门槛要求先在目标机预检。本仓继续用 `company-sandbox-local-unc-v1`。
+  - 以下 7 个是上游 desk 自身的问题，已按 0.2.2-rc.5 源码和本仓 profile 逐条核对，本仓都碰不到：
+    - `settings-namespace-compat-v1/v2`：给厂商插件 dsh-better-sidebar / ego-browser 补 `settingsNamespace` 导出。内核前缀（含 profilePlugins）和本仓插件都没有 import 它，这两个插件也不随包分发。
+    - `subagent-tool-once-v1`：上游 mac 包的自带预设和宿主 base 都注册 `subagent`，所以重复。官方 0.2.2 `dsh-web-app/cordis.patch.yml` 已把 base 的 `tool-subagent` / `-fork` / `-control` 设为 `disabled`，只剩预设里那一份；本仓 profile 没有另加预设，也没有重新启用。锚点虽然还在，但补丁用不上。
+    - `loopback-web-auth-v1`：上游 WKWebView / WebView2 写死不带令牌的地址。本仓 `launch.mjs` 和 `desktop/main.js` 会抓内核打印的 `?token=` 地址，遇到「authentication required」时改用该地址重开。不移植，loopback 上的 cookie 鉴权就照常保留。
+    - `models-header-v1`、`models-key-discover-v1`、`models-key-unlocked-v1`：针对官方模型设置页和直连 DeepSeek 填 Key。本仓 profile 已禁用 `ui-settings-models` 与 `llm-deepseek`，密钥只放在网关；0.2.2 的 `keyLocked` / `storeCredential` / 标题锚点也都没命中。
+    - `win-junction-mark-v5`：只是给上游自家 AppHost exe 留的字符串标记，防它整包 RestoreProduct。本仓用 Electron 壳，没有这条路径；junction 继续由 v3/v4 处理。
+- **验证**：先在本机内核前缀的副本上演练（新打 3 处，其中 2 处 migrated；二次运行 0 处），再 `npm run setup` 实打开发前缀，结果与演练逐字节一致，`kernel:check` 22/22（原 21）。三个模块真实 import 正常；真调 `LocalSandboxProvider.prototype.confine`：本地工作区放行、不存在的根 PROBE_FAILED、read-only 不探测。`scripts/test/kernel-patches.test.mjs` 新增 8 个用例（C8 矩阵 + 真实 rg、ACL 矩阵、CIFS 矩阵 + 真 statfs + confine 顺序、v1→v2 升级与篡改拒绝），27/27。`npm test` 715 项 709 pass / 3 fail / 3 skip，3 个失败同前（mixed-scheduler 写锁、npm-cli PATH、voice-runtime 空格路径）。
+- **发布**：改了 `scripts/kernel/patches.mjs`，正式客户端包要重跑 `dist:client`（走 CI release）。本次**未提交、未发布**；已开着的客户端要重启才加载新补丁。
+- 过程：`docs/sessions/2026-11-24-tdh-kernel-patch-sync.md`。
+
 ## 2026-11-23：侧栏会话列表空白（11-20 修复不完整，真修）
 
 - **现象**：网关上的 `1040.232a348d` 包仍然「会话消失」。真实内核 + 系统 Chrome 复测：`.dk-side-body` 里没有 `[data-sidebar-workspace-header]`，会话区整块空白。11-20 那次只看了构建、CI 和 bundle 里有代码，没跑真实界面。

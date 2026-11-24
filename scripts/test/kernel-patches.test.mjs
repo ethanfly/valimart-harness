@@ -3,13 +3,16 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
 import {
   applyEdit,
   applyKernelPatches,
   CODE_PATCHES,
+  companyAssertLinuxWorkspace,
   KernelPatchError,
   missingPatches,
   resolveKernelFile,
@@ -535,4 +538,281 @@ test('AnySearch client：没装插件时跳过，不挡内核补丁', (t) => {
   writeMarkedKernelExceptLive(kernelRoot)
   assert.doesNotThrow(() => applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} }))
   assert.deepEqual(missingPatches(kernelRoot), [])
+})
+
+// ---------------------------------------------------------------------------------------------
+// 2026-11-24 同步上游 TDHarness 的补丁收紧：C8 glob-missing-root-v2、C3 fs-unc-acl-v2、C2b sandbox-linux-cifs-v1。
+// 矩阵移植自上游 scripts/prove-search-errors.js / prove-privilege-patches.js / prove-linux-cifs.js，
+// 打完补丁的片段放进 vm 里跑，验的是嵌进内核的那份代码，不是 patches.mjs 里导出的副本。
+
+/** 按 applyKernelPatches 的方式只打一条补丁（编辑 + 末尾 append）。 */
+function patchText(text, patch) {
+  let out = text
+  for (const edit of patch.edits) out = applyEdit(out, edit, patch.file)
+  return out.trimEnd() + '\n' + patch.append
+}
+
+/** 按 supersedes 记录的旧补丁形状打一份 v1，模拟打过旧补丁的开发 / 构建机前缀。 */
+function legacyText(text, legacy) {
+  let out = text
+  for (const edit of legacy.edits) out = applyEdit(out, edit, legacy.mark)
+  return out.trimEnd() + '\n' + legacy.append
+}
+
+const SEARCH_ANCHOR =
+  '\tif (outcome.exitCode !== 0 && outcome.exitCode !== 1) throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy);\n'
+const SEARCH_FIXTURE =
+  'function run(outcome, stderr, stdout, argv) {\n' +
+  '\tconst toolName = "glob", workdir = "/test";\n' +
+  SEARCH_ANCHOR +
+  '\treturn { stdout: stdout.text, noMatches: outcome.exitCode === 1 };\n' +
+  '}\n'
+
+function searchRunner(source) {
+  const context = vm.createContext({ classifyRunFailure: () => Object.assign(new Error('search failed'), { code: 'SEARCH_FAILED' }) })
+  vm.runInContext(source, context)
+  return (text, o = {}) =>
+    context.run(
+      { exitCode: o.exitCode ?? 2 },
+      { text, lossy: o.stderrLossy ?? false },
+      { text: o.stdout ?? '', lossy: o.stdoutLossy ?? false },
+      o.argv ?? ['--files', '--', 'missing'],
+    )
+}
+
+const rgMissing = (p, message = 'No such file or directory (os error 2)') => `rg: ${p}: IO error for operation on ${p}: ${message}\n`
+
+test('glob-missing-root v2：只有显式搜索根缺失（精确 os error 2）才当空结果，其余照常报错', () => {
+  const patch = patchNamed('company-glob-missing-root-v2')
+  const run = searchRunner(patchText(SEARCH_FIXTURE, patch))
+  for (const text of [rgMissing('missing'), 'missing: No such file or directory (os error 2)\n', rgMissing('missing', '系统找不到指定的文件。 (os error 2)')]) {
+    assert.equal(run(text).noMatches, true, text)
+  }
+  const failures = [
+    [rgMissing('missing', 'Not a directory (os error 20)')],
+    [rgMissing('missing', 'Permission denied (os error 13)')],
+    [rgMissing('missing') + 'rg: private: Permission denied (os error 13)\n'],
+    [rgMissing('missing') + 'regex parse error: invalid pattern\n'],
+    [rgMissing('missing/child')],
+    ['IO error: cannot find the file'],
+    [''],
+    [rgMissing('missing'), { exitCode: 3 }],
+    [rgMissing('missing'), { stderrLossy: true }],
+    [rgMissing('missing'), { stdoutLossy: true }],
+    [rgMissing('missing'), { stdout: 'partial match\n' }],
+    [rgMissing('missing'), { argv: ['--files'] }],
+  ]
+  for (const [text, o] of failures) assert.throws(() => run(text, o), { code: 'SEARCH_FAILED' }, JSON.stringify([text, o]))
+  assert.equal(run('', { exitCode: 1 }).noMatches, true)
+  assert.equal(run('', { exitCode: 0, stdout: 'file.txt' }).stdout, 'file.txt')
+  // v1 的模糊匹配会把夹带的权限错误一起吞成「没有匹配」——这就是收紧的原因。
+  const legacy = searchRunner(legacyText(SEARCH_FIXTURE, patch.supersedes))
+  assert.equal(legacy(rgMissing('missing') + 'rg: private: Permission denied (os error 13)\n').noMatches, true)
+})
+
+test('glob-missing-root v2：真实 rg 对不存在搜索根的诊断能被认出', (t) => {
+  const rg = process.env.DESK_TEST_RG || 'rg'
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-rg-missing-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const absent = path.join(dir, 'missing folder')
+  const result = spawnSync(rg, ['--files', '--', absent], { encoding: 'utf8', windowsHide: true })
+  if (result.error) return t.skip(`找不到 rg（${result.error.code}），可用 DESK_TEST_RG 指定`)
+  assert.equal(result.status, 2, result.stderr)
+  const run = searchRunner(patchText(SEARCH_FIXTURE, patchNamed('company-glob-missing-root-v2')))
+  assert.equal(run(result.stderr, { argv: ['--files', '--', absent] }).noMatches, true, result.stderr)
+})
+
+test('fs-unc-acl v2：只有两端都是 UNC 共享才跳过 DACL 复制，本地 / 混合路径的错误照常抛出', async () => {
+  const patch = patchNamed('company-fs-unc-acl-v2')
+  const unc = String.raw`\\server.example\share\file`
+  let reads = 0
+  let writes = 0
+  let readError
+  let setError = 0
+  const context = vm.createContext({
+    readFileDaclWin32: async () => {
+      reads++
+      if (readError) throw readError
+      return 'descriptor'
+    },
+    win32: async () => ({
+      setFileSecurityW: () => {
+        writes++
+        return setError ? 0 : 1
+      },
+      getLastError: () => setError,
+    }),
+    toNamespacedPath: (p) => p,
+    win32Error: (_name, code) => Object.assign(new Error('native failure'), { win32Code: code }),
+  })
+  vm.runInContext(patchText(patch.edits[0].from, patch), context)
+  for (const p of [unc, '//server/share/file', String.raw`\\?\UNC\server\share\file`]) {
+    assert.equal(context.companyFsIsUnc(p), true, p)
+    reads = writes = 0
+    await context.copyFileDaclWin32(p, unc)
+    assert.equal(reads + writes, 0, p)
+  }
+  for (const p of [String.raw`C:\file`, String.raw`\\?\C:\file`, String.raw`\\.\C:\file`, '\\\\server', '', undefined]) {
+    assert.equal(context.companyFsIsUnc(p), false, String(p))
+    if (typeof p !== 'string' || !p) continue
+    for (const pair of [[p, p], [p, unc], [unc, p]]) {
+      reads = writes = setError = 0
+      readError = undefined
+      await context.copyFileDaclWin32(...pair)
+      assert.equal(reads, 1, pair.join(' → '))
+      assert.equal(writes, 1, pair.join(' → '))
+      for (const code of [5, 32]) {
+        setError = code
+        await assert.rejects(context.copyFileDaclWin32(...pair), (e) => e.win32Code === code)
+      }
+      setError = 0
+      for (const error of [Object.assign(new Error('read denied'), { code: 'EACCES' }), Object.assign(new Error('read denied'), { win32Code: 5 })]) {
+        readError = error
+        await assert.rejects(context.copyFileDaclWin32(...pair), (e) => e === error)
+      }
+    }
+  }
+})
+
+test('sandbox-linux-cifs：SMB/CIFS 工作区拒绝 workspace-write，探测失败也拒绝，只读与非 Linux 不探测', () => {
+  const policy = { mode: 'workspace-write', workspaceRoot: '/mnt/team' }
+  for (const type of [0x517bn, 0xff534d42n, 0xfe534d42n, BigInt.asIntN(32, 0xff534d42n)]) {
+    assert.throws(() => companyAssertLinuxWorkspace(policy, 'linux', () => ({ type })), { code: 'COMPANY_WORKSPACE_NOT_LOCAL' }, String(type))
+  }
+  for (const type of [0xef53n, 0x9123683en, 0x794c7630n]) companyAssertLinuxWorkspace(policy, 'linux', () => ({ type }))
+  for (const response of [undefined, {}, { type: 'cifs' }, { type: 0xff534d42 }]) {
+    assert.throws(() => companyAssertLinuxWorkspace(policy, 'linux', () => response), { code: 'COMPANY_WORKSPACE_PROBE_FAILED' })
+  }
+  const noProbe = () => {
+    throw new Error('must not probe')
+  }
+  assert.throws(() => companyAssertLinuxWorkspace(policy, 'linux', noProbe), { code: 'COMPANY_WORKSPACE_PROBE_FAILED' })
+  assert.throws(() => companyAssertLinuxWorkspace({ ...policy, workspaceRoot: 'relative' }, 'linux', noProbe), { code: 'COMPANY_WORKSPACE_PROBE_FAILED' })
+  for (const mode of ['read-only', 'danger-full-access']) companyAssertLinuxWorkspace({ ...policy, mode }, 'linux', noProbe)
+  for (const platform of ['win32', 'darwin']) companyAssertLinuxWorkspace(policy, platform, noProbe)
+})
+
+test('sandbox-linux-cifs：Linux 上真实 statfs 放行本地目录，不存在的根按探测失败拒绝', { skip: process.platform !== 'linux' && '只在 Linux 上跑' }, (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-cifs-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const policy = { mode: 'workspace-write', workspaceRoot: dir }
+  companyAssertLinuxWorkspace(policy)
+  assert.throws(() => companyAssertLinuxWorkspace({ ...policy, workspaceRoot: path.join(dir, 'absent') }), { code: 'COMPANY_WORKSPACE_PROBE_FAILED' })
+  if (process.env.DESK_TEST_CIFS_ROOT) {
+    assert.throws(() => companyAssertLinuxWorkspace({ ...policy, workspaceRoot: process.env.DESK_TEST_CIFS_ROOT }), { code: 'COMPANY_WORKSPACE_NOT_LOCAL' })
+  }
+})
+
+// 0.2.2-rc.5 的 confine 形状（节选）：async、带 signal；配置 runnerCommand 与自选 runner 两条路。
+const SANDBOX_022_CONFINE =
+  'import { spawnSync } from "node:child_process";\n' +
+  'import { existsSync, mkdtempSync, rmSync } from "node:fs";\n' +
+  'class Sandbox {\n' +
+  '\tasync confine(argv, policy, signal) {\n' +
+  '\t\tsignal?.throwIfAborted();\n' +
+  '\t\tif (this.runnerCommand !== void 0) return bwrapProfileArgs(policy);\n' +
+  '\t\treturn this.selectRunner(policy.mode);\n' +
+  '\t}\n' +
+  '}\n'
+
+test('sandbox-linux-cifs：0.2.2 async confine 进门先探测，两条 runner 路都在拒绝之后', async () => {
+  const patched = patchText(SANDBOX_022_CONFINE, patchNamed('company-sandbox-linux-cifs-v1'))
+  assert.match(patched, /^import \{ spawnSync \} from "node:child_process";\nimport \{ statfsSync as companyStatfsSync \} from "node:fs";\n/)
+  assert.match(patched, /async confine\(argv, policy, signal\) \{\n\t\tcompanyAssertLinuxWorkspace\(policy\);\n\t\tsignal\?\.throwIfAborted\(\);/)
+  // vm 脚本里不能有 import：去掉 import 行，companyStatfsSync 由上下文提供。
+  const body = patched.split('\n').filter((line) => !line.startsWith('import ')).join('\n') + '\nglobalThis.Sandbox = Sandbox;\n'
+  for (const custom of [false, true]) {
+    for (const type of [0xef53n, 0xff534d42n, 0xfe534d42n, 0x517bn]) {
+      const calls = []
+      const context = vm.createContext({
+        process: { platform: 'linux' },
+        companyStatfsSync: () => {
+          calls.push('statfs')
+          return { type }
+        },
+        bwrapProfileArgs: () => {
+          calls.push('profile')
+          return []
+        },
+      })
+      vm.runInContext(body, context)
+      const sandbox = new context.Sandbox()
+      Object.defineProperty(sandbox, 'runnerCommand', {
+        get() {
+          calls.push('runner')
+          return custom ? ['custom'] : undefined
+        },
+      })
+      sandbox.selectRunner = () => {
+        calls.push('select')
+        return 'bwrap'
+      }
+      const policy = { mode: 'workspace-write', workspaceRoot: '/mnt/team' }
+      if (type === 0xef53n) {
+        await sandbox.confine(['true'], policy)
+        assert.deepEqual(calls, ['statfs', 'runner', custom ? 'profile' : 'select'])
+      } else {
+        await assert.rejects(sandbox.confine(['true'], policy), { code: 'COMPANY_WORKSPACE_NOT_LOCAL' })
+        assert.deepEqual(calls, ['statfs'])
+      }
+    }
+  }
+})
+
+test('v1 → v2 升级：打过旧补丁的前缀先精确退回官方源码再打新版，结果与全新打补丁一致且幂等', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-patch-supersede-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  writeMarkedKernelExceptLive(kernelRoot)
+  const acl = patchNamed('company-fs-unc-acl-v2')
+  const search = patchNamed('company-glob-missing-root-v2')
+  const cases = [
+    { patch: acl, base: acl.edits[0].from },
+    { patch: search, base: SEARCH_FIXTURE },
+  ]
+  for (const c of cases) {
+    c.target = path.join(kernelRoot, c.patch.file)
+    c.others = CODE_PATCHES.filter((p) => p.file === c.patch.file && p !== c.patch)
+      .map((p) => `// ${p.mark}\n`)
+      .join('')
+    fs.writeFileSync(c.target, legacyText(c.base, c.patch.supersedes) + c.others)
+  }
+  const before = missingPatches(kernelRoot)
+  for (const c of cases) assert.ok(before.includes(`${c.patch.file}|${c.patch.mark}`), `旧前缀应判为缺 ${c.patch.mark}`)
+  const lines = []
+  applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: (line) => lines.push(line) })
+  assert.deepEqual(missingPatches(kernelRoot), [])
+  for (const c of cases) {
+    const text = fs.readFileSync(c.target, 'utf8')
+    assert.equal(text, patchText(c.base + c.others, c.patch))
+    assert.equal(text.includes(c.patch.supersedes.mark), false)
+    assert.ok(lines.some((line) => line.endsWith(`|migrated ${c.patch.supersedes.mark}→${c.patch.mark}`)), c.patch.mark)
+    c.after = text
+  }
+  applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} })
+  for (const c of cases) assert.equal(fs.readFileSync(c.target, 'utf8'), c.after)
+})
+
+test('v1 → v2 升级：旧补丁形状对不上就拒绝（legacy-patch），文件原样不动', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-patch-legacy-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const kernelRoot = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(kernelRoot, { recursive: true })
+  writeMarkedKernelExceptLive(kernelRoot)
+  const search = patchNamed('company-glob-missing-root-v2')
+  const target = path.join(kernelRoot, search.file)
+  const v1 = legacyText(SEARCH_FIXTURE, search.supersedes)
+  for (const tampered of [
+    SEARCH_FIXTURE + '// company-glob-missing-root-v1\n',
+    v1.replace('companyRgPathMissing(stderr.text)', 'companyRgPathMissing(stderr.text) || true'),
+    v1 + search.supersedes.append,
+  ]) {
+    fs.writeFileSync(target, tampered)
+    assert.throws(
+      () => applyKernelPatches({ kernelRoot, skillsDir: path.join(dir, 'skills'), log: () => {} }),
+      (err) => err instanceof KernelPatchError && err.code === 'legacy-patch' && err.detail.includes('install-kernel.mjs --force'),
+    )
+    assert.equal(fs.readFileSync(target, 'utf8'), tampered)
+  }
 })

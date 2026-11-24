@@ -10,6 +10,7 @@
  * 只对你自己拥有的前缀运行（npm install -g --prefix 之后、dsh 用它之前），绝不指向正在运行的 node_modules。
  */
 import fs from 'node:fs'
+import { statfsSync as companyStatfsSync } from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
@@ -77,7 +78,89 @@ function companyGrantError(workspaceRoot, cause) {
 }
 `
 
-/** 代码补丁：{ file, mark, already?, append, edits[{ name, from, to }] } */
+// 下面三个函数原样（toString）嵌进内核，同时导出给测试直接调。移植自上游 TDHarness patches/lib/*.js，
+// 改它们就是改内核里的行为；函数体里只能引用内核文件里也有的名字（companyStatfsSync 由 import 编辑补上）。
+
+/**
+ * C8（company-glob-missing-root-v2）：rg 退出码 2 时，只有「整段 stderr 是一条诊断、点名的正是 `--` 后的显式搜索根、
+ * 以精确的 (os error 2) 结尾」才算搜索根不存在。混合错误、后代路径、errno 20、权限错误、本地化格式一律不认，
+ * 交回官方分类器——宁可报错，不把真 IO 错误吞成「没有匹配」。
+ */
+export function companyRgPathMissing(stderr, argv) {
+  const separator = argv.indexOf('--');
+  if (separator < 0 || separator !== argv.length - 2) return false;
+  const root = argv[separator + 1];
+  if (typeof root !== 'string' || !root || /[\r\n]/.test(root)) return false;
+  const text = String(stderr || '').trimEnd();
+  if (/[\r\n]/.test(text)) return false;
+  const line = text.startsWith('rg: ') ? text.slice(4) : text;
+  const prefixes = [root + ': IO error for operation on ' + root + ': ', root + ': '];
+  const prefix = prefixes.find((candidate) => line.startsWith(candidate));
+  if (!prefix) return false;
+  const detail = line.slice(prefix.length);
+  if (detail.includes('IO error')) return false;
+  // Match a complete errno, not "os error 20" or incidental text in a path.
+  return /^[^\r\n]+ \(os error 2\)$/.test(detail);
+}
+
+/** C3（company-fs-unc-acl-v2）：必须有 server 和 share 才算 UNC 共享；`\\?\C:\`、`\\.\` 设备名不是。 */
+export function companyFsIsUnc(p) {
+  if (typeof p !== 'string') return false;
+  let value = p.replace(/\//g, '\\');
+  if (/^\\\\\?\\UNC\\/i.test(value)) value = '\\\\' + value.slice(8);
+  // Require both server and share. Local extended paths and device namespaces
+  // are not UNC shares, even though they also begin with two backslashes.
+  const match = value.match(/^\\\\([^\\]+)\\([^\\]+)(?:\\|$)/);
+  return !!match && match[1] !== '?' && match[1] !== '.';
+}
+
+/**
+ * C2b（company-sandbox-linux-cifs-v1）：Linux 上 workspace-write 的工作区根在 SMB/CIFS 挂载上时，confine() 之前就拒绝。
+ * 只查根目录所在文件系统（statfs），不查子挂载 / NFS / FUSE；探测失败也拒绝，绝不当本地放行。只读模式不受影响。
+ */
+export function companyAssertLinuxWorkspace(policy, platform = process.platform, statfs = companyStatfsSync) {
+  if (platform !== 'linux' || policy.mode !== 'workspace-write') return;
+  let type;
+  try {
+    if (typeof policy.workspaceRoot !== 'string' || !policy.workspaceRoot.startsWith('/')) {
+      throw new Error('Expected an absolute Linux workspace path');
+    }
+    const info = statfs(policy.workspaceRoot, { bigint: true });
+    if (!info || typeof info.type !== 'bigint') throw new Error('Invalid statfs response');
+    type = BigInt.asUintN(32, info.type);
+  } catch (cause) {
+    const err = new Error('sandbox-local: cannot determine Linux workspace filesystem; command confinement was not attempted.', { cause });
+    err.code = 'COMPANY_WORKSPACE_PROBE_FAILED';
+    throw err;
+  }
+  // Linux UAPI include/uapi/linux/magic.h: SMB, CIFS and SMB2 superblock types.
+  if ([0x517bn, 0xff534d42n, 0xfe534d42n].includes(type)) {
+    const err = new Error('sandbox-local: refusing workspace-write on a Linux CIFS/SMB filesystem. Use a local workspace directory.');
+    err.code = 'COMPANY_WORKSPACE_NOT_LOCAL';
+    throw err;
+  }
+}
+
+/**
+ * 旧版补丁升级：把 supersedes 描述的旧补丁精确退回官方源码（旧 append 与每条旧编辑的 to 都必须恰好命中 1 次），
+ * 再由调用方套新版。形状对不上就拒绝，不猜——那种前缀只能重装锁定内核。只在内存里改，失败时文件原样不动。
+ */
+function revertSuperseded(text, legacy, file) {
+  const fail = (why) =>
+    new KernelPatchError('legacy-patch', `${file}|${legacy.mark}|${why}|旧补丁形状对不上，重装锁定内核再打：node scripts/install-kernel.mjs --force`)
+  const hits = text.split(legacy.append).length - 1
+  if (hits !== 1) throw fail(`append=${hits}`)
+  let out = text.replace(legacy.append, () => '')
+  for (const edit of legacy.edits) {
+    const n = out.split(edit.to).length - 1
+    if (n !== 1) throw fail(`${edit.name}=${n}`)
+    out = out.replace(edit.to, () => edit.from)
+  }
+  if (out.includes(legacy.mark)) throw fail('mark-left')
+  return out
+}
+
+/** 代码补丁：{ file, mark, already?, supersedes?: { mark, append, edits }, append, edits[{ name, from, to }] } */
 export const CODE_PATCHES = [
   {
     file: path.join('node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js'),
@@ -268,6 +351,34 @@ export const CODE_PATCHES = [
     ],
   },
   {
+    // 上游 TDHarness C2b：Linux 上 workspace-write 的工作区根在 SMB/CIFS 挂载上时，bwrap/landlock 都约束不住，
+    // confine() 进门先拒绝（配置的 runnerCommand 与自选 runner 两条路都在它后面）。statfs 探测失败同样拒绝。
+    file: path.join('node_modules', '@deepseek-ai', 'dsh-sandbox-local', 'lib', 'index.js'),
+    mark: 'company-sandbox-linux-cifs-v1',
+    append: '\n// --- company-sandbox-linux-cifs-v1 (' + SEE + ') ---\n' + companyAssertLinuxWorkspace.toString() + '\n',
+    edits: [
+      {
+        name: 'linux-statfs-import',
+        from: 'import { spawnSync } from "node:child_process";\n',
+        to: 'import { spawnSync } from "node:child_process";\n' + 'import { statfsSync as companyStatfsSync } from "node:fs";\n',
+      },
+      {
+        name: 'linux-cifs-confine-precheck',
+        variants: [
+          {
+            from: '\tconfine(argv, policy) {\n',
+            to: '\tconfine(argv, policy) {\n\t\tcompanyAssertLinuxWorkspace(policy);\n',
+          },
+          {
+            // 0.1.7 起 confine 变成 async 并带 signal。
+            from: '\tasync confine(argv, policy, signal) {\n',
+            to: '\tasync confine(argv, policy, signal) {\n\t\tcompanyAssertLinuxWorkspace(policy);\n',
+          },
+        ],
+      },
+    ],
+  },
+  {
     // customSkillDirs 由预设/公司盘提供。插件默认通过 ctx.fs（工作区沙箱）列目录：工作区以外的路径是 FS_NOT_FOUND，
     // 技能目录就一直是空的。bundled 根已经设了 trustedHost 走 Node fs；custom 根也要一样。
     file: path.join('node_modules', '@deepseek-ai', 'dsh-skill-filesystem', 'lib', 'index.js'),
@@ -321,17 +432,50 @@ export const CODE_PATCHES = [
   },
   {
     // 公司 SMB（UNC）收不了复制过来的 DACL：官方写文件先落临时文件再 SetFileSecurityW，\\host\share 上 Win32 5
-    // 会让整个 Edit/Write 失败，尽管字节已经写进去了。UNC 上跳过 ACL 复制，ACCESS_DENIED 视为「继承共享的」。
+    // 会让整个 Edit/Write 失败，尽管字节已经写进去了。v2（上游 TDHarness C3 安全评审）只在两端都是 UNC 共享时跳过；
+    // 本地 / 混合路径的读写错误照常抛出——v1 把本地 ACCESS_DENIED 也吞掉，会让原本受限的文件悄悄换成继承权限。
+    // 临时文件与目标同目录，所以正常写入两端类型总是一致。
     file: path.join('node_modules', '@deepseek-ai', 'dsh-fs-local', 'lib', 'index.js'),
-    mark: 'company-fs-unc-acl-v1',
-    append:
-      '\n// --- company-fs-unc-acl-v1 (' +
-      SEE +
-      ') ---\n' +
-      'function companyFsIsUnc(p) {\n' +
-      '\tconst s = String(p || "").replace(/\\//g, "\\\\");\n' +
-      '\treturn s.startsWith("\\\\\\\\") || s.startsWith("\\\\\\\\?\\\\UNC\\\\");\n' +
-      '}\n',
+    mark: 'company-fs-unc-acl-v2',
+    supersedes: {
+      mark: 'company-fs-unc-acl-v1',
+      append:
+        '\n// --- company-fs-unc-acl-v1 (' +
+        SEE +
+        ') ---\n' +
+        'function companyFsIsUnc(p) {\n' +
+        '\tconst s = String(p || "").replace(/\\//g, "\\\\");\n' +
+        '\treturn s.startsWith("\\\\\\\\") || s.startsWith("\\\\\\\\?\\\\UNC\\\\");\n' +
+        '}\n',
+      edits: [
+        {
+          name: 'copy-dacl-unc-skip',
+          from:
+            'async function copyFileDaclWin32(source, destination) {\n' +
+            '\tconst descriptor = await readFileDaclWin32(source);\n' +
+            '\tconst api = await win32();\n' +
+            '\tif (api.setFileSecurityW(toNamespacedPath(destination), 2147483652, descriptor) === 0) throw win32Error("SetFileSecurityW", api.getLastError(), destination);\n' +
+            '}\n',
+          to:
+            'async function copyFileDaclWin32(source, destination) {\n' +
+            '\tif (companyFsIsUnc(source) || companyFsIsUnc(destination)) return;\n' +
+            '\ttry {\n' +
+            '\t\tconst descriptor = await readFileDaclWin32(source);\n' +
+            '\t\tconst api = await win32();\n' +
+            '\t\tif (api.setFileSecurityW(toNamespacedPath(destination), 2147483652, descriptor) === 0) {\n' +
+            '\t\t\tconst code = api.getLastError();\n' +
+            '\t\t\tif (code === ERROR_ACCESS_DENIED) return;\n' +
+            '\t\t\tthrow win32Error("SetFileSecurityW", code, destination);\n' +
+            '\t\t}\n' +
+            '\t} catch (error) {\n' +
+            '\t\tif (error && (error.win32Code === ERROR_ACCESS_DENIED || error.code === "EACCES")) return;\n' +
+            '\t\tthrow error;\n' +
+            '\t}\n' +
+            '}\n',
+        },
+      ],
+    },
+    append: '\n// --- company-fs-unc-acl-v2 (' + SEE + ') ---\n' + companyFsIsUnc.toString() + '\n',
     edits: [
       {
         name: 'copy-dacl-unc-skip',
@@ -343,19 +487,10 @@ export const CODE_PATCHES = [
           '}\n',
         to:
           'async function copyFileDaclWin32(source, destination) {\n' +
-          '\tif (companyFsIsUnc(source) || companyFsIsUnc(destination)) return;\n' +
-          '\ttry {\n' +
-          '\t\tconst descriptor = await readFileDaclWin32(source);\n' +
-          '\t\tconst api = await win32();\n' +
-          '\t\tif (api.setFileSecurityW(toNamespacedPath(destination), 2147483652, descriptor) === 0) {\n' +
-          '\t\t\tconst code = api.getLastError();\n' +
-          '\t\t\tif (code === ERROR_ACCESS_DENIED) return;\n' +
-          '\t\t\tthrow win32Error("SetFileSecurityW", code, destination);\n' +
-          '\t\t}\n' +
-          '\t} catch (error) {\n' +
-          '\t\tif (error && (error.win32Code === ERROR_ACCESS_DENIED || error.code === "EACCES")) return;\n' +
-          '\t\tthrow error;\n' +
-          '\t}\n' +
+          '\tif (companyFsIsUnc(source) && companyFsIsUnc(destination)) return;\n' +
+          '\tconst descriptor = await readFileDaclWin32(source);\n' +
+          '\tconst api = await win32();\n' +
+          '\tif (api.setFileSecurityW(toNamespacedPath(destination), 2147483652, descriptor) === 0) throw win32Error("SetFileSecurityW", api.getLastError(), destination);\n' +
           '}\n',
       },
     ],
@@ -595,24 +730,46 @@ export const CODE_PATCHES = [
     ],
   },
   {
-    // rg 退出码 2 + "IO error ... os error 2" 表示搜索根不存在（断掉的 junction、残留前缀）。官方映射为硬失败；改为空结果让模型继续。
+    // rg 退出码 2 且搜索根不存在（断掉的 junction、残留前缀）时官方映射为硬失败；改为空结果让模型继续。
+    // v2（上游 TDHarness C8）收紧条件：退出码 2、stdout 为空且完整、stderr 完整、诊断只点名显式搜索根且以精确
+    // (os error 2) 结尾，才返回空结果。v1 按 "IO error / os error 2" 模糊匹配，会把混合的权限 / 解析错误一起吞掉。
+    // 代价：Windows 的 (os error 3) / 本地化格式仍按原分类报错。
     file: path.join('node_modules', '@deepseek-ai', 'dsh-tool-fs-search', 'lib', 'index.js'),
-    mark: 'company-glob-missing-root-v1',
-    append:
-      '\n// --- company-glob-missing-root-v1 (' +
-      SEE +
-      ') ---\n' +
-      'function companyRgPathMissing(stderr) {\n' +
-      '\tconst t = String(stderr || "");\n' +
-      '\treturn /IO error/i.test(t) && (/os error 2/i.test(t) || t.includes("\\u7cfb\\u7edf\\u627e\\u4e0d\\u5230\\u6307\\u5b9a\\u7684\\u6587\\u4ef6") || /cannot find the (file|path)/i.test(t));\n' +
-      '}\n',
+    mark: 'company-glob-missing-root-v2',
+    supersedes: {
+      mark: 'company-glob-missing-root-v1',
+      append:
+        '\n// --- company-glob-missing-root-v1 (' +
+        SEE +
+        ') ---\n' +
+        'function companyRgPathMissing(stderr) {\n' +
+        '\tconst t = String(stderr || "");\n' +
+        '\treturn /IO error/i.test(t) && (/os error 2/i.test(t) || t.includes("\\u7cfb\\u7edf\\u627e\\u4e0d\\u5230\\u6307\\u5b9a\\u7684\\u6587\\u4ef6") || /cannot find the (file|path)/i.test(t));\n' +
+        '}\n',
+      edits: [
+        {
+          name: 'rg-missing-root-empty',
+          from: '\tif (outcome.exitCode !== 0 && outcome.exitCode !== 1) throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy);\n',
+          to:
+            '\tif (outcome.exitCode !== 0 && outcome.exitCode !== 1) {\n' +
+            '\t\tif (companyRgPathMissing(stderr.text)) return {\n' +
+            '\t\t\tstdout: "",\n' +
+            '\t\t\tnoMatches: true,\n' +
+            '\t\t\tworkdir\n' +
+            '\t\t};\n' +
+            '\t\tthrow classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy);\n' +
+            '\t}\n',
+        },
+      ],
+    },
+    append: '\n// --- company-glob-missing-root-v2 (' + SEE + ') ---\n' + companyRgPathMissing.toString() + '\n',
     edits: [
       {
         name: 'rg-missing-root-empty',
         from: '\tif (outcome.exitCode !== 0 && outcome.exitCode !== 1) throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy);\n',
         to:
           '\tif (outcome.exitCode !== 0 && outcome.exitCode !== 1) {\n' +
-          '\t\tif (companyRgPathMissing(stderr.text)) return {\n' +
+          '\t\tif (outcome.exitCode === 2 && !stderr.lossy && !stdout.lossy && stdout.text === "" && companyRgPathMissing(stderr.text, argv)) return {\n' +
           '\t\t\tstdout: "",\n' +
           '\t\t\tnoMatches: true,\n' +
           '\t\t\tworkdir\n' +
@@ -1243,6 +1400,13 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log, e
       counters.skipped++
       continue
     }
+    // 旧版 mark 在位（开发前缀 / 构建机缓存前缀打过 v1）：先在内存里精确退回官方源码，再按新版打。
+    // 安装版每个 buildId 都重解 CI 新打的 kernel.tar，走不到这里。
+    let migrated = ''
+    if (patch.supersedes && text.includes(patch.supersedes.mark)) {
+      text = revertSuperseded(text, patch.supersedes, patch.file)
+      migrated = `${patch.supersedes.mark}→${patch.mark}`
+    }
     // optional 补丁的锚点在新内核上可能整段消失（调用点被上游删掉）。一条都对不上就跳过，
     // 不要把「源码已不再需要这条补丁」当成升版失败。留下 mark，下次检查知道这条已经审过。
     // 部分命中仍是硬失败：半套上去会改错语义。
@@ -1262,7 +1426,7 @@ export function applyKernelPatches({ kernelRoot, skillsDir, log = console.log, e
     } catch (err) {
       throw new KernelPatchError('syntax', `${patch.file}|${String(err.stderr || err)}`)
     }
-    log(`PATCHED=${patch.file}|${patch.edits.map((e) => e.name).join(',')}`)
+    log(`PATCHED=${patch.file}|${patch.edits.map((e) => e.name).join(',')}${migrated ? `|migrated ${migrated}` : ''}`)
     counters.applied++
   }
 
